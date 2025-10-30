@@ -1,27 +1,27 @@
 {
   "entities": {
-    "UserProfile": {
+    "User": {
       "$schema": "http://json-schema.org/draft-07/schema#",
-      "title": "UserProfile",
+      "title": "User",
       "type": "object",
-      "description": "Represents a user profile within the GreenTrader Analytics application.",
+      "description": "Represents a user of the GreenTrader Analytics application.",
       "properties": {
         "id": {
           "type": "string",
-          "description": "Unique identifier for the user profile."
+          "description": "Unique identifier for the User entity."
         },
         "username": {
           "type": "string",
-          "description": "The user's chosen username."
+          "description": "The username of the user."
         },
         "email": {
           "type": "string",
-          "description": "The user's email address.",
+          "description": "The email address of the user.",
           "format": "email"
         },
         "registrationDate": {
           "type": "string",
-          "description": "The date and time when the user registered.",
+          "description": "The date and time the user registered.",
           "format": "date-time"
         }
       },
@@ -32,56 +32,156 @@
         "registrationDate"
       ]
     },
-    "Transaction": {
+    "CalculationModule": {
       "$schema": "http://json-schema.org/draft-07/schema#",
-      "title": "Transaction",
+      "title": "CalculationModule",
       "type": "object",
-      "description": "Represents a single transaction in the user's history.",
+      "description": "Represents a personalized calculation module within the application.",
       "properties": {
         "id": {
           "type": "string",
-          "description": "Unique identifier for the transaction."
+          "description": "Unique identifier for the Calculation Module."
         },
-        "userProfileId": {
+        "userId": {
           "type": "string",
-          "description": "Reference to UserProfile. (Relationship: UserProfile 1:N Transaction)"
+          "description": "Reference to User. (Relationship: User 1:N CalculationModule)"
         },
-        "symbol": {
+        "name": {
           "type": "string",
-          "description": "The stock ticker symbol."
+          "description": "Name of the calculation module."
         },
-        "type": {
+        "configuration": {
           "type": "string",
-          "description": "The type of transaction (e.g., Buy, Sell, Dividend).",
-          "enum": ["Buy", "Sell"]
+          "description": "JSON configuration string for the calculation module."
         },
-        "quantity": {
+        "order": {
           "type": "number",
-          "description": "The number of shares involved in the transaction."
-        },
-        "price": {
-          "type": "number",
-          "description": "The price per share at the time of the transaction."
-        },
-        "date": {
-          "type": "string",
-          "description": "The date and time of the transaction.",
-          "format": "date-time"
-        },
-        "total": {
-            "type": "number",
-            "description": "The total value of the transaction."
+          "description": "The order in which the calculation module appears in the grid."
         }
       },
       "required": [
         "id",
-        "userProfileId",
+        "userId",
+        "name",
+        "configuration",
+        "order"
+      ]
+    },
+    "Holding": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "title": "Holding",
+      "type": "object",
+      "description": "Represents a stock holding in the user's portfolio.",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique identifier for the Holding."
+        },
+        "userId": {
+          "type": "string",
+          "description": "Reference to User. (Relationship: User 1:N Holding)"
+        },
+        "symbol": {
+          "type": "string",
+          "description": "Stock symbol (e.g., AAPL)."
+        },
+        "quantity": {
+          "type": "number",
+          "description": "Number of shares held."
+        },
+        "costBasis": {
+          "type": "number",
+          "description": "Average cost per share."
+        }
+      },
+      "required": [
+        "id",
+        "userId",
         "symbol",
-        "type",
+        "quantity",
+        "costBasis"
+      ]
+    },
+    "StockDetail": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "title": "StockDetail",
+      "type": "object",
+      "description": "Represents detailed information about a specific stock.",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique identifier for the Stock Detail."
+        },
+        "symbol": {
+          "type": "string",
+          "description": "Stock symbol (e.g., AAPL)."
+        },
+        "name": {
+          "type": "string",
+          "description": "Company name."
+        },
+        "description": {
+          "type": "string",
+          "description": "Brief description of the company."
+        },
+        "lastUpdated": {
+          "type": "string",
+          "description": "Timestamp of the last data update.",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "id",
+        "symbol",
+        "name",
+        "description",
+        "lastUpdated"
+      ]
+    },
+    "Transaction": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "title": "Transaction",
+      "type": "object",
+      "description": "Represents a transaction record.",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique identifier for the Transaction."
+        },
+        "userId": {
+          "type": "string",
+          "description": "Reference to User. (Relationship: User 1:N Transaction)"
+        },
+        "symbol": {
+          "type": "string",
+          "description": "Stock symbol (e.g., AAPL)."
+        },
+        "transactionType": {
+          "type": "string",
+          "description": "Type of transaction (e.g., Buy, Sell)."
+        },
+        "quantity": {
+          "type": "number",
+          "description": "Number of shares transacted."
+        },
+        "price": {
+          "type": "number",
+          "description": "Price per share."
+        },
+        "transactionDate": {
+          "type": "string",
+          "description": "Date and time of the transaction.",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "id",
+        "userId",
+        "symbol",
+        "transactionType",
         "quantity",
         "price",
-        "date",
-        "total"
+        "transactionDate"
       ]
     }
   },
@@ -94,40 +194,98 @@
   "firestore": {
     "structure": [
       {
-        "path": "/users/{userProfileId}",
+        "path": "/users/{userId}",
         "definition": {
-          "entityName": "UserProfile",
+          "entityName": "User",
           "schema": {
-            "$ref": "#/backend/entities/UserProfile"
+            "$ref": "#/backend/entities/User"
           },
-          "description": "Stores user profile information. The `userProfileId` is the Firebase Auth UID.",
+          "description": "Stores user profiles.",
           "params": [
             {
-              "name": "userProfileId",
-              "description": "The unique identifier for the user profile, which matches the Firebase Auth UID."
+              "name": "userId",
+              "description": "The unique identifier for the user."
             }
-          ],
-          "subcollections": [
+          ]
+        }
+      },
+      {
+        "path": "/users/{userId}/calculationModules/{moduleId}",
+        "definition": {
+          "entityName": "CalculationModule",
+          "schema": {
+            "$ref": "#/backend/entities/CalculationModule"
+          },
+          "description": "Stores calculation modules owned by a user. Includes denormalized 'userId' for authorization independence.",
+          "params": [
             {
-              "path": "transactions/{transactionId}",
-              "definition": {
-                "entityName": "Transaction",
-                "schema": {
-                  "$ref": "#/backend/entities/Transaction"
-                },
-                "description": "Stores transaction history for a single user.",
-                "params": [
-                  {
-                    "name": "transactionId",
-                    "description": "The unique identifier for the transaction."
-                  }
-                ]
-              }
+              "name": "userId",
+              "description": "The unique identifier for the user."
+            },
+            {
+              "name": "moduleId",
+              "description": "The unique identifier for the calculation module."
+            }
+          ]
+        }
+      },
+      {
+        "path": "/users/{userId}/holdings/{holdingId}",
+        "definition": {
+          "entityName": "Holding",
+          "schema": {
+            "$ref": "#/backend/entities/Holding"
+          },
+          "description": "Stores stock holdings owned by a user. Includes denormalized 'userId' for authorization independence.",
+          "params": [
+            {
+              "name": "userId",
+              "description": "The unique identifier for the user."
+            },
+            {
+              "name": "holdingId",
+              "description": "The unique identifier for the holding."
+            }
+          ]
+        }
+      },
+      {
+        "path": "/users/{userId}/transactions/{transactionId}",
+        "definition": {
+          "entityName": "Transaction",
+          "schema": {
+            "$ref": "#/backend/entities/Transaction"
+          },
+          "description": "Stores transaction records for a user. Includes denormalized 'userId' for authorization independence.",
+          "params": [
+            {
+              "name": "userId",
+              "description": "The unique identifier for the user."
+            },
+            {
+              "name": "transactionId",
+              "description": "The unique identifier for the transaction."
+            }
+          ]
+        }
+      },
+      {
+        "path": "/stockDetails/{symbol}",
+        "definition": {
+          "entityName": "StockDetail",
+          "schema": {
+            "$ref": "#/backend/entities/StockDetail"
+          },
+          "description": "Stores details for each stock.",
+          "params": [
+            {
+              "name": "symbol",
+              "description": "The stock symbol."
             }
           ]
         }
       }
     ],
-    "reasoning": "The Firestore data structure is designed to support the GreenTrader Analytics application, with user profiles and their corresponding transaction histories stored in a structured manner. Each user has a `UserProfile` document, and their transactions are stored in a `transactions` subcollection within their user document. This ensures data isolation and scalability."
+    "reasoning": "The Firestore data structure is designed to support the GreenTrader Analytics application, emphasizing security, scalability, and maintainability. It leverages path-based ownership for user-specific data and structural segregation to simplify security rules. Authorization independence is achieved by denormalizing necessary authorization context into subcollections, avoiding costly and complex `get()` calls in security rules. \n\nThe `/users/{userId}` collection stores user profiles.  Each user 'owns' their calculation modules, holdings, and transactions. These entities are stored in subcollections under the respective user document, such as `/users/{userId}/calculationModules/{moduleId}`, `/users/{userId}/holdings/{holdingId}`, and `/users/{userId}/transactions/{transactionId}`. This structure provides clear ownership and simplifies security rules, ensuring that only the user can access their own data. The `userId` is present in each subcollection document, acting as denormalized data enabling authorization independence, and removing the need to `get()` the parent `/users/{userId}` document in rules.\n\nThe `/stockDetails/{symbol}` collection stores information about stocks.  Access to this collection can be configured based on application requirements (e.g., read access for all authenticated users).  \n\nThis structure facilitates secure `list` operations (QAPs) because all documents within a given collection share the same security requirements. Path-based ownership ensures that a user can only list the calculation modules, holdings, and transactions within their own `/users/{userId}` document."
   }
 }
