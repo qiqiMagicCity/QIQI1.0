@@ -2,116 +2,85 @@
 @tailwind components;
 @tailwind utilities;
 
-body {
-  background: linear-gradient(160deg, hsl(210 15% 12%), hsl(220 20% 7%));
-}
-
 @layer base {
   :root {
     --background: 0 0% 100%;
-    --foreground: 222 47% 11%;
-
+    --foreground: 150 8% 10%;
     --card: 0 0% 100%;
-    --card-foreground: 222 47% 11%;
-
+    --card-foreground: 150 8% 12%;
     --popover: 0 0% 100%;
-    --popover-foreground: 222 47% 11%;
+    --popover-foreground: 150 8% 12%;
 
-    /* 主色：翡翠绿（更耐看，非荧光） */
-    --primary: 152 61% 36%;
-    --primary-foreground: 152 80% 97%;
+    /* 主色：品牌绿 */
+    --primary: 150 60% 45%;
+    --primary-foreground: 150 60% 96%;
+    
+    /* 次级与静态信息区块 */
+    --secondary: 150 8% 92%;
+    --secondary-foreground: 150 8% 10%;
 
-    /* 次级与静态信息区块：干净的冷灰 */
-    --secondary: 210 20% 96%;
-    --secondary-foreground: 222 47% 11%;
+    /* 附色/悬浮背景 */
+    --muted: 150 8% 92%;
+    --muted-foreground: 150 8% 38%;
+    --accent: 170 60% 40%; /* 青蓝点缀 */
+    --accent-foreground: 170 60% 96%;
 
-    /* 附色：柔和薄荷绿，用于强调/悬浮背景 */
-    --muted: 210 20% 96%;
-    --muted-foreground: 215 16% 45%;
-    --accent: 156 58% 92%;
-    --accent-foreground: 156 34% 22%;
-
-    /* 破坏色保持红，但更内敛 */
+    /* 破坏色 */
     --destructive: 0 72% 46%;
     --destructive-foreground: 0 0% 98%;
 
-    /* 线条/输入/焦点环统一 */
-    --border: 214 15% 90%;
-    --input: 214 15% 90%;
-    --ring: 152 61% 36%;
-
-    /* 图表（同一色系，明度阶梯） */
-    --chart-1: 152 60% 41%;
-    --chart-2: 152 60% 55%;
-    --chart-3: 152 60% 70%;
-    --chart-4: 152 60% 30%;
-    --chart-5: 152 60% 85%;
-
+    /* 线条/输入/焦点环 */
+    --border: 150 10% 88%;
+    --input: 150 10% 88%;
+    --ring: 150 60% 45%;
+    
     --radius: 0.75rem;
 
-    /* 侧栏 */
-    --sidebar-background: 210 20% 97%;
-    --sidebar-foreground: 222 47% 11%;
-    --sidebar-primary: 152 61% 36%;
-    --sidebar-primary-foreground: 152 80% 97%;
-    --sidebar-accent: 156 58% 92%;
-    --sidebar-accent-foreground: 156 34% 22%;
-    --sidebar-border: 214 15% 88%;
-    --sidebar-ring: 152 61% 36%;
-    
-    /* 语义色（克制版） */
-    --ok: 152 61% 46%;      /* live / 主绿 */
-    --ready: 160 45% 46%;   /* Ready / 青绿 */
-    --warn: 30 90% 56%;     /* stale / 琥珀橙 */
-    --mute: 210 14% 66%;    /* close / 中性灰蓝 */
+    /* 语义色（亮色模式） */
+    --ok: 150 61% 36%;
+    --ready: 160 45% 40%;
+    --warn: 30 92% 50%;
+    --mute: 215 16% 45%;
+    --negative: 0 72% 46%; /* 亮色模式下下跌/警告依然用红色 */
+    --warning: 38 92% 50%;
   }
 
   .dark {
-    /* 深灰基底与文字 */
-    --background: 220 20% 7%;
-    --foreground: 210 30% 97%;
+    /* Dark (默认) */
+    --background: 150 10% 6%;
+    --foreground: 150 10% 96%;
+    --card: 150 8% 8%;
+    --card-foreground: 150 10% 96%;
+    --popover: 150 8% 8%;
+    --popover-foreground: 150 10% 96%;
 
-    --card: 216 18% 12%;
-    --card-foreground: 210 30% 97%;
+    --primary: 150 60% 45%;
+    --primary-foreground: 150 60% 96%;
 
-    --popover: 210 16% 9%;
-    --popover-foreground: 210 30% 97%;
+    --secondary: 150 6% 18%;
+    --secondary-foreground: 150 10% 96%;
 
-    /* 主绿 */
-    --primary: 152 55% 45%;
-    --primary-foreground: 152 85% 90%;
+    --muted: 150 6% 22%;
+    --muted-foreground: 150 8% 65%;
+    
+    --accent: 170 60% 40%;
+    --accent-foreground: 170 60% 96%;
+    
+    /* 下跌与警示用中性色，不用大红 */
+    --destructive: 200 10% 42%;        /* 冷灰蓝表示下跌 */
+    --destructive-foreground: 150 10% 96%;
+    --warning: 38 92% 50%;           /* 琥珀黄，仅少量使用 */
 
-    --secondary: 215 13% 18%;
-    --secondary-foreground: 210 30% 96%;
-
-    --muted: 215 13% 18%;
-    --muted-foreground: 210 12% 70%;
-
-    --accent: 160 45% 24%;
-    --accent-foreground: 152 70% 90%;
-
-    --destructive: 0 68% 50%;
-    --destructive-foreground: 0 0% 98%;
-
-    --border: 210 12% 22%;
-    --input: 210 12% 22%;
-    --ring: 152 55% 45%;
-
-    /* 图表：主绿 + 中性对比 */
-    --chart-1: 152 55% 55%;
-    --chart-2: 210 10% 65%;
-    --chart-3: 160 50% 50%;
-    --chart-4: 210 12% 40%;
-    --chart-5: 210 14% 30%;
-
-    --sidebar-background: 216 18% 11%;
-    --sidebar-foreground: 210 30% 97%;
-    --sidebar-primary: 152 55% 45%;
-    --sidebar-primary-foreground: 152 80% 90%;
-    --sidebar-accent: 167 45% 24%;
-    --sidebar-accent-foreground: 152 80% 90%;
-    --sidebar-border: 210 12% 20%;
-    --sidebar-ring: 152 55% 45%;
+    --border: 150 6% 24%;
+    --input: 150 6% 24%;
+    --ring: 150 60% 45%;
+    
+    /* 语义色（暗色模式） */
+    --ok: 150 61% 46%;
+    --ready: 160 45% 46%;
+    --warn: 38 92% 50%;
+    --mute: 210 14% 66%;
+    --negative: 200 10% 42%;
   }
 }
 
@@ -121,6 +90,12 @@ body {
   }
   body {
     @apply text-foreground;
+  }
+  .dark body {
+    background:
+      radial-gradient(1200px 600px at 20% 10%, hsl(150 60% 20% / .10), transparent 40%),
+      radial-gradient(1000px 500px at 80% 90%, hsl(170 60% 25% / .08), transparent 45%),
+      linear-gradient(hsl(150 10% 6%), hsl(150 10% 5%));
   }
 }
 
