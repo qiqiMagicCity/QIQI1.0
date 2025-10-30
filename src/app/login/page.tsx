@@ -7,22 +7,24 @@ import {
   setPersistence,
   browserLocalPersistence,
   signInWithEmailAndPassword,
+  createUserWithEmailAndPassword,
   signInWithPopup,
   GoogleAuthProvider,
   onAuthStateChanged,
 } from "firebase/auth";
 
 /**
- * 登录页：提供邮箱/密码登录与 Google 登录。
+ * 登录/注册页：提供邮箱/密码登录与注册，以及 Google 登录。
  * 说明：
- * - 使用 browserLocalPersistence 确保会话持久化（浏览器长期保存）。
- * - 若后台未启用 Google 登录，会返回 auth/operation-not-allowed，界面会提示开启。
+ * - 使用 browserLocalPersistence 确保会话持久化。
+ * - 用户可以在登录和注册模式间切换。
  * - 已登录用户访问本页将自动重定向到首页（/）。
  */
 export default function LoginPage() {
   const router = useRouter();
   const auth = getAuth();
 
+  const [mode, setMode] = useState<"login" | "signup">("login");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [busy, setBusy] = useState(false);
@@ -43,17 +45,30 @@ export default function LoginPage() {
     await setPersistence(auth, browserLocalPersistence);
   }
 
-  async function handleEmailPasswordSignIn(e: React.FormEvent) {
+  async function handleEmailPasswordSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
     setBusy(true);
     try {
       await ensurePersistence();
-      await signInWithEmailAndPassword(auth, email.trim(), password);
+      if (mode === "login") {
+        await signInWithEmailAndPassword(auth, email.trim(), password);
+      } else {
+        await createUserWithEmailAndPassword(auth, email.trim(), password);
+      }
       router.replace("/");
     } catch (err: any) {
-      // 常见错误：auth/invalid-credential, auth/user-not-found, auth/wrong-password
-      setError(err?.code || err?.message || "登录失败，请检查账户与密码。");
+      // 常见错误：auth/invalid-credential, auth/email-already-in-use, etc.
+      if (err.code === 'auth/email-already-in-use') {
+        setError("该邮箱已被注册，请直接登录或使用其他邮箱。");
+      } else if (err.code === 'auth/weak-password') {
+        setError("密码太弱，请使用至少6位字符。");
+      } else if (err.code === 'auth/invalid-credential') {
+        setError("登录失败，请检查账户与密码。");
+      }
+       else {
+        setError(err?.code || err?.message || "操作失败，请稍后再试。");
+      }
     } finally {
       setBusy(false);
     }
@@ -79,15 +94,20 @@ export default function LoginPage() {
     }
   }
 
+  const toggleMode = () => {
+    setMode(mode === "login" ? "signup" : "login");
+    setError(null);
+  };
+
   return (
     <div className="min-h-[70vh] flex items-center justify-center px-4">
       <div className="w-full max-w-[420px] rounded-2xl shadow-lg p-6 md:p-8 bg-white dark:bg-neutral-900">
-        <h1 className="text-2xl font-semibold mb-2">登录</h1>
+        <h1 className="text-2xl font-semibold mb-2">{mode === 'login' ? '登录' : '注册新账户'}</h1>
         <p className="text-sm text-neutral-500 mb-6">
           使用邮箱密码或 Google 登录继续使用本应用。
         </p>
 
-        <form onSubmit={handleEmailPasswordSignIn} className="space-y-4">
+        <form onSubmit={handleEmailPasswordSubmit} className="space-y-4">
           <div className="space-y-1">
             <label className="block text-sm font-medium">邮箱</label>
             <input
@@ -110,7 +130,7 @@ export default function LoginPage() {
               onChange={(e) => setPassword(e.target.value)}
               className="w-full rounded-xl border px-3 py-2 outline-none focus:ring-2"
               placeholder="••••••••"
-              autoComplete="current-password"
+              autoComplete={mode === 'login' ? 'current-password' : 'new-password'}
             />
           </div>
 
@@ -126,11 +146,20 @@ export default function LoginPage() {
             className="w-full rounded-xl px-4 py-2 font-medium shadow-sm disabled:opacity-60
                        bg-[hsl(var(--primary))] text-[hsl(var(--primary-foreground))]"
           >
-            {busy ? "正在登录..." : "邮箱密码登录"}
+            {busy ? "正在处理..." : (mode === 'login' ? "邮箱密码登录" : "创建账户")}
           </button>
         </form>
 
-        <div className="my-4 text-center text-sm text-neutral-500">或</div>
+        <div className="mt-4 text-center">
+            <button onClick={toggleMode} className="text-sm text-primary hover:underline">
+                {mode === 'login' ? '还没有账户？立即注册' : '已有账户？直接登录'}
+            </button>
+        </div>
+
+        <div className="my-4 text-center text-sm text-neutral-500 relative">
+            <span className="bg-white dark:bg-neutral-900 px-2 z-10 relative">或</span>
+            <div className="absolute left-0 top-1/2 w-full h-px bg-border -z-0"></div>
+        </div>
 
         <button
           onClick={handleGoogleSignIn}
