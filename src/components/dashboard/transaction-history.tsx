@@ -75,10 +75,11 @@ export function TransactionHistory() {
   }, [isUserLoading, user, auth]);
 
   const transactionsQuery = useMemoFirebase(() => {
-    if (!user || !firestore) return null;
-    const coll = collection(firestore, 'users', user.uid, 'transactions');
+    if (!firestore) return null;
+    // 从顶层的 'transactions' 集合读取所有数据
+    const coll = collection(firestore, 'transactions');
     return query(coll, orderBy('date', 'desc'));
-  }, [user, firestore]);
+  }, [firestore]);
 
   const {
     data: transactions,

@@ -77,10 +77,9 @@ export function AddTransactionForm({ onSuccess }: AddTransactionFormProps) {
         total: values.quantity * values.price,
       };
 
+      // 将交易记录写入顶层的 'transactions' 集合
       const transactionsRef = collection(
         firestore,
-        "users",
-        user.uid,
         "transactions"
       );
       

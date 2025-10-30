@@ -110,18 +110,14 @@
         }
       },
       {
-        "path": "/users/{userProfileId}/transactions/{transactionId}",
+        "path": "/transactions/{transactionId}",
         "definition": {
           "entityName": "Transaction",
           "schema": {
             "$ref": "#/backend/entities/Transaction"
           },
-          "description": "Stores transaction history for a user. Includes denormalized `userProfileId` for authorization independence.",
+          "description": "Stores all transaction history for all users in a single top-level collection for collaborative access. Includes `userProfileId` for data attribution.",
           "params": [
-            {
-              "name": "userProfileId",
-              "description": "The unique identifier for the user profile."
-            },
             {
               "name": "transactionId",
               "description": "The unique identifier for the transaction."
@@ -130,6 +126,6 @@
         }
       }
     ],
-    "reasoning": "The Firestore data structure is designed to support the GreenTrader Analytics application, emphasizing secure and efficient data access for user-specific information. The structure leverages path-based ownership for user profiles and transactions, ensuring that data is segregated by user and access rules can be applied consistently.\n\n*   **Authorization Independence:** The transactions collection is structured under the `/users/{userProfileId}` path. This structure inherently achieves authorization independence as access control can be directly applied based on the `userProfileId` without needing to `get()` data from other collections. The `userProfileId` is present in every document of the subcollections.\n*   **QAPs (Queries are not Filters):** The path-based ownership ensures secure `list` operations. Security rules can allow listing documents only if `request.auth.uid == userId`.\n*   **Structural Segregation:** Each collection contains only documents of the same type and access requirements, simplifying security rule definitions.\n*   **Data Clarity:** Field names are explicit (e.g., `userProfileId` for ownership), and timestamps are in standard formats."
+    "reasoning": "The Firestore data structure is designed to support the GreenTrader Analytics application. It has been updated to a collaborative model. User profiles are stored per-user. Transactions are stored in a top-level collection to allow authorized admins to view all data for analytics and collaboration, while still attributing each transaction to a specific user via `userProfileId`."
   }
 }
