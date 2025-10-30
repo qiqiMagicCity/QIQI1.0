@@ -9,9 +9,9 @@ type TimeZoneOption = {
 };
 
 const timeZones: TimeZoneOption[] = [
-  { label: '瓦伦西亚', timeZone: 'Europe/Madrid', fontClass: 'font-sans' }, // 黑体
-  { label: '上海', timeZone: 'Asia/Shanghai', fontClass: 'font-serif' },   // 宋体
-  { label: '纽约', timeZone: 'America/New_York', fontClass: 'font-kai' },     // 楷体
+  { label: '瓦伦西亚', timeZone: 'Europe/Madrid', fontClass: 'font-kai' }, 
+  { label: '上海', timeZone: 'Asia/Shanghai', fontClass: 'font-kai' },   
+  { label: '纽约', timeZone: 'America/New_York', fontClass: 'font-kai' },     
 ];
 
 const TimeDisplay = ({ label, timeZone, fontClass }: TimeZoneOption) => {
