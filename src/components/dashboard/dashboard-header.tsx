@@ -1,7 +1,9 @@
+"use client"
+
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { PlaceHolderImages } from "@/lib/placeholder-images";
-import { Bell, Search, Settings, LifeBuoy, LogOut } from "lucide-react";
+import { Bell, Search, Settings, LifeBuoy, LogOut, Leaf } from "lucide-react";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -16,13 +18,11 @@ export function DashboardHeader() {
 
   return (
     <header className="sticky top-0 z-30 flex h-16 items-center justify-between gap-4 border-b border-border/20 bg-background/50 backdrop-blur-sm px-4 md:px-6">
-        <div className="flex items-center gap-4">
-            <div>
-                <h1 className="text-lg font-bold md:text-xl">
-                    仪表盘
-                </h1>
-                <p className="text-sm text-muted-foreground">欢迎回来, 开启新一天的交易分析</p>
+        <div className="flex items-center gap-3">
+            <div className="w-10 h-10 flex items-center justify-center bg-primary rounded-lg text-primary-foreground shadow-md">
+              <Leaf className="w-6 h-6" />
             </div>
+            <h1 className="text-xl font-bold tracking-tight text-foreground">绿トレーダー</h1>
         </div>
         <div className="flex items-center gap-2">
             <Button variant="ghost" size="icon" className="rounded-full">

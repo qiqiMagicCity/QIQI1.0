@@ -21,13 +21,7 @@ export default function Home() {
       <DashboardHeader />
       <main className="flex flex-1 flex-col ">
         <div className="p-4 md:p-6 border-b border-border/20 bg-transparent">
-          <div className="flex items-center gap-3 mb-4">
-            <div className="w-10 h-10 flex items-center justify-center bg-primary rounded-lg text-primary-foreground shadow-md">
-              <Leaf className="w-6 h-6" />
-            </div>
-            <h1 className="text-2xl font-bold tracking-tight text-foreground">绿トレーダー</h1>
-          </div>
-
+          
           <Tabs defaultValue="home">
             <TabsList>
               <TabsTrigger value="home">首页</TabsTrigger>
