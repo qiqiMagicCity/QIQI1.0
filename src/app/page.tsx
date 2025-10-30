@@ -22,12 +22,24 @@ import {
 } from "@/components/ui/dialog";
 import { AddTransactionForm } from "@/components/dashboard/add-transaction-form";
 import { Button } from "@/components/ui/button";
+import { useRequireAuth } from "@/components/auth/guards";
 
 
 const portfolioStatus: Status = 'live'; 
 
 export default function Home() {
+  const { ready } = useRequireAuth();
   const [isFormOpen, setIsFormOpen] = useState(false);
+
+  if (!ready) {
+    // 可以在这里返回一个加载中的骨架屏，但守卫会自动处理重定向
+    // 返回 null 或一个简单的加载指示器即可
+    return (
+      <div className="flex items-center justify-center min-h-screen">
+        <p className="text-muted-foreground">正在验证身份...</p>
+      </div>
+    );
+  }
 
   return (
     <div className="flex min-h-screen w-full flex-col">
