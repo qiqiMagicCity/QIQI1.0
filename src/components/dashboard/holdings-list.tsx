@@ -22,16 +22,16 @@ export function HoldingsList() {
     <section id="holdings" className="scroll-mt-20">
       <Card>
         <CardHeader>
-          <CardTitle>Portfolio Holdings</CardTitle>
-          <CardDescription>Your current stock positions.</CardDescription>
+          <CardTitle>投资组合持仓</CardTitle>
+          <CardDescription>您当前的股票头寸。</CardDescription>
         </CardHeader>
         <CardContent>
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>Stock</TableHead>
-                <TableHead className="text-right">Value</TableHead>
-                <TableHead className="text-right">P/L %</TableHead>
+                <TableHead>股票</TableHead>
+                <TableHead className="text-right">价值</TableHead>
+                <TableHead className="text-right">盈亏 %</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -43,7 +43,7 @@ export function HoldingsList() {
                   </TableCell>
                   <TableCell className="text-right">
                     <div>${holding.currentValue.toLocaleString()}</div>
-                    <div className="text-sm text-muted-foreground">{holding.shares} shares</div>
+                    <div className="text-sm text-muted-foreground">{holding.shares} 股</div>
                   </TableCell>
                   <TableCell className={cn("text-right font-medium flex justify-end items-center gap-1", holding.plPercent >= 0 ? "text-emerald-600" : "text-destructive")}>
                     {holding.plPercent >= 0 ? <ArrowUp className="h-4 w-4"/> : <ArrowDown className="h-4 w-4"/>}

@@ -37,7 +37,7 @@ import {
 import { useState } from "react";
 import type { DateRange } from "react-day-picker";
 import { addDays, format } from "date-fns";
-
+import { zhCN } from "date-fns/locale";
 
 export function TransactionHistory() {
   const [date, setDate] = useState<DateRange | undefined>({
@@ -50,8 +50,8 @@ export function TransactionHistory() {
       <Card>
         <CardHeader className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
           <div>
-            <CardTitle>Transaction History</CardTitle>
-            <CardDescription>A detailed record of all past transactions.</CardDescription>
+            <CardTitle>交易历史</CardTitle>
+            <CardDescription>所有过去交易的详细记录。</CardDescription>
           </div>
           <div className="flex items-center gap-2">
             <DropdownMenu>
@@ -59,18 +59,18 @@ export function TransactionHistory() {
                 <Button variant="outline" size="sm" className="h-8 gap-1">
                   <ListFilter className="h-3.5 w-3.5" />
                   <span className="sr-only sm:not-sr-only sm:whitespace-nowrap">
-                    Filter
+                    过滤
                   </span>
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end">
-                <DropdownMenuLabel>Filter by Type</DropdownMenuLabel>
+                <DropdownMenuLabel>按类型筛选</DropdownMenuLabel>
                 <DropdownMenuSeparator />
                 <DropdownMenuCheckboxItem checked>
-                  Buy
+                  买入
                 </DropdownMenuCheckboxItem>
                 <DropdownMenuCheckboxItem checked>
-                  Sell
+                  卖出
                 </DropdownMenuCheckboxItem>
               </DropdownMenuContent>
             </DropdownMenu>
@@ -89,14 +89,14 @@ export function TransactionHistory() {
                   {date?.from ? (
                     date.to ? (
                       <>
-                        {format(date.from, "LLL dd, y")} -{" "}
-                        {format(date.to, "LLL dd, y")}
+                        {format(date.from, "LLL dd, y", { locale: zhCN })} -{" "}
+                        {format(date.to, "LLL dd, y", { locale: zhCN })}
                       </>
                     ) : (
-                      format(date.from, "LLL dd, y")
+                      format(date.from, "LLL dd, y", { locale: zhCN })
                     )
                   ) : (
-                    <span>Pick a date</span>
+                    <span>选择一个日期</span>
                   )}
                 </Button>
               </PopoverTrigger>
@@ -108,6 +108,7 @@ export function TransactionHistory() {
                   selected={date}
                   onSelect={setDate}
                   numberOfMonths={2}
+                  locale={zhCN}
                 />
               </PopoverContent>
             </Popover>
@@ -118,12 +119,12 @@ export function TransactionHistory() {
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Date</TableHead>
-                  <TableHead>Stock</TableHead>
-                  <TableHead>Type</TableHead>
-                  <TableHead className="text-right">Price</TableHead>
-                  <TableHead className="text-right">Quantity</TableHead>
-                  <TableHead className="text-right">Total</TableHead>
+                  <TableHead>日期</TableHead>
+                  <TableHead>股票</TableHead>
+                  <TableHead>类型</TableHead>
+                  <TableHead className="text-right">价格</TableHead>
+                  <TableHead className="text-right">数量</TableHead>
+                  <TableHead className="text-right">总计</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -133,7 +134,7 @@ export function TransactionHistory() {
                     <TableCell className="font-medium">{transaction.symbol}</TableCell>
                     <TableCell>
                       <Badge variant={transaction.type === 'Buy' ? 'default' : 'destructive'}>
-                          {transaction.type}
+                          {transaction.type === 'Buy' ? '买入' : '卖出'}
                       </Badge>
                     </TableCell>
                     <TableCell className="text-right">${transaction.price.toFixed(2)}</TableCell>

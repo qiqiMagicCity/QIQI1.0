@@ -15,7 +15,7 @@ import { Separator } from "../ui/separator";
 
 const chartConfig = {
   price: {
-    label: "Price",
+    label: "价格",
     color: "hsl(var(--chart-1))",
   },
 };
@@ -27,8 +27,8 @@ export function StockDetails() {
         <CardHeader>
           <div className="flex justify-between items-start">
             <div>
-              <CardTitle>Apple Inc. (AAPL)</CardTitle>
-              <CardDescription>NASDAQ</CardDescription>
+              <CardTitle>苹果公司 (AAPL)</CardTitle>
+              <CardDescription>纳斯达克</CardDescription>
             </div>
             <div className="text-right">
               <p className="text-3xl font-bold">$170.00</p>
@@ -54,7 +54,6 @@ export function StockDetails() {
                   tickLine={false}
                   axisLine={false}
                   tickMargin={8}
-                  tickFormatter={(value) => value.slice(0, 3)}
                 />
                  <YAxis
                   tickLine={false}
@@ -87,29 +86,29 @@ export function StockDetails() {
           <Separator className="my-6" />
           <div className="grid grid-cols-2 gap-4 text-sm md:grid-cols-4">
             <div className="flex flex-col gap-1">
-              <span className="text-muted-foreground">Market Cap</span>
+              <span className="text-muted-foreground">市值</span>
               <span className="font-semibold">$2.65T</span>
             </div>
             <div className="flex flex-col gap-1">
-              <span className="text-muted-foreground">P/E Ratio</span>
+              <span className="text-muted-foreground">市盈率</span>
               <span className="font-semibold">28.5</span>
             </div>
             <div className="flex flex-col gap-1">
-              <span className="text-muted-foreground">Div Yield</span>
+              <span className="text-muted-foreground">股息率</span>
               <span className="font-semibold">0.55%</span>
             </div>
             <div className="flex flex-col gap-1">
-              <span className="text-muted-foreground">52W Range</span>
+              <span className="text-muted-foreground">52周范围</span>
               <span className="font-semibold">$124 - $198</span>
             </div>
           </div>
         </CardContent>
         <CardFooter className="flex flex-col items-start gap-4">
-            <h3 className="font-semibold">Related News</h3>
+            <h3 className="font-semibold">相关新闻</h3>
             <ul className="list-disc list-inside space-y-2 text-sm text-muted-foreground">
-                <li>Apple announces new Vision Pro features coming in visionOS 2.</li>
-                <li>Analysts raise AAPL price target on strong iPhone sales projections.</li>
-                <li>Tim Cook to speak at upcoming AI in Tech conference.</li>
+                <li>苹果宣布 visionOS 2 将推出新的 Vision Pro 功能。</li>
+                <li>分析师因 iPhone 销售预测强劲而上调 AAPL 目标价。</li>
+                <li>蒂姆·库克将在即将举行的 AI in Tech 会议上发表演讲。</li>
             </ul>
         </CardFooter>
       </Card>
