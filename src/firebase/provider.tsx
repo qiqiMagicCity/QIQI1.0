@@ -3,7 +3,7 @@
 import React, { DependencyList, createContext, useContext, ReactNode, useMemo, useState, useEffect } from 'react';
 import { FirebaseApp } from 'firebase/app';
 import { Firestore } from 'firebase/firestore';
-import { Auth, User, onAuthStateChanged } from 'firebase/auth';
+import { Auth, User, onIdTokenChanged, getIdTokenResult } from 'firebase/auth';
 import { FirebaseErrorListener } from '@/components/FirebaseErrorListener'
 
 interface FirebaseProviderProps {
@@ -18,6 +18,8 @@ interface UserAuthState {
   user: User | null;
   isUserLoading: boolean;
   userError: Error | null;
+  claims: Record<string, unknown> | null;
+  isAdmin: boolean;
 }
 
 // Combined state for the Firebase context
@@ -30,6 +32,8 @@ export interface FirebaseContextState {
   user: User | null;
   isUserLoading: boolean; // True during initial auth check
   userError: Error | null; // Error from auth listener
+  claims: Record<string, unknown> | null;
+  isAdmin: boolean;
 }
 
 // Return type for useFirebase()
@@ -40,13 +44,17 @@ export interface FirebaseServicesAndUser {
   user: User | null;
   isUserLoading: boolean;
   userError: Error | null;
+  claims: Record<string, unknown> | null;
+  isAdmin: boolean;
 }
 
 // Return type for useUser() - specific to user auth state
-export interface UserHookResult { // Renamed from UserAuthHookResult for consistency if desired, or keep as UserAuthHookResult
+export interface UserHookResult {
   user: User | null;
   isUserLoading: boolean;
   userError: Error | null;
+  claims: Record<string, unknown> | null;
+  isAdmin: boolean;
 }
 
 // React Context
@@ -65,25 +73,40 @@ export const FirebaseProvider: React.FC<FirebaseProviderProps> = ({
     user: null,
     isUserLoading: true, // Start loading until first auth event
     userError: null,
+    claims: null,
+    isAdmin: false,
   });
 
   // Effect to subscribe to Firebase auth state changes
   useEffect(() => {
     if (!auth) { // If no Auth service instance, cannot determine user state
-      setUserAuthState({ user: null, isUserLoading: false, userError: new Error("Auth service not provided.") });
+      setUserAuthState({ user: null, isUserLoading: false, userError: new Error("Auth service not provided."), claims: null, isAdmin: false });
       return;
     }
 
-    setUserAuthState({ user: null, isUserLoading: true, userError: null }); // Reset on auth instance change
+    setUserAuthState({ user: null, isUserLoading: true, userError: null, claims: null, isAdmin: false }); // Reset on auth instance change
 
-    const unsubscribe = onAuthStateChanged(
+    const unsubscribe = onIdTokenChanged(
       auth,
-      (firebaseUser) => { // Auth state determined
-        setUserAuthState({ user: firebaseUser, isUserLoading: false, userError: null });
+      async (firebaseUser) => { // Auth state determined
+        if (firebaseUser) {
+          try {
+            const result = await getIdTokenResult(firebaseUser);
+            const claims = (result.claims as Record<string, unknown>) || null;
+            const isAdmin = claims?.admin === true;
+            setUserAuthState({ user: firebaseUser, claims, isAdmin, isUserLoading: false, userError: null });
+          } catch (error) {
+            console.warn("FirebaseProvider: Error getting ID token result:", error);
+            setUserAuthState({ user: firebaseUser, claims: null, isAdmin: false, isUserLoading: false, userError: error as Error });
+          }
+        } else {
+          // User is signed out.
+          setUserAuthState({ user: null, claims: null, isAdmin: false, isUserLoading: false, userError: null });
+        }
       },
       (error) => { // Auth listener error
-        console.error("FirebaseProvider: onAuthStateChanged error:", error);
-        setUserAuthState({ user: null, isUserLoading: false, userError: error });
+        console.error("FirebaseProvider: onIdTokenChanged error:", error);
+        setUserAuthState({ user: null, claims: null, isAdmin: false, isUserLoading: false, userError: error });
       }
     );
     return () => unsubscribe(); // Cleanup
@@ -100,6 +123,8 @@ export const FirebaseProvider: React.FC<FirebaseProviderProps> = ({
       user: userAuthState.user,
       isUserLoading: userAuthState.isUserLoading,
       userError: userAuthState.userError,
+      claims: userAuthState.claims,
+      isAdmin: userAuthState.isAdmin,
     };
   }, [firebaseApp, firestore, auth, userAuthState]);
 
@@ -131,8 +156,10 @@ export const useFirebase = (): FirebaseServicesAndUser => {
     firestore: context.firestore,
     auth: context.auth,
     user: context.user,
-    isUserLoading: context.isUserLoading,
+isUserLoading: context.isUserLoading,
     userError: context.userError,
+    claims: context.claims,
+    isAdmin: context.isAdmin,
   };
 };
 
@@ -170,7 +197,7 @@ export function useMemoFirebase<T>(factory: () => T, deps: DependencyList): T | 
  * This provides the User object, loading status, and any auth errors.
  * @returns {UserHookResult} Object with user, isUserLoading, userError.
  */
-export const useUser = (): UserHookResult => { // Renamed from useAuthUser
-  const { user, isUserLoading, userError } = useFirebase(); // Leverages the main hook
-  return { user, isUserLoading, userError };
+export const useUser = (): UserHookResult => {
+  const { user, isUserLoading, userError, claims, isAdmin } = useFirebase();
+  return { user, isUserLoading, userError, claims, isAdmin };
 };
