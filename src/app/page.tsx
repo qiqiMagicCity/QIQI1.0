@@ -20,19 +20,16 @@ export default function Home() {
         </div>
 
         <Tabs defaultValue="holdings">
-          <TabsList className="grid w-full grid-cols-4">
+          <TabsList className="grid w-full grid-cols-3">
             <TabsTrigger value="holdings">首页</TabsTrigger>
-            <TabsTrigger value="grid">分析仪表盘</TabsTrigger>
             <TabsTrigger value="details">股票详情</TabsTrigger>
             <TabsTrigger value="history">交易历史</TabsTrigger>
           </TabsList>
           <TabsContent value="holdings">
             <div className="grid gap-8">
+              <CalculationGrid />
               <HoldingsList />
             </div>
-          </TabsContent>
-          <TabsContent value="grid">
-            <CalculationGrid />
           </TabsContent>
           <TabsContent value="details">
             <StockDetails />

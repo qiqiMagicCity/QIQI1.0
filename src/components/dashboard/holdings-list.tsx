@@ -22,7 +22,7 @@ export function HoldingsList() {
     <section id="holdings" className="scroll-mt-20">
       <Card>
         <CardHeader>
-          <CardTitle>投资组合持仓</CardTitle>
+          <CardTitle>持仓列表</CardTitle>
           <CardDescription>您当前的股票头寸。</CardDescription>
         </CardHeader>
         <CardContent>
