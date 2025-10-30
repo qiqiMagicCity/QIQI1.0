@@ -36,7 +36,7 @@ const TimeDisplay = ({ label, timeZone }: TimeZoneOption) => {
 
   return (
     <div className="flex items-center gap-2">
-      <span className="text-base font-display text-muted-foreground">{label}</span>
+      <span className="text-base text-muted-foreground">{label}</span>
       <span className="text-base font-semibold text-foreground font-mono">{time}</span>
     </div>
   );
