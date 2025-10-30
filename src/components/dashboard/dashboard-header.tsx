@@ -19,7 +19,7 @@ export function DashboardHeader() {
   const userAvatar = PlaceHolderImages.find(p => p.id === 'userAvatar');
 
   return (
-    <header className="sticky top-0 z-30 flex h-16 items-center justify-between gap-4 border-b-2 border-primary bg-background/50 backdrop-blur-sm px-4 md:px-6">
+    <header className="sticky top-0 z-30 flex h-14 items-center justify-between gap-4 border-b-2 border-primary bg-background/50 backdrop-blur-sm px-4 md:px-6">
         <WorldClocks />
         <div className="flex items-center gap-2">
             <Button variant="ghost" size="icon" className="rounded-full">
