@@ -14,6 +14,7 @@ import {
 import { WorldClocks } from "./world-clocks";
 import { useAuth, useUser } from "@/firebase";
 import { signOut } from "firebase/auth";
+import Link from "next/link";
 
 export function DashboardHeader() {
   const { user } = useUser();
@@ -31,7 +32,7 @@ export function DashboardHeader() {
   const getInitials = (name?: string | null) => {
     if (!name) return 'GT';
     const names = name.split(' ');
-    if (names.length > 1) {
+    if (names.length > 1 && names[0] && names[names.length - 1]) {
       return (names[0][0] + names[names.length - 1][0]).toUpperCase();
     }
     return name.substring(0, 2).toUpperCase();
@@ -65,10 +66,12 @@ export function DashboardHeader() {
               <DropdownMenuContent align="end" className="w-56">
                 <DropdownMenuLabel>{user ? user.displayName || user.email : '我的账户'}</DropdownMenuLabel>
                 <DropdownMenuSeparator />
-                <DropdownMenuItem>
-                  <Settings className="mr-2 h-4 w-4" />
-                  <span>设置</span>
-                </DropdownMenuItem>
+                <Link href="/settings">
+                  <DropdownMenuItem className="cursor-pointer">
+                    <Settings className="mr-2 h-4 w-4" />
+                    <span>设置</span>
+                  </DropdownMenuItem>
+                </Link>
                 <DropdownMenuItem>
                   <LifeBuoy className="mr-2 h-4 w-4" />
                   <span>支持</span>
