@@ -29,19 +29,16 @@ export function DashboardHeader() {
     }
   };
 
-  const getInitials = (name?: string | null) => {
-    if (!name) return 'GT';
-    const names = name.split(' ');
-    if (names.length > 1 && names[0] && names[names.length - 1]) {
-      return (names[0][0] + names[names.length - 1][0]).toUpperCase();
-    }
-    return name.substring(0, 2).toUpperCase();
-  };
+  const getWelcomeText = () => {
+    if (!user) return 'Not Logged In';
+    return user.displayName || user.email;
+  }
+
 
   return (
     <header className="sticky top-0 z-30 flex h-[40px] items-center justify-between gap-4 border-b-2 border-primary bg-background/50 backdrop-blur-sm px-4 md:px-6">
         <WorldClocks />
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-4">
             <Button variant="ghost" size="icon" className="rounded-full">
                 <Search className="h-5 w-5" />
                 <span className="sr-only">搜索</span>
@@ -56,11 +53,8 @@ export function DashboardHeader() {
             </Button>
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <Button variant="ghost" size="icon" className="rounded-full">
-                  <Avatar className="h-9 w-9 border-2 border-primary/50">
-                    {user?.photoURL && <AvatarImage src={user.photoURL} alt={user.displayName || '用户头像'} />}
-                    <AvatarFallback>{getInitials(user?.displayName)}</AvatarFallback>
-                  </Avatar>
+                <Button variant="ghost" className="px-2">
+                  <span className="font-medium text-sm">欢迎, {getWelcomeText()}</span>
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end" className="w-56">
