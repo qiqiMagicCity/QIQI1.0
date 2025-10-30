@@ -9,9 +9,9 @@ type TimeZoneOption = {
 };
 
 const timeZones: TimeZoneOption[] = [
-  { label: '瓦伦西亚', timeZone: 'Europe/Madrid', fontClass: 'font-sans' }, 
-  { label: '上海', timeZone: 'Asia/Shanghai', fontClass: 'font-sans' },   
-  { label: '纽约', timeZone: 'America/New_York', fontClass: 'font-sans' },     
+  { label: '瓦伦西亚', timeZone: 'Europe/Madrid', fontClass: 'font-kai' }, 
+  { label: '上海', timeZone: 'Asia/Shanghai', fontClass: 'font-kai' },   
+  { label: '纽约', timeZone: 'America/New_York', fontClass: 'font-kai' },     
 ];
 
 const TimeDisplay = ({ label, timeZone, fontClass }: TimeZoneOption) => {
@@ -45,12 +45,10 @@ const TimeDisplay = ({ label, timeZone, fontClass }: TimeZoneOption) => {
 
 export function WorldClocks() {
   return (
-    <div className="flex items-center gap-4">
-        <div className="hidden md:flex items-center gap-4">
-            {timeZones.map((tz) => (
-                <TimeDisplay key={tz.timeZone} label={tz.label} timeZone={tz.timeZone} fontClass={tz.fontClass} />
-            ))}
-        </div>
+    <div className="hidden md:flex items-center gap-4">
+        {timeZones.map((tz) => (
+            <TimeDisplay key={tz.timeZone} label={tz.label} timeZone={tz.timeZone} fontClass={tz.fontClass} />
+        ))}
     </div>
   );
 }
