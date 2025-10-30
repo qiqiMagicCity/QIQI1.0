@@ -13,10 +13,14 @@ export function StatusBadge({ status, className }: { status: Status, className?:
   } as const;
   
   const m = map[status] ?? map.close;
-  
+  const isBlinking = status === 'live' || status === 'stale';
+
   return (
     <div className={cn('badge', m.cls, className)}>
-      <div className="badge-dot" />
+      <div className="relative flex h-2 w-2">
+        {isBlinking && <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-current opacity-75"></span>}
+        <span className="relative inline-flex rounded-full h-2 w-2 bg-current"></span>
+      </div>
       <span>{m.label}</span>
     </div>
   );
