@@ -8,44 +8,39 @@ body {
 
 @layer base {
   :root {
-    --background: 156 58% 95%;
-    --foreground: 222 47% 11%;
+    --background: 152 70% 8%;
+    --foreground: 156 30% 95%;
 
-    --card: 0 0% 100%;
-    --card-foreground: 222 47% 11%;
+    --card: 152 60% 12%;
+    --card-foreground: 156 30% 95%;
 
-    --popover: 0 0% 100%;
-    --popover-foreground: 222 47% 11%;
+    --popover: 152 60% 12%;
+    --popover-foreground: 156 30% 95%;
 
-    /* 主色：翡翠绿（更耐看，非荧光） */
-    --primary: 152 61% 36%;
+    --primary: 152 55% 45%;
     --primary-foreground: 152 80% 97%;
 
-    /* 次级与静态信息区块：干净的冷灰 */
-    --secondary: 210 20% 98%;
-    --secondary-foreground: 222 47% 11%;
+    --secondary: 152 40% 20%;
+    --secondary-foreground: 156 30% 95%;
 
-    /* 附色：柔和薄荷绿，用于强调/悬浮背景 */
-    --muted: 156 58% 92%;
-    --muted-foreground: 215 16% 45%;
-    --accent: 156 58% 88%;
-    --accent-foreground: 156 34% 22%;
+    --muted: 152 50% 15%;
+    --muted-foreground: 156 25% 75%;
+    
+    --accent: 152 50% 25%;
+    --accent-foreground: 156 30% 95%;
 
-    /* 破坏色保持红，但更内敛 */
-    --destructive: 0 72% 46%;
+    --destructive: 0 62% 40%;
     --destructive-foreground: 0 0% 98%;
 
-    /* 线条/输入/焦点环统一 */
-    --border: 214 15% 90%;
-    --input: 214 15% 90%;
-    --ring: 152 61% 36%;
+    --border: 152 40% 25%;
+    --input: 152 40% 25%;
+    --ring: 152 55% 55%;
 
-    /* 图表（同一色系，明度阶梯） */
-    --chart-1: 152 60% 41%;
-    --chart-2: 152 60% 55%;
-    --chart-3: 152 60% 70%;
-    --chart-4: 152 60% 30%;
-    --chart-5: 152 60% 85%;
+    --chart-1: 152 55% 45%;
+    --chart-2: 152 55% 55%;
+    --chart-3: 152 55% 65%;
+    --chart-4: 152 55% 35%;
+    --chart-5: 152 55% 75%;
 
     --radius: 0.75rem;
 
@@ -61,42 +56,39 @@ body {
   }
 
   .dark {
-    --background: 222 47% 6%;
-    --foreground: 0 0% 98%;
+    --background: 152 70% 8%;
+    --foreground: 156 30% 95%;
 
-    --card: 222 47% 8%;
-    --card-foreground: 0 0% 98%;
+    --card: 152 60% 12%;
+    --card-foreground: 156 30% 95%;
 
-    --popover: 222 47% 8%;
-    --popover-foreground: 0 0% 98%;
+    --popover: 152 60% 12%;
+    --popover-foreground: 156 30% 95%;
 
-    /* 暗色模式主绿略提亮，保证可读性 */
     --primary: 152 55% 45%;
-    --primary-foreground: 152 80% 12%;
+    --primary-foreground: 152 80% 97%;
 
-    --secondary: 217 19% 14%;
-    --secondary-foreground: 0 0% 98%;
+    --secondary: 152 40% 20%;
+    --secondary-foreground: 156 30% 95%;
 
-    --muted: 217 19% 14%;
-    --muted-foreground: 215 20% 72%;
-
-    /* 暗色下的薄荷绿做深，避免发灰发白 */
-    --accent: 167 45% 18%;
-    --accent-foreground: 152 80% 90%;
+    --muted: 152 50% 15%;
+    --muted-foreground: 156 25% 75%;
+    
+    --accent: 152 50% 25%;
+    --accent-foreground: 156 30% 95%;
 
     --destructive: 0 62% 40%;
     --destructive-foreground: 0 0% 98%;
 
-    --border: 217 19% 18%;
-    --input: 217 19% 18%;
-    --ring: 152 55% 45%;
+    --border: 152 40% 25%;
+    --input: 152 40% 25%;
+    --ring: 152 55% 55%;
 
-    /* 图表在暗色里做明度分层与少量偏移 */
-    --chart-1: 152 55% 55%;
-    --chart-2: 152 55% 45%;
-    --chart-3: 152 55% 35%;
-    --chart-4: 160 50% 45%;
-    --chart-5: 148 45% 65%;
+    --chart-1: 152 55% 45%;
+    --chart-2: 152 55% 55%;
+    --chart-3: 152 55% 65%;
+    --chart-4: 152 55% 35%;
+    --chart-5: 152 55% 75%;
 
     --sidebar-background: 222 40% 8%;
     --sidebar-foreground: 0 0% 98%;

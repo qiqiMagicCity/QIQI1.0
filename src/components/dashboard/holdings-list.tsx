@@ -45,7 +45,7 @@ export function HoldingsList() {
                     <div className="font-medium text-base">${holding.currentValue.toLocaleString()}</div>
                     <div className="text-sm text-muted-foreground">{holding.shares} 股</div>
                   </TableCell>
-                  <TableCell className={cn("text-right font-bold text-base flex justify-end items-center gap-1", holding.plPercent >= 0 ? "text-green-600" : "text-destructive")}>
+                  <TableCell className={cn("text-right font-bold text-base flex justify-end items-center gap-1", holding.plPercent >= 0 ? "text-emerald-400" : "text-destructive")}>
                     {holding.plPercent >= 0 ? <ArrowUp className="h-4 w-4"/> : <ArrowDown className="h-4 w-4"/>}
                     {holding.plPercent.toFixed(2)}%
                   </TableCell>
