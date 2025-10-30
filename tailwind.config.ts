@@ -12,6 +12,7 @@ export default {
       fontFamily: {
         body: ['Inter', '"Noto Sans SC"', 'sans-serif'],
         headline: ['Inter', '"Noto Sans SC"', 'sans-serif'],
+        display: ['"ZCOOL KuaiLe"', 'cursive'],
         code: ['monospace'],
       },
       colors: {
