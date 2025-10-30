@@ -10,20 +10,8 @@ export type CalculationModule = {
   icon: LucideIcon;
 };
 
-export const calculationModules: CalculationModule[] = [
-  { id: 4, title: 'RSI (AAPL)', value: '68.2', icon: Gauge },
-  { id: 5, title: '移动平均 (SPY)', value: '$445.67', change: '-0.2%', changeType: 'negative', icon: LineChart },
-  { id: 6, title: '夏普比率', value: '1.8', icon: Scale },
-  { id: 7, title: '贝塔系数 (TSLA)', value: '1.5', icon: Zap },
-  { id: 8, title: '股息收益率', value: '2.3%', icon: Percent },
-  { id: 9, title: '市盈率 (GOOGL)', value: '25.6', icon: Gem },
-  { id: 10, title: '市值 (MSFT)', value: '$2.5T', icon: Factory },
-  { id: 11, title: 'ESG评分', value: '85/100', icon: Leaf },
-  { id: 12, title: '成交量 (NVDA)', value: '50.1M', icon: Activity },
-  { id: 13, title: '52周最高价', value: '$180.45', icon: CandlestickChart },
-  { id: 14, title: '购买力', value: '$15,000.00', icon: DollarSign },
-  { id: 15, title: '持仓数量', value: '12', icon: Coins },
-];
+// 清空分析仪表盘的示例数据
+export const calculationModules: CalculationModule[] = [];
 
 export type CoreMetric = {
   id: number;
@@ -34,11 +22,8 @@ export type CoreMetric = {
   status: Status;
 };
 
-export const coreMetrics: CoreMetric[] = [
-    { id: 1, title: '总市值', value: '$125,430.88', change: '+2.1%', changeType: 'positive', status: 'live' },
-    { id: 2, title: '浮动盈亏 (方向性)', value: '$25,430.88', change: '+25.4%', changeType: 'positive', status: 'stale' },
-    { id: 3, title: '当日总盈亏 (方向性)', value: '$1,203.45', change: '+1.1%', changeType: 'positive', status: 'close' },
-];
+// 清空核心指标卡片的示例数据
+export const coreMetrics: CoreMetric[] = [];
 
 
 export type Holding = {
@@ -51,6 +36,7 @@ export type Holding = {
   plPercent: number;
 };
 
+// 清空持仓列表的示例数据
 export const holdings: Holding[] = [];
 
 export type Transaction = {
@@ -79,4 +65,3 @@ export const stockChartData = [
   { date: '2023-03-19', price: 165 },
   { date: '2023-03-26', price: 170 },
 ];
-
