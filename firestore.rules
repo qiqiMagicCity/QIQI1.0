@@ -1,129 +1,122 @@
 /**
- * @file Firebase Security Rules for GreenTrader Analytics.
+ * @fileoverview Firestore Security Rules for GreenTrader Analytics.
  *
- * @corePhilosophy This ruleset enforces a strict user-ownership model. Each user can only access their own profile data, calculation modules, holdings, and transaction history.
- * @dataStructure All data is nested under /users/{userProfileId}, where userProfileId is the Firebase Auth UID.  Calculation modules, holdings, and transactions are stored in subcollections under each user's profile.
- * @keySecurityDecisions
- *   - User listing is disallowed.
- *   - The security model relies on path-based ownership, where the `userProfileId` in the path must match the authenticated user's UID.
- *   - Data validation is relaxed to allow for rapid prototyping, focusing on ownership checks rather than detailed schema enforcement.
- * @denormalization `userProfileId` is denormalized into each subcollection document (CalculationModule, Holding, Transaction) to avoid costly `get()` calls in security rules.
+ * Core Philosophy:
+ * This ruleset enforces a strict user-ownership model for user profiles and transactions,
+ * with an additional role-based access control (RBAC) layer for administrators. Users can
+ * only access their own profile data and associated transactions, while administrators have
+ * read-only access to all user data and transactions.
+ *
+ * Data Structure:
+ * - /users/{userId}: Stores user profile information. The `userId` must match the Firebase Auth UID.
+ * - /users/{userId}/transactions/{transactionId}: Stores transaction history for a specific user.
+ *
+ * Key Security Decisions:
+ * - User profiles and transactions are private to the user, except for administrators with read-only access.
+ * - Administrators are granted read access to all user data via role-based access control.
+ * - Data validation is relaxed to allow for rapid prototyping, with key exceptions for ownership fields.
+ *
+ * Denormalization for Authorization:
+ * - The `userProfileId` is used in the path for both `/users/{userProfileId}` and
+ *   `/users/{userProfileId}/transactions/{transactionId}`. This ensures that the
+ *   `isOwner(userId)` function can be used efficiently without additional `get()` calls.
+ *
+ * Structural Segregation:
+ * - No segregation is needed as all data is private and access is controlled via ownership and roles.
  */
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
     /**
-     * @description Enforces user-ownership for user profiles.  A user can only read and write their own profile.
-     * @path /users/{userProfileId}
-     * @allow (create) User with UID 'user_abc' can create a profile at /users/user_abc.
-     * @allow (get, update, delete) User with UID 'user_abc' can get, update, and delete their profile at /users/user_abc.
-     * @deny (create) User with UID 'user_xyz' cannot create a profile at /users/user_abc.
-     * @deny (get, update, delete) User with UID 'user_xyz' cannot get, update, or delete the profile at /users/user_abc.
-     * @principle Enforces document ownership for all operations.
+     * @description Checks if the user is signed in.
+     * @return {bool} True if the user is signed in, false otherwise.
      */
-    match /users/{userProfileId} {
-      // Allow the user to read their own profile.
-      allow get: if isOwner(userProfileId);
-      // Prevent listing of all users.
-      allow list: if false;
-
-      // Allow the user to create their own profile, validating that the userProfileId matches their UID.
-      allow create: if isSignedIn() && request.auth.uid == userProfileId;
-
-      // Allow the user to update their own profile.  Enforce immutability of the userProfileId.
-      allow update: if isExistingOwner(userProfileId) && request.resource.data.id == resource.data.id;
-
-      // Allow the user to delete their own profile.
-      allow delete: if isExistingOwner(userProfileId);
+    function isSignedIn() {
+      return request.auth != null;
     }
 
     /**
-     * @description Enforces user-ownership for calculation modules.  A user can only access their own calculation modules.
-     * @path /users/{userProfileId}/calculationModules/{calculationModuleId}
-     * @allow (create) User with UID 'user_abc' can create a calculation module under /users/user_abc/calculationModules.
-     * @allow (get, update, delete) User with UID 'user_abc' can get, update, and delete a calculation module under /users/user_abc/calculationModules.
-     * @deny (create) User with UID 'user_xyz' cannot create a calculation module under /users/user_abc/calculationModules.
-     * @deny (get, update, delete) User with UID 'user_xyz' cannot get, update, or delete a calculation module under /users/user_abc/calculationModules.
-     * @principle Enforces document ownership for all operations.
+     * @description Checks if the user has the 'admin' claim.
+     * @return {bool} True if the user is an admin, false otherwise.
      */
-    match /users/{userProfileId}/calculationModules/{calculationModuleId} {
-      // Allow the owner to read their own calculation modules
-      allow get: if isOwner(userProfileId);
-      // Allow the owner to list their own calculation modules
-      allow list: if isOwner(userProfileId);
-
-      // Allow the owner to create calculation modules. Validate that the userProfileId matches the path.
-      allow create: if isSignedIn() && isOwner(userProfileId) && request.resource.data.userProfileId == userProfileId;
-
-      // Allow the owner to update their own calculation modules. Enforce immutability of the userProfileId.
-      allow update: if isExistingOwner(userProfileId) && request.resource.data.userProfileId == resource.data.userProfileId;
-
-      // Allow the owner to delete their own calculation modules.
-      allow delete: if isExistingOwner(userProfileId);
+    function isAdmin() {
+      return isSignedIn() && request.auth.token.admin == true;
     }
 
     /**
-     * @description Enforces user-ownership for holdings.  A user can only access their own holdings.
-     * @path /users/{userProfileId}/holdings/{holdingId}
-     * @allow (create) User with UID 'user_abc' can create a holding under /users/user_abc/holdings.
-     * @allow (get, update, delete) User with UID 'user_abc' can get, update, and delete a holding under /users/user_abc/holdings.
-     * @deny (create) User with UID 'user_xyz' cannot create a holding under /users/user_abc/holdings.
-     * @deny (get, update, delete) User with UID 'user_xyz' cannot get, update, or delete a holding under /users/user_abc/holdings.
-     * @principle Enforces document ownership for all operations.
+     * @description Checks if the user is the owner of the resource.
+     * @param {string} userId The user ID to check against.
+     * @return {bool} True if the user is the owner, false otherwise.
      */
-    match /users/{userProfileId}/holdings/{holdingId} {
-      // Allow the owner to read their own holdings.
-      allow get: if isOwner(userProfileId);
-      // Allow the owner to list their own holdings.
-      allow list: if isOwner(userProfileId);
-
-      // Allow the owner to create holdings. Validate that the userProfileId matches the path.
-      allow create: if isSignedIn() && isOwner(userProfileId) && request.resource.data.userProfileId == userProfileId;
-
-      // Allow the owner to update their own holdings. Enforce immutability of the userProfileId.
-      allow update: if isExistingOwner(userProfileId) && request.resource.data.userProfileId == resource.data.userProfileId;
-
-      // Allow the owner to delete their own holdings.
-      allow delete: if isExistingOwner(userProfileId);
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
     }
 
     /**
-     * @description Enforces user-ownership for transactions.  A user can only access their own transactions.
-     * @path /users/{userProfileId}/transactions/{transactionId}
-     * @allow (create) User with UID 'user_abc' can create a transaction under /users/user_abc/transactions.
-     * @allow (get, update, delete) User with UID 'user_abc' can get, update, and delete a transaction under /users/user_abc/transactions.
-     * @deny (create) User with UID 'user_xyz' cannot create a transaction under /users/user_abc/transactions.
-     * @deny (get, update, delete) User with UID 'user_xyz' cannot get, update, or delete a transaction under /users/user_abc/transactions.
-     * @principle Enforces document ownership for all operations.
+     * @description Checks if the user is the owner of the existing resource.
+     * @param {string} userId The user ID to check against.
+     * @return {bool} True if the user is the owner and the resource exists, false otherwise.
      */
-    match /users/{userProfileId}/transactions/{transactionId} {
-      // Allow the owner to read their own transactions.
-      allow get: if isOwner(userProfileId);
-      // Allow the owner to list their own transactions.
-      allow list: if isOwner(userProfileId);
-
-      // Allow the owner to create transactions. Validate that the userProfileId matches the path.
-      allow create: if isSignedIn() && isOwner(userProfileId) && request.resource.data.userProfileId == userProfileId;
-
-      // Allow the owner to update their own transactions. Enforce immutability of the userProfileId.
-      allow update: if isExistingOwner(userProfileId) && request.resource.data.userProfileId == resource.data.userProfileId;
-
-      // Allow the owner to delete their own transactions.
-      allow delete: if isExistingOwner(userProfileId);
+    function isExistingOwner(userId) {
+      return isOwner(userId) && resource != null;
     }
-  }
 
-  // Helper functions
-  function isSignedIn() {
-    return request.auth != null;
-  }
+    /**
+     * @description Security rules for user profiles.
+     * @path /users/{userId}
+     * @allow (read) Authenticated user can read their own profile or an admin can read any profile. Example: `auth.uid == 'user123'` can read `/users/user123`.
+     * @allow (write) Authenticated user can write their own profile. Example: `auth.uid == 'user123'` can write `/users/user123`.
+     * @deny (read) Authenticated user cannot read another user's profile if not an admin. Example: `auth.uid == 'user456'` cannot read `/users/user123`.
+     * @deny (write) Authenticated user cannot write another user's profile. Example: `auth.uid == 'user456'` cannot write `/users/user123`.
+     * @principle Enforces document ownership for writes and admin read access.
+     */
+    match /users/{userId} {
+      allow get: if isOwner(userId) || isAdmin();
+      allow list: if isAdmin();
+      allow create: if isOwner(userId) && request.resource.data.id == userId;
+      allow update: if isExistingOwner(userId) && request.resource.data.id == resource.data.id;
+      allow delete: if isExistingOwner(userId);
 
-  function isOwner(userId) {
-    return isSignedIn() && request.auth.uid == userId;
-  }
+      /**
+       * @description Security rules for user transactions.
+       * @path /users/{userId}/transactions/{transactionId}
+       * @allow (read) Authenticated user can read their own transactions or an admin can read any transaction. Example: `auth.uid == 'user123'` can read `/users/user123/transactions/txn456`.
+       * @allow (write) Authenticated user can write their own transactions. Example: `auth.uid == 'user123'` can write `/users/user123/transactions/txn456`.
+       * @deny (read) Authenticated user cannot read another user's transactions if not an admin. Example: `auth.uid == 'user456'` cannot read `/users/user123/transactions/txn456`.
+       * @deny (write) Authenticated user cannot write another user's transactions. Example: `auth.uid == 'user456'` cannot write `/users/user123/transactions/txn456`.
+       * @principle Enforces document ownership for writes and admin read access.
+       */
+      match /transactions/{transactionId} {
+        allow get: if isOwner(userId) || isAdmin();
+        allow list: if isOwner(userId) || isAdmin();
+        allow create: if isOwner(userId) && request.resource.data.userProfileId == userId;
+        allow update: if isExistingOwner(userId) && request.resource.data.userProfileId == resource.data.userProfileId;
+        allow delete: if isExistingOwner(userId);
+      }
+    }
 
-  function isExistingOwner(userId) {
-    return isOwner(userId) && resource != null;
+    /**
+     * @description Security rules for collection group queries on transactions.
+     * @path /{path=**}/transactions/{docId}
+     * @allow (read) Admin can read any transaction in any subcollection. Example: Admin can execute collectionGroup('transactions').
+     * @deny (write) No one can write to any transaction via collection group.
+     * @principle Restricts collection group reads to admins.
+     */
+    match /{path=**}/transactions/{docId} {
+      allow read: if isAdmin();
+      allow create, update, delete: if false;
+    }
+
+    /**
+     * @description Default rule to deny all other requests.
+     * @path /{document=**}
+     * @deny (read) Denies all read requests to paths not explicitly allowed.
+     * @deny (write) Denies all write requests to paths not explicitly allowed.
+     * @principle Enforces least privilege by default.
+     */
+    match /{document=**} {
+      allow read, write: if false;
+    }
   }
 }
