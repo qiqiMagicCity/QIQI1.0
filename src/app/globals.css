@@ -9,72 +9,103 @@ body {
 @layer base {
   :root {
     --background: 0 0% 100%;
-    --foreground: 240 10% 3.9%;
+    --foreground: 222 47% 11%;
+
     --card: 0 0% 100%;
-    --card-foreground: 240 10% 3.9%;
+    --card-foreground: 222 47% 11%;
+
     --popover: 0 0% 100%;
-    --popover-foreground: 240 10% 3.9%;
-    --primary: 150 60% 45%;
-    --primary-foreground: 150 60% 95%;
-    --secondary: 240 4.8% 95.9%;
-    --secondary-foreground: 240 5.9% 10%;
-    --muted: 240 4.8% 95.9%;
-    --muted-foreground: 240 3.8% 46.1%;
-    --accent: 150 60% 90%;
-    --accent-foreground: 150 60% 10%;
-    --destructive: 0 84.2% 60.2%;
+    --popover-foreground: 222 47% 11%;
+
+    /* 主色：翡翠绿（更耐看，非荧光） */
+    --primary: 152 61% 36%;
+    --primary-foreground: 152 80% 97%;
+
+    /* 次级与静态信息区块：干净的冷灰 */
+    --secondary: 210 20% 96%;
+    --secondary-foreground: 222 47% 11%;
+
+    /* 附色：柔和薄荷绿，用于强调/悬浮背景 */
+    --muted: 210 20% 96%;
+    --muted-foreground: 215 16% 45%;
+    --accent: 156 58% 92%;
+    --accent-foreground: 156 34% 22%;
+
+    /* 破坏色保持红，但更内敛 */
+    --destructive: 0 72% 46%;
     --destructive-foreground: 0 0% 98%;
-    --border: 240 5.9% 90%;
-    --input: 240 5.9% 90%;
-    --ring: 150 60% 45%;
-    --chart-1: 150 60% 45%;
-    --chart-2: 150 60% 65%;
-    --chart-3: 150 60% 85%;
-    --chart-4: 150 60% 30%;
-    --chart-5: 150 60% 50%;
+
+    /* 线条/输入/焦点环统一 */
+    --border: 214 15% 90%;
+    --input: 214 15% 90%;
+    --ring: 152 61% 36%;
+
+    /* 图表（同一色系，明度阶梯） */
+    --chart-1: 152 60% 41%;
+    --chart-2: 152 60% 55%;
+    --chart-3: 152 60% 70%;
+    --chart-4: 152 60% 30%;
+    --chart-5: 152 60% 85%;
+
     --radius: 0.75rem;
-    --sidebar-background: 240 5% 96%;
-    --sidebar-foreground: 240 4% 10%;
-    --sidebar-primary: 150 60% 45%;
-    --sidebar-primary-foreground: 150 60% 95%;
-    --sidebar-accent: 150 60% 90%;
-    --sidebar-accent-foreground: 150 60% 10%;
-    --sidebar-border: 240 5% 85%;
-    --sidebar-ring: 150 60% 45%;
+
+    /* 侧栏 */
+    --sidebar-background: 210 20% 97%;
+    --sidebar-foreground: 222 47% 11%;
+    --sidebar-primary: 152 61% 36%;
+    --sidebar-primary-foreground: 152 80% 97%;
+    --sidebar-accent: 156 58% 92%;
+    --sidebar-accent-foreground: 156 34% 22%;
+    --sidebar-border: 214 15% 88%;
+    --sidebar-ring: 152 61% 36%;
   }
+
   .dark {
-    --background: 240 10% 3.9%;
+    --background: 222 47% 6%;
     --foreground: 0 0% 98%;
-    --card: 240 10% 3.9%;
+
+    --card: 222 47% 8%;
     --card-foreground: 0 0% 98%;
-    --popover: 240 10% 3.9%;
+
+    --popover: 222 47% 8%;
     --popover-foreground: 0 0% 98%;
-    --primary: 150 60% 45%;
-    --primary-foreground: 150 60% 95%;
-    --secondary: 240 3.7% 15.9%;
+
+    /* 暗色模式主绿略提亮，保证可读性 */
+    --primary: 152 55% 45%;
+    --primary-foreground: 152 80% 12%;
+
+    --secondary: 217 19% 14%;
     --secondary-foreground: 0 0% 98%;
-    --muted: 240 3.7% 15.9%;
-    --muted-foreground: 240 5% 64.9%;
-    --accent: 240 3.7% 15.9%;
-    --accent-foreground: 0 0% 98%;
-    --destructive: 0 62.8% 30.6%;
+
+    --muted: 217 19% 14%;
+    --muted-foreground: 215 20% 72%;
+
+    /* 暗色下的薄荷绿做深，避免发灰发白 */
+    --accent: 167 45% 18%;
+    --accent-foreground: 152 80% 90%;
+
+    --destructive: 0 62% 40%;
     --destructive-foreground: 0 0% 98%;
-    --border: 240 3.7% 15.9%;
-    --input: 240 3.7% 15.9%;
-    --ring: 150 60% 45%;
-    --chart-1: 150 60% 45%;
-    --chart-2: 150 60% 65%;
-    --chart-3: 150 60% 25%;
-    --chart-4: 150 60% 55%;
-    --chart-5: 150 60% 75%;
-    --sidebar-background: 240 4% 10%;
-    --sidebar-foreground: 240 5% 96%;
-    --sidebar-primary: 150 60% 45%;
-    --sidebar-primary-foreground: 150 60% 95%;
-    --sidebar-accent: 240 4% 20%;
-    --sidebar-accent-foreground: 240 5% 96%;
-    --sidebar-border: 240 4% 20%;
-    --sidebar-ring: 150 60% 45%;
+
+    --border: 217 19% 18%;
+    --input: 217 19% 18%;
+    --ring: 152 55% 45%;
+
+    /* 图表在暗色里做明度分层与少量偏移 */
+    --chart-1: 152 55% 55%;
+    --chart-2: 152 55% 45%;
+    --chart-3: 152 55% 35%;
+    --chart-4: 160 50% 45%;
+    --chart-5: 148 45% 65%;
+
+    --sidebar-background: 222 40% 8%;
+    --sidebar-foreground: 0 0% 98%;
+    --sidebar-primary: 152 55% 45%;
+    --sidebar-primary-foreground: 152 80% 12%;
+    --sidebar-accent: 167 45% 18%;
+    --sidebar-accent-foreground: 152 80% 90%;
+    --sidebar-border: 217 19% 18%;
+    --sidebar-ring: 152 55% 45%;
   }
 }
 
