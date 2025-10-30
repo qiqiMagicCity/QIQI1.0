@@ -17,10 +17,10 @@ const portfolioStatus: Status = 'live';
 
 export default function Home() {
   return (
-    <div className="flex min-h-screen w-full flex-col bg-secondary">
+    <div className="flex min-h-screen w-full flex-col">
       <DashboardHeader />
       <main className="flex flex-1 flex-col ">
-        <div className="p-4 md:p-6 border-b border-border bg-background">
+        <div className="p-4 md:p-6 border-b border-border/20 bg-transparent">
           <div className="flex items-center gap-3 mb-4">
             <div className="w-10 h-10 flex items-center justify-center bg-primary rounded-lg text-primary-foreground shadow-md">
               <Leaf className="w-6 h-6" />
@@ -29,7 +29,7 @@ export default function Home() {
           </div>
 
           <Tabs defaultValue="home">
-            <TabsList className="grid w-full grid-cols-3 max-w-md">
+            <TabsList>
               <TabsTrigger value="home">首页</TabsTrigger>
               <TabsTrigger value="details">股票详情</TabsTrigger>
               <TabsTrigger value="history">交易历史</TabsTrigger>

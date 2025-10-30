@@ -15,7 +15,7 @@ export function DashboardHeader() {
   const userAvatar = PlaceHolderImages.find(p => p.id === 'userAvatar');
 
   return (
-    <header className="sticky top-0 z-30 flex h-16 items-center justify-between gap-4 border-b bg-background/95 backdrop-blur-sm px-4 md:px-6">
+    <header className="sticky top-0 z-30 flex h-16 items-center justify-between gap-4 border-b border-border/20 bg-background/50 backdrop-blur-sm px-4 md:px-6">
         <div className="flex items-center gap-4">
             <div>
                 <h1 className="text-lg font-bold md:text-xl">
