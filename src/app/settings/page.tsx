@@ -7,11 +7,13 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Separator } from '@/components/ui/separator';
-import { useAuth, useUser } from '@/firebase';
+import { useAuth } from '@/firebase';
 import { updateProfile } from 'firebase/auth';
 import { useState } from 'react';
 import { useToast } from '@/hooks/use-toast';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import Link from 'next/link';
+import { ArrowLeft } from 'lucide-react';
 
 export default function SettingsPage() {
   const { ready, user } = useRequireAuth();
@@ -55,9 +57,17 @@ export default function SettingsPage() {
       <DashboardHeader />
       <main className="flex-1 p-4 md:p-6 lg:p-8">
         <div className="mx-auto max-w-4xl space-y-6">
-          <div>
-            <h1 className="text-2xl font-bold tracking-tight">设置</h1>
-            <p className="text-muted-foreground">管理您的账户设置和网站偏好。</p>
+          <div className="flex items-center gap-4">
+             <Link href="/" legacyBehavior>
+              <Button variant="outline" size="icon" className="h-8 w-8">
+                <ArrowLeft className="h-4 w-4" />
+                <span className="sr-only">返回首页</span>
+              </Button>
+            </Link>
+            <div>
+                <h1 className="text-2xl font-bold tracking-tight">设置</h1>
+                <p className="text-muted-foreground">管理您的账户设置和网站偏好。</p>
+            </div>
           </div>
           <Separator />
 
