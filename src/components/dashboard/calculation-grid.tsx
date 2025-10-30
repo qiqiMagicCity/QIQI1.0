@@ -12,12 +12,10 @@ export function CalculationGrid() {
             <module.icon className="h-5 w-5 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{module.value}</div>
-            {module.change && (
-              <p className={cn("text-xs", module.changeType === 'positive' ? 'text-emerald-500' : 'text-destructive')}>
-                <span className="font-semibold">{module.change}</span> 从上期
-              </p>
-            )}
+            <div className="text-2xl font-bold">--</div>
+            <p className="text-xs text-muted-foreground">
+              --
+            </p>
           </CardContent>
         </Card>
       ))}

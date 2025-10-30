@@ -9,7 +9,6 @@ import { StockDetails } from "@/components/dashboard/stock-details";
 import { TransactionHistory } from "@/components/dashboard/transaction-history";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { coreMetrics } from "@/lib/data";
 import { StatusBadge, type Status } from "@/components/ui/status-badge";
 import { cn } from "@/lib/utils";
 import {
@@ -25,7 +24,7 @@ import { Button } from "@/components/ui/button";
 import { useRequireAuth } from "@/components/auth/guards";
 
 
-const portfolioStatus: Status = 'live'; 
+const portfolioStatus: Status = 'close'; 
 
 export default function Home() {
   const { ready } = useRequireAuth();
@@ -65,24 +64,45 @@ export default function Home() {
                   </div>
 
                   <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                    {coreMetrics.map((metric) => (
-                      <Card key={metric.id} className="bg-background/50">
-                          <CardHeader className="pb-4">
-                              <div className="flex items-start justify-between">
-                                  <span className="metric-title">{metric.title}</span>
-                                  <StatusBadge status={metric.status as Status} />
-                              </div>
-                          </CardHeader>
-                          <CardContent>
-                            <div className="metric-value">{metric.value}</div>
-                              {metric.change && (
-                                  <p className={cn("text-xs mt-2", metric.changeType === 'positive' ? 'text-emerald-500' : 'text-destructive')}>
-                                  <span className="font-semibold">{metric.change}</span>
-                                  </p>
-                              )}
-                          </CardContent>
-                      </Card>
-                    ))}
+                    <Card className="bg-background/50">
+                      <CardHeader className="pb-4">
+                        <div className="flex items-start justify-between">
+                          <span className="metric-title">总资产</span>
+                          <StatusBadge status={'close'} />
+                        </div>
+                      </CardHeader>
+                      <CardContent>
+                        <div className="metric-value">--</div>
+                        <p className="text-xs mt-2 text-muted-foreground">
+                          --
+                        </p>
+                      </CardContent>
+                    </Card>
+                    <Card className="bg-background/50">
+                      <CardHeader className="pb-4">
+                        <div className="flex items-start justify-between">
+                          <span className="metric-title">持仓成本</span>
+                          <StatusBadge status={'close'} />
+                        </div>
+                      </CardHeader>
+                      <CardContent>
+                        <div className="metric-value">--</div>
+                      </CardContent>
+                    </Card>
+                    <Card className="bg-background/50">
+                      <CardHeader className="pb-4">
+                        <div className="flex items-start justify-between">
+                          <span className="metric-title">持仓浮盈</span>
+                          <StatusBadge status={'close'} />
+                        </div>
+                      </CardHeader>
+                      <CardContent>
+                        <div className="metric-value">--</div>
+                        <p className="text-xs mt-2 text-muted-foreground">
+                          --
+                        </p>
+                      </CardContent>
+                    </Card>
                   </div>
                 </section>
 
