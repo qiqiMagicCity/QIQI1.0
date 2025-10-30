@@ -32,87 +32,6 @@
         "registrationDate"
       ]
     },
-    "CalculationModule": {
-      "$schema": "http://json-schema.org/draft-07/schema#",
-      "title": "CalculationModule",
-      "type": "object",
-      "description": "Represents a single calculation module within the customizable grid.",
-      "properties": {
-        "id": {
-          "type": "string",
-          "description": "Unique identifier for the calculation module."
-        },
-        "userProfileId": {
-          "type": "string",
-          "description": "Reference to UserProfile. (Relationship: UserProfile 1:N CalculationModule)"
-        },
-        "name": {
-          "type": "string",
-          "description": "The name of the calculation module."
-        },
-        "description": {
-          "type": "string",
-          "description": "A description of what the calculation module does."
-        },
-        "calculationLogic": {
-          "type": "string",
-          "description": "The code or formula used for the calculation."
-        },
-        "displayOrder": {
-          "type": "number",
-          "description": "The order in which the module should be displayed in the grid."
-        }
-      },
-      "required": [
-        "id",
-        "userProfileId",
-        "name",
-        "description",
-        "calculationLogic",
-        "displayOrder"
-      ]
-    },
-    "Holding": {
-      "$schema": "http://json-schema.org/draft-07/schema#",
-      "title": "Holding",
-      "type": "object",
-      "description": "Represents a stock holding in the user's portfolio.",
-      "properties": {
-        "id": {
-          "type": "string",
-          "description": "Unique identifier for the holding."
-        },
-        "userProfileId": {
-          "type": "string",
-          "description": "Reference to UserProfile. (Relationship: UserProfile 1:N Holding)"
-        },
-        "ticker": {
-          "type": "string",
-          "description": "The stock ticker symbol."
-        },
-        "quantity": {
-          "type": "number",
-          "description": "The number of shares held."
-        },
-        "costBasis": {
-          "type": "number",
-          "description": "The average cost per share."
-        },
-        "purchaseDate": {
-          "type": "string",
-          "description": "The date the shares were purchased.",
-          "format": "date-time"
-        }
-      },
-      "required": [
-        "id",
-        "userProfileId",
-        "ticker",
-        "quantity",
-        "costBasis",
-        "purchaseDate"
-      ]
-    },
     "Transaction": {
       "$schema": "http://json-schema.org/draft-07/schema#",
       "title": "Transaction",
@@ -127,13 +46,14 @@
           "type": "string",
           "description": "Reference to UserProfile. (Relationship: UserProfile 1:N Transaction)"
         },
-        "ticker": {
+        "symbol": {
           "type": "string",
           "description": "The stock ticker symbol."
         },
-        "transactionType": {
+        "type": {
           "type": "string",
-          "description": "The type of transaction (e.g., buy, sell, dividend)."
+          "description": "The type of transaction (e.g., Buy, Sell, Dividend).",
+          "enum": ["Buy", "Sell"]
         },
         "quantity": {
           "type": "number",
@@ -143,20 +63,25 @@
           "type": "number",
           "description": "The price per share at the time of the transaction."
         },
-        "transactionDate": {
+        "date": {
           "type": "string",
           "description": "The date and time of the transaction.",
           "format": "date-time"
+        },
+        "total": {
+            "type": "number",
+            "description": "The total value of the transaction."
         }
       },
       "required": [
         "id",
         "userProfileId",
-        "ticker",
-        "transactionType",
+        "symbol",
+        "type",
         "quantity",
         "price",
-        "transactionDate"
+        "date",
+        "total"
       ]
     }
   },
@@ -175,51 +100,11 @@
           "schema": {
             "$ref": "#/backend/entities/UserProfile"
           },
-          "description": "Stores user profile information.  The `userProfileId` is the Firebase Auth UID.",
+          "description": "Stores user profile information. The `userProfileId` is the Firebase Auth UID.",
           "params": [
             {
               "name": "userProfileId",
               "description": "The unique identifier for the user profile, which matches the Firebase Auth UID."
-            }
-          ]
-        }
-      },
-      {
-        "path": "/users/{userProfileId}/calculationModules/{calculationModuleId}",
-        "definition": {
-          "entityName": "CalculationModule",
-          "schema": {
-            "$ref": "#/backend/entities/CalculationModule"
-          },
-          "description": "Stores calculation modules specific to a user. Includes denormalized `userProfileId` for authorization independence.",
-          "params": [
-            {
-              "name": "userProfileId",
-              "description": "The unique identifier for the user profile."
-            },
-            {
-              "name": "calculationModuleId",
-              "description": "The unique identifier for the calculation module."
-            }
-          ]
-        }
-      },
-      {
-        "path": "/users/{userProfileId}/holdings/{holdingId}",
-        "definition": {
-          "entityName": "Holding",
-          "schema": {
-            "$ref": "#/backend/entities/Holding"
-          },
-          "description": "Stores stock holdings for a user. Includes denormalized `userProfileId` for authorization independence.",
-          "params": [
-            {
-              "name": "userProfileId",
-              "description": "The unique identifier for the user profile."
-            },
-            {
-              "name": "holdingId",
-              "description": "The unique identifier for the holding."
             }
           ]
         }
@@ -245,6 +130,6 @@
         }
       }
     ],
-    "reasoning": "The Firestore data structure is designed to support the GreenTrader Analytics application, emphasizing secure and efficient data access for user-specific information. The structure leverages path-based ownership for user profiles, calculation modules, holdings, and transactions, ensuring that data is segregated by user and access rules can be applied consistently.\n\n*   **Authorization Independence:** All collections related to user data (calculation modules, holdings, transactions) are structured under the `/users/{userProfileId}` path. This structure inherently achieves authorization independence as access control can be directly applied based on the `userProfileId` without needing to `get()` data from other collections. The `userProfileId` is present in every document of the subcollections.\n*   **QAPs (Queries are not Filters):** The path-based ownership ensures secure `list` operations. Security rules can allow listing documents only if `request.auth.uid == userId`.\n*   **Structural Segregation:** Each collection (e.g., `calculationModules`, `holdings`, `transactions`) contains only documents of the same type and access requirements, simplifying security rule definitions.\n*   **Data Clarity:** Field names are explicit (e.g., `userProfileId` for ownership), and timestamps are in standard formats."
+    "reasoning": "The Firestore data structure is designed to support the GreenTrader Analytics application, emphasizing secure and efficient data access for user-specific information. The structure leverages path-based ownership for user profiles and transactions, ensuring that data is segregated by user and access rules can be applied consistently.\n\n*   **Authorization Independence:** The transactions collection is structured under the `/users/{userProfileId}` path. This structure inherently achieves authorization independence as access control can be directly applied based on the `userProfileId` without needing to `get()` data from other collections. The `userProfileId` is present in every document of the subcollections.\n*   **QAPs (Queries are not Filters):** The path-based ownership ensures secure `list` operations. Security rules can allow listing documents only if `request.auth.uid == userId`.\n*   **Structural Segregation:** Each collection contains only documents of the same type and access requirements, simplifying security rule definitions.\n*   **Data Clarity:** Field names are explicit (e.g., `userProfileId` for ownership), and timestamps are in standard formats."
   }
 }
