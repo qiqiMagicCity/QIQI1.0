@@ -16,12 +16,20 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { Button } from '../ui/button';
-import { Calendar as CalendarIcon, ListFilter } from 'lucide-react';
+import { Calendar as CalendarIcon, ListFilter, PlusCircle } from 'lucide-react';
 import {
   Popover,
   PopoverContent,
   PopoverTrigger,
 } from '@/components/ui/popover';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from '@/components/ui/dialog';
 import { Calendar } from '@/components/ui/calendar';
 import { Badge } from '../ui/badge';
 import { cn } from '@/lib/utils';
@@ -46,21 +54,21 @@ import {
   useAuth,
 } from '@/firebase';
 import type { Transaction } from '@/lib/data';
-import { collection, query, where, orderBy } from 'firebase/firestore';
+import { collection, query, orderBy } from 'firebase/firestore';
+import { AddTransactionForm } from './add-transaction-form';
 
 export function TransactionHistory() {
   const [date, setDate] = useState<DateRange | undefined>({
     from: new Date(2023, 8, 1),
     to: addDays(new Date(2023, 9, 26), 0),
   });
+  const [isFormOpen, setIsFormOpen] = useState(false);
 
   const firestore = useFirestore();
   const auth = useAuth();
   const { user, isUserLoading } = useUser();
 
   useEffect(() => {
-    // When the component mounts and we are not loading the user,
-    // and the user is not logged in, we initiate anonymous sign-in.
     if (!isUserLoading && !user) {
       initiateAnonymousSignIn(auth);
     }
@@ -69,7 +77,6 @@ export function TransactionHistory() {
   const transactionsQuery = useMemoFirebase(() => {
     if (!user || !firestore) return null;
     const coll = collection(firestore, 'users', user.uid, 'transactions');
-    // We can add filtering and ordering here in the future
     return query(coll, orderBy('date', 'desc'));
   }, [user, firestore]);
 
@@ -86,7 +93,7 @@ export function TransactionHistory() {
     return transactions.filter((transaction) => {
       const transactionDate = new Date(transaction.date);
       const from = date.from!;
-      const to = date.to ? addDays(date.to, 1) : addDays(from, 1); // Make 'to' inclusive
+      const to = date.to ? addDays(date.to, 1) : addDays(from, 1);
       return transactionDate >= from && transactionDate < to;
     });
   }, [transactions, date]);
@@ -102,6 +109,25 @@ export function TransactionHistory() {
             <CardDescription>所有过去交易的详细记录。</CardDescription>
           </div>
           <div className="flex items-center gap-2">
+            <Dialog open={isFormOpen} onOpenChange={setIsFormOpen}>
+              <DialogTrigger asChild>
+                <Button size="sm" className="h-8 gap-1">
+                  <PlusCircle className="h-3.5 w-3.5" />
+                  <span className="sr-only sm:not-sr-only sm:whitespace-nowrap">
+                    添加交易
+                  </span>
+                </Button>
+              </DialogTrigger>
+              <DialogContent>
+                <DialogHeader>
+                  <DialogTitle>添加一笔新交易</DialogTitle>
+                  <DialogDescription>
+                    请填写以下信息以记录您的新交易。
+                  </DialogDescription>
+                </DialogHeader>
+                <AddTransactionForm onSuccess={() => setIsFormOpen(false)} />
+              </DialogContent>
+            </Dialog>
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <Button variant="outline" size="sm" className="h-8 gap-1">
