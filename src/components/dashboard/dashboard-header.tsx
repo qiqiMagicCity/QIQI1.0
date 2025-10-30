@@ -52,7 +52,7 @@ export function DashboardHeader() {
             </Button>
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <Button variant="outline" className="px-3 py-1 h-auto text-sm rounded-full border-primary border-dashed">
+                <Button variant="outline" className="px-3 py-1 h-auto text-sm rounded-full border-2 border-primary border-dashed">
                   <span>欢迎, {getWelcomeText()}</span>
                 </Button>
               </DropdownMenuTrigger>
