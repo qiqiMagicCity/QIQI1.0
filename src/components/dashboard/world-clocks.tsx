@@ -5,15 +5,16 @@ import { useState, useEffect } from 'react';
 type TimeZoneOption = {
   label: string;
   timeZone: string;
+  fontClass: string;
 };
 
 const timeZones: TimeZoneOption[] = [
-  { label: '瓦伦西亚', timeZone: 'Europe/Madrid' },
-  { label: '上海', timeZone: 'Asia/Shanghai' },
-  { label: '纽约', timeZone: 'America/New_York' },
+  { label: '瓦伦西亚', timeZone: 'Europe/Madrid', fontClass: 'font-sans' }, // 黑体
+  { label: '上海', timeZone: 'Asia/Shanghai', fontClass: 'font-serif' },   // 宋体
+  { label: '纽约', timeZone: 'America/New_York', fontClass: 'font-kai' },     // 楷体
 ];
 
-const TimeDisplay = ({ label, timeZone }: TimeZoneOption) => {
+const TimeDisplay = ({ label, timeZone, fontClass }: TimeZoneOption) => {
   const [time, setTime] = useState('');
 
   useEffect(() => {
@@ -36,7 +37,7 @@ const TimeDisplay = ({ label, timeZone }: TimeZoneOption) => {
 
   return (
     <div className="flex items-center gap-2">
-      <span className="text-base text-muted-foreground">{label}</span>
+      <span className={`text-base text-muted-foreground ${fontClass}`}>{label}</span>
       <span className="text-base font-semibold text-foreground font-mono">{time}</span>
     </div>
   );
@@ -47,7 +48,7 @@ export function WorldClocks() {
     <div className="flex items-center gap-4">
         <div className="hidden md:flex items-center gap-4">
             {timeZones.map((tz) => (
-                <TimeDisplay key={tz.timeZone} label={tz.label} timeZone={tz.timeZone} />
+                <TimeDisplay key={tz.timeZone} label={tz.label} timeZone={tz.timeZone} fontClass={tz.fontClass} />
             ))}
         </div>
     </div>

@@ -10,6 +10,9 @@ export default {
   theme: {
     extend: {
       fontFamily: {
+        sans: ['Inter', '"Noto Sans SC"', 'sans-serif'], // 黑体 (无衬线)
+        serif: ['"Noto Serif SC"', 'serif'], // 宋体 (衬线)
+        kai: ['"LXGW WenKai Mono TC"', 'cursive'], // 楷体
         body: ['Inter', '"Noto Sans SC"', 'sans-serif'],
         headline: ['Inter', '"Noto Sans SC"', 'sans-serif'],
         display: ['"ZCOOL KuaiLe"', 'cursive'],
