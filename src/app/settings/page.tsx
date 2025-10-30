@@ -58,7 +58,7 @@ export default function SettingsPage() {
       <main className="flex-1 p-4 md:p-6 lg:p-8">
         <div className="mx-auto max-w-4xl space-y-6">
           <div className="flex items-center gap-4">
-             <Link href="/" legacyBehavior>
+             <Link href="/">
               <Button variant="outline" size="icon" className="h-8 w-8">
                 <ArrowLeft className="h-4 w-4" />
                 <span className="sr-only">返回首页</span>
