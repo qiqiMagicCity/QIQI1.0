@@ -58,10 +58,7 @@ import { collection, query, orderBy } from 'firebase/firestore';
 import { AddTransactionForm } from './add-transaction-form';
 
 export function TransactionHistory() {
-  const [date, setDate] = useState<DateRange | undefined>({
-    from: new Date(2023, 8, 1),
-    to: addDays(new Date(2023, 9, 26), 0),
-  });
+  const [date, setDate] = useState<DateRange | undefined>(undefined);
   const [isFormOpen, setIsFormOpen] = useState(false);
 
   const firestore = useFirestore();
@@ -88,10 +85,11 @@ export function TransactionHistory() {
 
   const filteredTransactions = useMemo(() => {
     if (!transactions) return [];
-    if (!date?.from) return transactions;
+    if (!date?.from) return transactions; // 如果没有选择日期范围，则返回所有交易
 
     return transactions.filter((transaction) => {
       const transactionDate = new Date(transaction.date);
+      // 如果只有 from，则 to 设为 from 的一天后
       const from = date.from!;
       const to = date.to ? addDays(date.to, 1) : addDays(from, 1);
       return transactionDate >= from && transactionDate < to;
@@ -159,11 +157,11 @@ export function TransactionHistory() {
                   {date?.from ? (
                     date.to ? (
                       <>
-                        {format(date.from, 'LLL dd, y', { locale: zhCN })} -{' '}
-                        {format(date.to, 'LLL dd, y', { locale: zhCN })}
+                        {format(date.from, 'y-MM-dd', { locale: zhCN })} -{' '}
+                        {format(date.to, 'y-MM-dd', { locale: zhCN })}
                       </>
                     ) : (
-                      format(date.from, 'LLL dd, y', { locale: zhCN })
+                      format(date.from, 'y-MM-dd', { locale: zhCN })
                     )
                   ) : (
                     <span>选择一个日期</span>
@@ -218,7 +216,7 @@ export function TransactionHistory() {
                 {!isLoading && !error && filteredTransactions.length === 0 && (
                   <TableRow>
                     <TableCell colSpan={6} className="text-center">
-                      在此日期范围内未找到任何交易。
+                      在此日期范围内未找到任何交易，或您的用户下暂无记录。
                     </TableCell>
                   </TableRow>
                 )}
@@ -226,9 +224,7 @@ export function TransactionHistory() {
                   filteredTransactions.map((transaction) => (
                     <TableRow key={transaction.id}>
                       <TableCell className="whitespace-nowrap">
-                        {new Date(transaction.date).toLocaleDateString(
-                          'zh-CN'
-                        )}
+                        {format(new Date(transaction.date), 'yyyy-MM-dd')}
                       </TableCell>
                       <TableCell className="font-medium">
                         {transaction.symbol}
