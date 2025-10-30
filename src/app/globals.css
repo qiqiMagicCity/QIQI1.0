@@ -4,43 +4,49 @@
 
 body {
   font-family: Arial, Helvetica, sans-serif;
+  background: hsl(var(--background));
 }
 
 @layer base {
   :root {
-    --background: 152 70% 8%;
-    --foreground: 156 30% 95%;
+    --background: 0 0% 100%;
+    --foreground: 222 47% 11%;
 
-    --card: 152 60% 12%;
-    --card-foreground: 156 30% 95%;
+    --card: 0 0% 100%;
+    --card-foreground: 222 47% 11%;
 
-    --popover: 152 60% 12%;
-    --popover-foreground: 156 30% 95%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 222 47% 11%;
 
-    --primary: 152 55% 45%;
+    /* 主色：翡翠绿（更耐看，非荧光） */
+    --primary: 152 61% 36%;
     --primary-foreground: 152 80% 97%;
 
-    --secondary: 152 40% 20%;
-    --secondary-foreground: 156 30% 95%;
+    /* 次级与静态信息区块：干净的冷灰 */
+    --secondary: 210 20% 96%;
+    --secondary-foreground: 222 47% 11%;
 
-    --muted: 152 50% 15%;
-    --muted-foreground: 156 25% 75%;
-    
-    --accent: 152 50% 25%;
-    --accent-foreground: 156 30% 95%;
+    /* 附色：柔和薄荷绿，用于强调/悬浮背景 */
+    --muted: 210 20% 96%;
+    --muted-foreground: 215 16% 45%;
+    --accent: 156 58% 92%;
+    --accent-foreground: 156 34% 22%;
 
-    --destructive: 0 62% 40%;
+    /* 破坏色保持红，但更内敛 */
+    --destructive: 0 72% 46%;
     --destructive-foreground: 0 0% 98%;
 
-    --border: 152 40% 25%;
-    --input: 152 40% 25%;
-    --ring: 152 55% 55%;
+    /* 线条/输入/焦点环统一 */
+    --border: 214 15% 90%;
+    --input: 214 15% 90%;
+    --ring: 152 61% 36%;
 
-    --chart-1: 152 55% 45%;
-    --chart-2: 152 55% 55%;
-    --chart-3: 152 55% 65%;
-    --chart-4: 152 55% 35%;
-    --chart-5: 152 55% 75%;
+    /* 图表（同一色系，明度阶梯） */
+    --chart-1: 152 60% 41%;
+    --chart-2: 152 60% 55%;
+    --chart-3: 152 60% 70%;
+    --chart-4: 152 60% 30%;
+    --chart-5: 152 60% 85%;
 
     --radius: 0.75rem;
 
@@ -53,42 +59,51 @@ body {
     --sidebar-accent-foreground: 156 34% 22%;
     --sidebar-border: 214 15% 88%;
     --sidebar-ring: 152 61% 36%;
+    
+    /* 语义色（克制版） */
+    --ok: 152 61% 36%;      /* live / 主绿 */
+    --ready: 160 45% 40%;   /* Ready / 青绿 */
+    --warn: 30 92% 50%;     /* stale / 琥珀橙 */
+    --mute: 215 16% 45%;    /* close / 中性灰蓝 */
   }
 
   .dark {
-    --background: 152 70% 8%;
-    --foreground: 156 30% 95%;
+    --background: 222 47% 6%;
+    --foreground: 0 0% 98%;
 
-    --card: 152 60% 12%;
-    --card-foreground: 156 30% 95%;
+    --card: 222 47% 8%;
+    --card-foreground: 0 0% 98%;
 
-    --popover: 152 60% 12%;
-    --popover-foreground: 156 30% 95%;
+    --popover: 222 47% 8%;
+    --popover-foreground: 0 0% 98%;
 
+    /* 暗色模式主绿略提亮，保证可读性 */
     --primary: 152 55% 45%;
-    --primary-foreground: 152 80% 97%;
+    --primary-foreground: 152 80% 12%;
 
-    --secondary: 152 40% 20%;
-    --secondary-foreground: 156 30% 95%;
+    --secondary: 217 19% 14%;
+    --secondary-foreground: 0 0% 98%;
 
-    --muted: 152 50% 15%;
-    --muted-foreground: 156 25% 75%;
-    
-    --accent: 152 50% 25%;
-    --accent-foreground: 156 30% 95%;
+    --muted: 217 19% 14%;
+    --muted-foreground: 215 20% 72%;
+
+    /* 暗色下的薄荷绿做深，避免发灰发白 */
+    --accent: 167 45% 18%;
+    --accent-foreground: 152 80% 90%;
 
     --destructive: 0 62% 40%;
     --destructive-foreground: 0 0% 98%;
 
-    --border: 152 40% 25%;
-    --input: 152 40% 25%;
-    --ring: 152 55% 55%;
+    --border: 217 19% 18%;
+    --input: 217 19% 18%;
+    --ring: 152 55% 45%;
 
-    --chart-1: 152 55% 45%;
-    --chart-2: 152 55% 55%;
-    --chart-3: 152 55% 65%;
-    --chart-4: 152 55% 35%;
-    --chart-5: 152 55% 75%;
+    /* 图表在暗色里做明度分层与少量偏移 */
+    --chart-1: 152 55% 55%;
+    --chart-2: 152 55% 45%;
+    --chart-3: 152 55% 35%;
+    --chart-4: 160 50% 45%;
+    --chart-5: 148 45% 65%;
 
     --sidebar-background: 222 40% 8%;
     --sidebar-foreground: 0 0% 98%;
@@ -109,3 +124,46 @@ body {
     @apply bg-background text-foreground;
   }
 }
+
+/* === App Surfaces === */
+.app-surface { background: hsl(var(--background)); }
+.card {
+  background: hsl(var(--card));
+  border: 1px solid hsl(var(--border));
+  border-radius: var(--radius);
+  box-shadow: 0 1px 2px rgba(0,0,0,.04), 0 6px 24px rgba(0,0,0,.06);
+}
+
+/* Metric typography */
+.metric-title { font-size: .8rem; opacity: .7; }
+.metric-value { font-size: 1.875rem; line-height: 1.2; font-variant-numeric: tabular-nums; }
+
+/* 状态徽章：色彩克制，避免大面积纯色底 */
+.badge {
+  display:inline-flex; align-items:center; gap:.35rem;
+  padding:.25rem .5rem; border-radius:999px;
+  border:1px solid hsl(var(--border)); background:hsl(var(--secondary));
+  font-size:.75rem; line-height:1; white-space:nowrap;
+}
+.badge-dot { width:.45rem; height:.45rem; border-radius:999px; }
+
+/* 徽章变体（点 + 边框轻色调） */
+.badge-live .badge-dot { background-color: hsl(var(--ok)); }
+.badge-live   { border-color: hsl(var(--ok) / .25);    background: hsl(var(--ok) / .06);    color: hsl(var(--ok)); }
+.badge-ready .badge-dot { background-color: hsl(var(--ready)); }
+.badge-ready  { border-color: hsl(var(--ready) / .25); background: hsl(var(--ready) / .06); color: hsl(var(--ready)); }
+.badge-stale .badge-dot { background-color: hsl(var(--warn)); }
+.badge-stale  { border-color: hsl(var(--warn) / .25);  background: hsl(var(--warn) / .06);  color: hsl(var(--warn)); }
+.badge-close .badge-dot { background-color: hsl(var(--mute)); }
+.badge-close  { border-color: hsl(var(--mute) / .25);  background: hsl(var(--mute) / .06);  color: hsl(var(--mute)); }
+
+/* 表格优化：浅底、斑马纹、悬停 */
+.table {
+  --row-alt: 210 20% 98%;
+  background: hsl(var(--card));
+  border:1px solid hsl(var(--border));
+  border-radius: var(--radius);
+}
+.table thead th { background:hsl(var(--secondary)); font-weight:600; }
+.table tbody tr:nth-child(even){ background: hsl(var(--row-alt)); }
+.table tbody tr:hover { background: hsl(var(--accent) / .35); }

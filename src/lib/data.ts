@@ -1,4 +1,5 @@
 import { Coins, TrendingUp, Wallet, Zap, Gauge, Scale, Gem, Leaf, Factory, Activity, BarChart, LineChart, CandlestickChart, Percent, DollarSign, type LucideIcon } from 'lucide-react';
+import type { Status } from '@/components/ui/status-badge';
 
 export type CalculationModule = {
   id: number;
@@ -10,9 +11,6 @@ export type CalculationModule = {
 };
 
 export const calculationModules: CalculationModule[] = [
-  { id: 1, title: '投资组合价值', value: '$125,430.88', change: '+2.1%', changeType: 'positive', icon: Wallet },
-  { id: 2, title: '当日盈亏', value: '$1,203.45', change: '+1.1%', changeType: 'positive', icon: TrendingUp },
-  { id: 3, title: '总盈亏', value: '$25,430.88', change: '+25.4%', changeType: 'positive', icon: BarChart },
   { id: 4, title: 'RSI (AAPL)', value: '68.2', icon: Gauge },
   { id: 5, title: '移动平均 (SPY)', value: '$445.67', change: '-0.2%', changeType: 'negative', icon: LineChart },
   { id: 6, title: '夏普比率', value: '1.8', icon: Scale },
@@ -26,6 +24,22 @@ export const calculationModules: CalculationModule[] = [
   { id: 14, title: '购买力', value: '$15,000.00', icon: DollarSign },
   { id: 15, title: '持仓数量', value: '12', icon: Coins },
 ];
+
+export type CoreMetric = {
+  id: number;
+  title: string;
+  value: string;
+  change?: string;
+  changeType?: 'positive' | 'negative';
+  status: Status;
+};
+
+export const coreMetrics: CoreMetric[] = [
+    { id: 1, title: '总市值', value: '$125,430.88', change: '+2.1%', changeType: 'positive', status: 'live' },
+    { id: 2, title: '浮动盈亏 (方向性)', value: '$25,430.88', change: '+25.4%', changeType: 'positive', status: 'stale' },
+    { id: 3, title: '当日总盈亏 (方向性)', value: '$1,203.45', change: '+1.1%', changeType: 'positive', status: 'close' },
+];
+
 
 export type Holding = {
   symbol: string;
