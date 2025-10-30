@@ -61,49 +61,50 @@ body {
     --sidebar-ring: 152 61% 36%;
     
     /* 语义色（克制版） */
-    --ok: 152 61% 36%;      /* live / 主绿 */
-    --ready: 160 45% 40%;   /* Ready / 青绿 */
-    --warn: 30 92% 50%;     /* stale / 琥珀橙 */
-    --mute: 215 16% 45%;    /* close / 中性灰蓝 */
+    --ok: 152 61% 46%;      /* live / 主绿 */
+    --ready: 160 45% 46%;   /* Ready / 青绿 */
+    --warn: 30 90% 56%;     /* stale / 琥珀橙 */
+    --mute: 210 14% 66%;    /* close / 中性灰蓝 */
   }
 
   .dark {
-    --background: 222 47% 6%;
-    --foreground: 0 0% 98%;
+    /* 深灰基底与文字 */
+    --background: 210 15% 7%;    /* hsl fallback for #0F1214 */
+    --foreground: 210 30% 97%;   /* 近似 #E7ECEF */
 
-    --card: 222 47% 8%;
-    --card-foreground: 0 0% 98%;
+    --card: 210 16% 9%;
+    --card-foreground: 210 30% 97%;
 
-    --popover: 222 47% 8%;
-    --popover-foreground: 0 0% 98%;
+    --popover: 210 16% 9%;
+    --popover-foreground: 210 30% 97%;
 
-    /* 暗色模式主绿略提亮，保证可读性 */
+    /* 主绿（oklch 优先, hsl 兜底） */
+    /* ok: oklch(0.68 0.16 155); hover: oklch(0.72 0.16 155) */
     --primary: 152 55% 45%;
-    --primary-foreground: 152 80% 12%;
+    --primary-foreground: 152 85% 12%;
 
-    --secondary: 217 19% 14%;
-    --secondary-foreground: 0 0% 98%;
+    --secondary: 215 13% 16%;
+    --secondary-foreground: 210 30% 96%;
 
-    --muted: 217 19% 14%;
-    --muted-foreground: 215 20% 72%;
+    --muted: 215 13% 16%;
+    --muted-foreground: 210 12% 70%;
 
-    /* 暗色下的薄荷绿做深，避免发灰发白 */
-    --accent: 167 45% 18%;
-    --accent-foreground: 152 80% 90%;
+    --accent: 160 45% 18%;          /* 深绿蒙层 */
+    --accent-foreground: 152 70% 90%;
 
-    --destructive: 0 62% 40%;
+    --destructive: 0 68% 50%;
     --destructive-foreground: 0 0% 98%;
 
-    --border: 217 19% 18%;
-    --input: 217 19% 18%;
+    --border: 210 12% 18%;
+    --input: 210 12% 18%;
     --ring: 152 55% 45%;
 
-    /* 图表在暗色里做明度分层与少量偏移 */
+    /* 图表：主绿 + 中性对比 */
     --chart-1: 152 55% 55%;
-    --chart-2: 152 55% 45%;
-    --chart-3: 152 55% 35%;
-    --chart-4: 160 50% 45%;
-    --chart-5: 148 45% 65%;
+    --chart-2: 210 10% 65%;  /* 中性灰蓝线 */
+    --chart-3: 160 50% 50%;
+    --chart-4: 210 12% 40%;
+    --chart-5: 210 14% 30%;
 
     --sidebar-background: 222 40% 8%;
     --sidebar-foreground: 0 0% 98%;
@@ -126,44 +127,45 @@ body {
 }
 
 /* === App Surfaces === */
-.app-surface { background: hsl(var(--background)); }
+.app-surface { background: hsl(var(--background)); color: hsl(var(--foreground)); }
 .card {
   background: hsl(var(--card));
   border: 1px solid hsl(var(--border));
-  border-radius: var(--radius);
-  box-shadow: 0 1px 2px rgba(0,0,0,.04), 0 6px 24px rgba(0,0,0,.06);
+  border-radius: var(--radius, 0.75rem);
+  box-shadow: 0 1px 2px rgba(0,0,0,.35), 0 8px 30px rgba(0,0,0,.45);
 }
 
 /* Metric typography */
-.metric-title { font-size: .8rem; opacity: .7; }
+.metric-title { font-size: .8rem; opacity: .75; }
 .metric-value { font-size: 1.875rem; line-height: 1.2; font-variant-numeric: tabular-nums; }
 
 /* 状态徽章：色彩克制，避免大面积纯色底 */
 .badge {
   display:inline-flex; align-items:center; gap:.35rem;
-  padding:.25rem .5rem; border-radius:999px;
-  border:1px solid hsl(var(--border)); background:hsl(var(--secondary));
+  padding:.25rem .55rem; border-radius:999px;
+  border:1px solid hsl(var(--border));
   font-size:.75rem; line-height:1; white-space:nowrap;
 }
 .badge-dot { width:.45rem; height:.45rem; border-radius:999px; }
 
 /* 徽章变体（点 + 边框轻色调） */
 .badge-live .badge-dot { background-color: hsl(var(--ok)); }
-.badge-live   { border-color: hsl(var(--ok) / .25);    background: hsl(var(--ok) / .06);    color: hsl(var(--ok)); }
+.badge-live   { color:hsl(var(--ok));    background: hsl(var(--ok) / .08);    border-color:hsl(var(--ok)/.25); }
 .badge-ready .badge-dot { background-color: hsl(var(--ready)); }
-.badge-ready  { border-color: hsl(var(--ready) / .25); background: hsl(var(--ready) / .06); color: hsl(var(--ready)); }
+.badge-ready  { color:hsl(var(--ready)); background: hsl(var(--ready) / .08); border-color:hsl(var(--ready)/.25); }
 .badge-stale .badge-dot { background-color: hsl(var(--warn)); }
-.badge-stale  { border-color: hsl(var(--warn) / .25);  background: hsl(var(--warn) / .06);  color: hsl(var(--warn)); }
+.badge-stale  { color:hsl(var(--warn));  background: hsl(var(--warn) / .10);  border-color:hsl(var(--warn)/.25); }
 .badge-close .badge-dot { background-color: hsl(var(--mute)); }
-.badge-close  { border-color: hsl(var(--mute) / .25);  background: hsl(var(--mute) / .06);  color: hsl(var(--mute)); }
+.badge-close  { color:hsl(var(--mute));  background: hsl(var(--mute) / .12);  border-color:hsl(var(--mute)/.25); }
 
-/* 表格优化：浅底、斑马纹、悬停 */
+
+/* 表格优化：暗色优化 */
 .table {
-  --row-alt: 210 20% 98%;
-  background: hsl(var(--card));
+  background:hsl(var(--card));
   border:1px solid hsl(var(--border));
-  border-radius: var(--radius);
+  border-radius:var(--radius);
 }
-.table thead th { background:hsl(var(--secondary)); font-weight:600; }
-.table tbody tr:nth-child(even){ background: hsl(var(--row-alt)); }
+.table thead th { background: hsl(var(--secondary)); color:hsl(var(--foreground)); font-weight:600; }
 .table tbody tr:hover { background: hsl(var(--accent) / .35); }
+.dark .table tbody tr:nth-child(even){ background: transparent; }
+.light .table tbody tr:nth-child(even){ background: hsl(210 20% 98%); }
