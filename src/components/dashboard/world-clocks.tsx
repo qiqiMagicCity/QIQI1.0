@@ -1,4 +1,3 @@
-
 "use client";
 
 import { useState, useEffect } from 'react';
@@ -10,7 +9,7 @@ type TimeZoneOption = {
 };
 
 const timeZones: TimeZoneOption[] = [
-  { label: '马德里', timeZone: 'Europe/Madrid' },
+  { label: '瓦伦西亚', timeZone: 'Europe/Madrid' },
   { label: '上海', timeZone: 'Asia/Shanghai' },
   { label: '纽约', timeZone: 'America/New_York' },
 ];
