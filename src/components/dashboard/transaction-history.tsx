@@ -50,8 +50,6 @@ import {
   useUser,
   useFirestore,
   useMemoFirebase,
-  initiateAnonymousSignIn,
-  useAuth,
 } from '@/firebase';
 import type { Transaction } from '@/lib/data';
 import { collection, query, orderBy } from 'firebase/firestore';
@@ -62,19 +60,12 @@ export function TransactionHistory() {
   const [isFormOpen, setIsFormOpen] = useState(false);
 
   const firestore = useFirestore();
-  const auth = useAuth();
   const { user, isUserLoading } = useUser();
-
-  useEffect(() => {
-    if (!isUserLoading && !user) {
-      initiateAnonymousSignIn(auth);
-    }
-  }, [isUserLoading, user, auth]);
 
   const transactionsQuery = useMemoFirebase(() => {
     if (!user || !firestore) return null;
     const coll = collection(firestore, 'users', user.uid, 'transactions');
-    return query(coll, orderBy('date', 'desc'));
+    return query(coll, orderBy('transactionDate', 'desc'));
   }, [user, firestore]);
 
   const {
@@ -88,7 +79,7 @@ export function TransactionHistory() {
     if (!date?.from) return transactions; // 如果没有选择日期范围，则返回所有交易
 
     return transactions.filter((transaction) => {
-      const transactionDate = new Date(transaction.date);
+      const transactionDate = new Date(transaction.transactionDate);
       // 如果只有 from，则 to 设为 from 的一天后
       const from = date.from!;
       const to = date.to ? addDays(date.to, 1) : addDays(from, 1);
@@ -224,7 +215,7 @@ export function TransactionHistory() {
                   filteredTransactions.map((transaction) => (
                     <TableRow key={transaction.id}>
                       <TableCell className="whitespace-nowrap">
-                        {format(new Date(transaction.date), 'yyyy-MM-dd')}
+                        {format(new Date(transaction.transactionDate), 'yyyy-MM-dd')}
                       </TableCell>
                       <TableCell className="font-medium">
                         {transaction.symbol}

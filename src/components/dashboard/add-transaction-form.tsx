@@ -72,10 +72,16 @@ export function AddTransactionForm({ onSuccess }: AddTransactionFormProps) {
       const transactionData = {
         ...values,
         id: uuidv4(), //虽然 Firestore 会自动生成 ID，但在写入前生成一个有助于 optimitic updates
-        userProfileId: user.uid,
-        date: values.date.toISOString(),
+        userId: user.uid,
+        transactionDate: values.date.toISOString(),
         total: values.quantity * values.price,
       };
+      
+      // The `date` property is a Date object from the form, but Firestore expects a string.
+      // We are sending `transactionDate` as the ISO string, but we also need to handle the `date` property from `values`.
+      // Let's remove the original `date` property to avoid conflicts.
+      delete (transactionData as any).date;
+
 
       const transactionsRef = collection(
         firestore,

@@ -55,8 +55,8 @@ export const holdings: Holding[] = [];
 
 export type Transaction = {
   id: string;
-  userProfileId: string;
-  date: string;
+  userId: string;
+  transactionDate: string;
   symbol: string;
   type: 'Buy' | 'Sell';
   price: number;
@@ -79,3 +79,4 @@ export const stockChartData = [
   { date: '2023-03-19', price: 165 },
   { date: '2023-03-26', price: 170 },
 ];
+
