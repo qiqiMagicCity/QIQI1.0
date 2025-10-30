@@ -1,6 +1,7 @@
 "use client";
 
-import { Leaf } from "lucide-react";
+import { useState } from "react";
+import { Plus } from "lucide-react";
 import { DashboardHeader } from "@/components/dashboard/dashboard-header";
 import { CalculationGrid } from "@/components/dashboard/calculation-grid";
 import { HoldingsList } from "@/components/dashboard/holdings-list";
@@ -11,11 +12,23 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { coreMetrics } from "@/lib/data";
 import { StatusBadge, type Status } from "@/components/ui/status-badge";
 import { cn } from "@/lib/utils";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog";
+import { AddTransactionForm } from "@/components/dashboard/add-transaction-form";
+import { Button } from "@/components/ui/button";
 
 
 const portfolioStatus: Status = 'live'; 
 
 export default function Home() {
+  const [isFormOpen, setIsFormOpen] = useState(false);
+
   return (
     <div className="flex min-h-screen w-full flex-col">
       <DashboardHeader />
@@ -86,6 +99,25 @@ export default function Home() {
           </Tabs>
         </div>
       </main>
+
+      <Dialog open={isFormOpen} onOpenChange={setIsFormOpen}>
+        <DialogTrigger asChild>
+          <Button className="fixed bottom-8 right-8 h-16 w-16 rounded-full shadow-lg" size="icon">
+            <Plus className="h-8 w-8" />
+            <span className="sr-only">添加交易</span>
+          </Button>
+        </DialogTrigger>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>添加一笔新交易</DialogTitle>
+            <DialogDescription>
+              请填写以下信息以记录您的新交易。
+            </DialogDescription>
+          </DialogHeader>
+          <AddTransactionForm onSuccess={() => setIsFormOpen(false)} />
+        </DialogContent>
+      </Dialog>
+
     </div>
   );
 }
