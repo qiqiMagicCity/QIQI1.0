@@ -19,20 +19,20 @@ export default function Home() {
           <h1 className="text-2xl font-semibold">绿トレーダー</h1>
         </div>
 
-        <Tabs defaultValue="grid">
+        <Tabs defaultValue="holdings">
           <TabsList className="grid w-full grid-cols-4">
+            <TabsTrigger value="holdings">首页</TabsTrigger>
             <TabsTrigger value="grid">分析仪表盘</TabsTrigger>
-            <TabsTrigger value="holdings">持仓列表</TabsTrigger>
             <TabsTrigger value="details">股票详情</TabsTrigger>
             <TabsTrigger value="history">交易历史</TabsTrigger>
           </TabsList>
-          <TabsContent value="grid">
-            <CalculationGrid />
-          </TabsContent>
           <TabsContent value="holdings">
             <div className="grid gap-8">
               <HoldingsList />
             </div>
+          </TabsContent>
+          <TabsContent value="grid">
+            <CalculationGrid />
           </TabsContent>
           <TabsContent value="details">
             <StockDetails />
