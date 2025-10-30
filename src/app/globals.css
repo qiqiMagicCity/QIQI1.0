@@ -4,11 +4,11 @@
 
 @layer base {
   :root {
-    --background: 145 75% 95%; /* Bright green background */
-    --foreground: 150 8% 10%;
-    --card: 0 0% 100%;
+    --background: 145 60% 88%; /* Deeper bright green background */
+    --foreground: 150 12% 8%;
+    --card: 145 60% 97%;
     --card-foreground: 150 8% 12%;
-    --popover: 0 0% 100%;
+    --popover: 145 60% 97%;
     --popover-foreground: 150 8% 12%;
 
     /* 主色：品牌绿 */
