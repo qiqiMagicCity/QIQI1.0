@@ -51,13 +51,7 @@ export type Holding = {
   plPercent: number;
 };
 
-export const holdings: Holding[] = [
-  { symbol: 'AAPL', name: '苹果公司', shares: 150, costBasis: 19500, currentValue: 25500, pl: 6000, plPercent: 30.77 },
-  { symbol: 'MSFT', name: '微软公司', shares: 100, costBasis: 30000, currentValue: 34000, pl: 4000, plPercent: 13.33 },
-  { symbol: 'TSLA', name: '特斯拉公司', shares: 50, costBasis: 12500, currentValue: 11500, pl: -1000, plPercent: -8.00 },
-  { symbol: 'NVDA', name: '英伟达公司', shares: 75, costBasis: 22500, currentValue: 33750, pl: 11250, plPercent: 50.00 },
-  { symbol: 'GOOGL', name: 'Alphabet Inc.', shares: 80, costBasis: 9600, currentValue: 11200, pl: 1600, plPercent: 16.67 },
-];
+export const holdings: Holding[] = [];
 
 export type Transaction = {
   id: string;
