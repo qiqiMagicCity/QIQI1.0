@@ -10,8 +10,13 @@ export type CalculationModule = {
   icon: LucideIcon;
 };
 
-// 清空分析仪表盘的示例数据
-export const calculationModules: CalculationModule[] = [];
+export const calculationModules: CalculationModule[] = [
+  { id: 1, title: '名义总风险', value: '$8,240', change: '+5.2%', changeType: 'positive', icon: Gauge },
+  { id: 2, title: '方向性风险', value: '$1,230', change: '-1.8%', changeType: 'negative', icon: Scale },
+  { id: 3, title: '最大单边仓位', value: 'TSLA多头', change: '$4,500', changeType: 'positive', icon: Gem },
+  { id: 4, title: 'Alpha-纯多头', value: '$7,890', change: '+12.5%', changeType: 'positive', icon: Leaf },
+  { id: 5, title: 'Beta-对冲', value: '$-2,110', change: '-3.1%', changeType: 'negative', icon: Factory },
+];
 
 export type CoreMetric = {
   id: number;
@@ -22,8 +27,11 @@ export type CoreMetric = {
   status: Status;
 };
 
-// 清空核心指标卡片的示例数据
-export const coreMetrics: CoreMetric[] = [];
+export const coreMetrics: CoreMetric[] = [
+  { id: 1, title: '总资产', value: '$108,230.89', change: '+$1,230.45 (+1.15%)', changeType: 'positive', status: 'live' },
+  { id: 2, title: '持仓成本', value: '$95,400.12', status: 'close' },
+  { id: 3, title: '持仓浮盈', value: '+$12,830.77', change: '+13.45%', changeType: 'positive', status: 'live' },
+];
 
 
 export type Holding = {
@@ -36,8 +44,12 @@ export type Holding = {
   plPercent: number;
 };
 
-// 清空持仓列表的示例数据
-export const holdings: Holding[] = [];
+export const holdings: Holding[] = [
+  { symbol: 'AAPL', name: '苹果公司', shares: 150, costBasis: 145.20, currentValue: 25500, pl: 4470, plPercent: 20.95 },
+  { symbol: 'TSLA', name: '特斯拉', shares: 50, costBasis: 220.80, currentValue: 12500, pl: 1460, plPercent: 13.22 },
+  { symbol: 'NVDA', name: '英伟达', shares: 75, costBasis: 450.00, currentValue: 67500, pl: 33750, plPercent: 100 },
+  { symbol: 'NFLX', name: '奈飞', shares: -50, costBasis: 430.50, currentValue: -22500, pl: -1025, plPercent: -4.76 },
+];
 
 export type Transaction = {
   id: string;
