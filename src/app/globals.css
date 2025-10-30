@@ -8,7 +8,7 @@ body {
 
 @layer base {
   :root {
-    --background: 0 0% 100%;
+    --background: 156 58% 95%;
     --foreground: 222 47% 11%;
 
     --card: 0 0% 100%;
@@ -22,13 +22,13 @@ body {
     --primary-foreground: 152 80% 97%;
 
     /* 次级与静态信息区块：干净的冷灰 */
-    --secondary: 210 20% 96%;
+    --secondary: 210 20% 98%;
     --secondary-foreground: 222 47% 11%;
 
     /* 附色：柔和薄荷绿，用于强调/悬浮背景 */
-    --muted: 210 20% 96%;
+    --muted: 156 58% 92%;
     --muted-foreground: 215 16% 45%;
-    --accent: 156 58% 92%;
+    --accent: 156 58% 88%;
     --accent-foreground: 156 34% 22%;
 
     /* 破坏色保持红，但更内敛 */
