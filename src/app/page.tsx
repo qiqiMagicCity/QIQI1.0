@@ -36,33 +36,35 @@ export default function Home() {
             </TabsList>
             <TabsContent value="home" className="mt-6">
               <div className="app-surface space-y-4">
-                <section className="card p-4 md:p-6 flex items-start justify-between">
-                  <div>
-                    <h1 className="text-xl md:text-2xl font-semibold">首页</h1>
-                    <p className="text-sm text-muted-foreground mt-1">组合概览与关键指标</p>
+                <section className="card p-4 md:p-6">
+                  <div className="flex items-start justify-between mb-4">
+                    <div>
+                      <h1 className="text-xl md:text-2xl font-semibold">首页</h1>
+                      <p className="text-sm text-muted-foreground mt-1">组合概览与关键指标</p>
+                    </div>
+                    <StatusBadge status={portfolioStatus} />
                   </div>
-                  <StatusBadge status={portfolioStatus} />
-                </section>
 
-                <section className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                  {coreMetrics.map((metric) => (
-                     <Card key={metric.id}>
-                        <CardHeader className="pb-4">
-                            <div className="flex items-start justify-between">
-                                <span className="metric-title">{metric.title}</span>
-                                <StatusBadge status={metric.status as Status} />
-                            </div>
-                        </CardHeader>
-                        <CardContent>
-                           <div className="metric-value">{metric.value}</div>
-                            {metric.change && (
-                                <p className={cn("text-xs mt-2", metric.changeType === 'positive' ? 'text-emerald-500' : 'text-destructive')}>
-                                <span className="font-semibold">{metric.change}</span>
-                                </p>
-                            )}
-                        </CardContent>
-                    </Card>
-                  ))}
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    {coreMetrics.map((metric) => (
+                      <Card key={metric.id} className="bg-background/50">
+                          <CardHeader className="pb-4">
+                              <div className="flex items-start justify-between">
+                                  <span className="metric-title">{metric.title}</span>
+                                  <StatusBadge status={metric.status as Status} />
+                              </div>
+                          </CardHeader>
+                          <CardContent>
+                            <div className="metric-value">{metric.value}</div>
+                              {metric.change && (
+                                  <p className={cn("text-xs mt-2", metric.changeType === 'positive' ? 'text-emerald-500' : 'text-destructive')}>
+                                  <span className="font-semibold">{metric.change}</span>
+                                  </p>
+                              )}
+                          </CardContent>
+                      </Card>
+                    ))}
+                  </div>
                 </section>
 
                 <section className="card p-4 md:p-6">
