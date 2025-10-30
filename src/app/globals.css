@@ -4,12 +4,12 @@
 
 @layer base {
   :root {
-    --background: 145 60% 88%; /* Deeper bright green background */
-    --foreground: 150 12% 8%;
-    --card: 145 60% 97%;
-    --card-foreground: 150 8% 12%;
-    --popover: 145 60% 97%;
-    --popover-foreground: 150 8% 12%;
+    --background: 140 65% 85%; /* A more saturated, deeper green */
+    --foreground: 140 15% 10%;
+    --card: 140 60% 96%; /* Lighter card for contrast */
+    --card-foreground: 140 12% 12%;
+    --popover: 140 60% 96%;
+    --popover-foreground: 140 12% 12%;
 
     /* 主色：品牌绿 */
     --primary: 150 60% 45%;
@@ -30,8 +30,8 @@
     --destructive-foreground: 0 0% 98%;
 
     /* 线条/输入/焦点环 */
-    --border: 150 10% 88%;
-    --input: 150 10% 88%;
+    --border: 140 10% 88%;
+    --input: 140 10% 88%;
     --ring: 150 60% 45%;
     
     --radius: 0.75rem;
