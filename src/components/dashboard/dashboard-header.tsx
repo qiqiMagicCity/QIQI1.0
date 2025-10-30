@@ -1,6 +1,5 @@
 "use client"
 
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { Bell, Search, Settings, LifeBuoy, LogOut } from "lucide-react";
 import {
@@ -53,8 +52,8 @@ export function DashboardHeader() {
             </Button>
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <Button variant="ghost" className="px-2">
-                  <span className="font-medium text-sm">欢迎, {getWelcomeText()}</span>
+                <Button variant="outline" className="px-3 py-1 h-auto text-sm rounded-md">
+                  <span>欢迎, {getWelcomeText()}</span>
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end" className="w-56">
