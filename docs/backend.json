@@ -106,26 +106,28 @@
               "name": "userProfileId",
               "description": "The unique identifier for the user profile, which matches the Firebase Auth UID."
             }
-          ]
-        }
-      },
-      {
-        "path": "/transactions/{transactionId}",
-        "definition": {
-          "entityName": "Transaction",
-          "schema": {
-            "$ref": "#/backend/entities/Transaction"
-          },
-          "description": "Stores all transaction history for all users in a single top-level collection for collaborative access. Includes `userProfileId` for data attribution.",
-          "params": [
+          ],
+          "subcollections": [
             {
-              "name": "transactionId",
-              "description": "The unique identifier for the transaction."
+              "path": "transactions/{transactionId}",
+              "definition": {
+                "entityName": "Transaction",
+                "schema": {
+                  "$ref": "#/backend/entities/Transaction"
+                },
+                "description": "Stores transaction history for a single user.",
+                "params": [
+                  {
+                    "name": "transactionId",
+                    "description": "The unique identifier for the transaction."
+                  }
+                ]
+              }
             }
           ]
         }
       }
     ],
-    "reasoning": "The Firestore data structure is designed to support the GreenTrader Analytics application. It has been updated to a collaborative model. User profiles are stored per-user. Transactions are stored in a top-level collection to allow authorized admins to view all data for analytics and collaboration, while still attributing each transaction to a specific user via `userProfileId`."
+    "reasoning": "The Firestore data structure is designed to support the GreenTrader Analytics application, with user profiles and their corresponding transaction histories stored in a structured manner. Each user has a `UserProfile` document, and their transactions are stored in a `transactions` subcollection within their user document. This ensures data isolation and scalability."
   }
 }
