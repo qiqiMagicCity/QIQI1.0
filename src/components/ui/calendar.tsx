@@ -6,6 +6,7 @@ import { DayPicker } from "react-day-picker"
 
 import { cn } from "@/lib/utils"
 import { buttonVariants } from "@/components/ui/button"
+import { nowNyCalendarDayString } from "@/lib/ny-time"
 
 export type CalendarProps = React.ComponentProps<typeof DayPicker>
 
@@ -13,11 +14,19 @@ function Calendar({
   className,
   classNames,
   showOutsideDays = true,
+  today,
   ...props
 }: CalendarProps) {
+  const nyToday = React.useMemo(() => {
+    const s = nowNyCalendarDayString(); // 'YYYY-MM-DD' in America/New_York
+    const [y, m, d] = s.split('-').map(Number);
+    return new Date(y, m - 1, d); // local shadow date object for DayPicker "today" highlight
+  }, []);
+
   return (
     <DayPicker
       showOutsideDays={showOutsideDays}
+      today={today ?? nyToday}
       className={cn("p-3", className)}
       classNames={{
         months: "flex flex-col sm:flex-row space-y-4 sm:space-x-4 sm:space-y-0",
