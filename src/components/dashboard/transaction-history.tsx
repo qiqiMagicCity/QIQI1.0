@@ -119,22 +119,36 @@ export function TransactionHistory() {
     isLoading: isTransactionsLoading,
     error,
   } = useCollection<Transaction>(transactionsQuery);
+
+  const tradesQuery = useMemoFirebase(() => {
+    if (!user || !firestore) return null;
+    const coll = collection(firestore, 'users', user.uid, 'trades');
+    return query(coll, orderBy('transactionTimestamp', 'desc'));
+  }, [user, firestore]);
+
+  const {
+    data: trades,
+    isLoading: isTradesLoading,
+  } = useCollection<Transaction>(tradesQuery);
+
+  // 优先用新集合 transactions；若为空则回退旧集合 trades
+  const baseRows = (transactions && transactions.length > 0) ? transactions : (trades ?? []);
   
   const startNy = date?.from ? toNyCalendarDayString(date.from) : null;
   const endNy   = date?.to   ? toNyCalendarDayString(date.to)   : startNy;
 
   const filteredTransactions = useMemo(() => {
-    if (!transactions) return [];
-    if (!startNy || !endNy) return transactions;
-
-    return transactions.filter((tx) => {
+    const rows = baseRows;
+    if (!rows) return [];
+    if (!startNy || !endNy) return rows;
+    return rows.filter((tx) => {
       const txNy = getTxNyString(tx);
       if (!txNy) return false;
       return txNy >= startNy && txNy <= endNy;
     });
-  }, [transactions, startNy, endNy]);
+  }, [baseRows, startNy, endNy]);
 
-  const isLoading = isUserLoading || isTransactionsLoading;
+  const isLoading = isUserLoading || isTransactionsLoading || isTradesLoading;
 
   useEffect(() => {
     if (!DEBUG_HISTORY) return;
