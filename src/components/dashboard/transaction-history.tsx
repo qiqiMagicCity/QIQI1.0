@@ -58,7 +58,7 @@ import {
   useMemoFirebase,
 } from '@/firebase';
 import type { Transaction } from '@/lib/data';
-import { collection, query, orderBy, doc, deleteDoc, where } from 'firebase/firestore';
+import { collection, query, orderBy, doc, deleteDoc, where, collectionGroup } from 'firebase/firestore';
 import { AddTransactionForm } from './add-transaction-form';
 import { Skeleton } from '../ui/skeleton';
 import { SymbolName } from './symbol-name';
@@ -220,9 +220,16 @@ export function TransactionHistory() {
     error,
   } = useCollection<Transaction>(transactionsQuery);
 
+  // 把历史误写到“另一门牌号”的文档也并入只读查询（不改库）
+  const STRAY_UID_ALLOWLIST = ['fqbkSoyuAKQ4JDG1anan2anananananana'];
+
   const tradesQuery = useMemoFirebase(() => {
     if (!user || !firestore) return null;
-    return query(collection(firestore, 'users', user.uid, 'trades'));
+    // 跨 users/*/trades 的集合组查询，只读拿到当前UID + 异常UID
+    return query(
+      collectionGroup(firestore, 'trades'),
+      where('userId', 'in', [user.uid, ...STRAY_UID_ALLOWLIST])
+    );
   }, [user, firestore]);
 
   const {
