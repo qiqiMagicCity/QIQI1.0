@@ -100,6 +100,68 @@ function getTxNyString(tx: any): string | null {
   return null;
 }
 
+// ============================================================
+// 第 2 部分：“日期兜底”与数据标准化函数
+// ============================================================
+function normalizeTx(rawTx: any, source: 'transactions' | 'trades'): any {
+  let timestamp: number = 0;
+  let hasValidTimestamp = false;
+  let rawDate: any = null;
+
+  const getTimestampFromDateString = (dateStr: any) => {
+    if (typeof dateStr !== 'string' || !dateStr) return null;
+    const parsed = Date.parse(dateStr);
+    return isNaN(parsed) ? null : parsed;
+  }
+
+  // 1. 检查 number 类型的 transactionTimestamp
+  if (typeof rawTx.transactionTimestamp === 'number') {
+    timestamp = rawTx.transactionTimestamp;
+    rawDate = new Date(timestamp).toISOString();
+    hasValidTimestamp = true;
+  }
+
+  // 2. 检查 Firestore Timestamp 对象
+  if (!hasValidTimestamp && rawTx.createdAt) {
+    rawDate = rawTx.createdAt;
+    if (typeof rawTx.createdAt.toMillis === 'function') {
+      timestamp = rawTx.createdAt.toMillis();
+      hasValidTimestamp = true;
+    } else if (typeof rawTx.createdAt.seconds === 'number') {
+      timestamp = rawTx.createdAt.seconds * 1000;
+      hasValidTimestamp = true;
+    }
+  }
+
+  // 3. 检查各种字符串日期字段
+  if (!hasValidTimestamp) {
+    const dateFields = ['transactionDate', 'date', 'tradeDate'];
+    for(const field of dateFields) {
+      const fromStr = getTimestampFromDateString(rawTx[field]);
+      if (fromStr !== null) {
+        timestamp = fromStr;
+        rawDate = rawTx[field];
+        hasValidTimestamp = true;
+        break;
+      }
+    }
+  }
+
+  if (!hasValidTimestamp) {
+    timestamp = 0; // Fallback for very old/broken data
+  }
+
+  return {
+    ...rawTx,
+    id: rawTx.id,
+    source,
+    transactionTimestamp: timestamp,
+    rawDate: rawDate,
+    __incomplete: !hasValidTimestamp,
+  };
+}
+
+
 export function TransactionHistory() {
   const [date, setDate] = useState<DateRange | undefined>(undefined);
   const [isAddFormOpen, setAddFormOpen] = useState(false);
@@ -123,8 +185,6 @@ export function TransactionHistory() {
   const tradesQuery = useMemoFirebase(() => {
     if (!user || !firestore) return null;
     const coll = collection(firestore, 'users', user.uid, 'trades');
-    // We cannot sort by timestamp here as it may not exist on old documents.
-    // Sorting will be handled in memory after data fetching and normalization.
     return query(coll);
   }, [user, firestore]);
 
@@ -133,32 +193,26 @@ export function TransactionHistory() {
     isLoading: isTradesLoading,
   } = useCollection<Transaction>(tradesQuery);
 
-  // 两源合并 + 智能排序
+  // ============================================================
+  // 第 3 部分：合并、标准化并排序
+  // ============================================================
   const baseRows = useMemo(() => {
-    const rows = [...(transactions ?? []), ...(trades ?? [])];
-    rows.sort((a, b) => {
-      // 智能获取时间戳的函数
-      const getTimestamp = (tx: any): number => {
-        // 优先使用数字类型的时间戳
-        if (typeof tx.transactionTimestamp === 'number' && !isNaN(tx.transactionTimestamp)) {
-          return tx.transactionTimestamp;
-        }
-        // 回退方案：从日期字符串解析
-        const dateStr = tx.date || tx.transactionDate;
-        if (typeof dateStr === 'string') {
-          const d = new Date(dateStr);
-          if (!isNaN(d.getTime())) {
-            return d.getTime();
-          }
-        }
-        // 如果都失败，返回0，确保排序稳定
-        return 0;
-      };
+    const rows: Array<any> = [];
 
-      const ta = getTimestamp(a);
-      const tb = getTimestamp(b);
-      return tb - ta; // 降序（最新在前）
+    (transactions ?? []).forEach((item) => {
+      rows.push(normalizeTx(item, 'transactions'));
     });
+
+    (trades ?? []).forEach((item) => {
+      rows.push(normalizeTx(item, 'trades'));
+    });
+
+    rows.sort((a, b) => {
+      const at = a.transactionTimestamp ?? 0;
+      const bt = b.transactionTimestamp ?? 0;
+      return bt - at; // newest first
+    });
+
     return rows;
   }, [transactions, trades]);
   
@@ -178,7 +232,6 @@ export function TransactionHistory() {
 
   const isLoading = isUserLoading || isTransactionsLoading || isTradesLoading;
 
-  // === REPLACE the whole "[HistoryDebug]" useEffect with THIS block ===
   useEffect(() => {
     if (!DEBUG_HISTORY) return;
 
@@ -205,9 +258,11 @@ export function TransactionHistory() {
         })),
         base: (baseRows ?? []).slice(0, 3).map((t: any) => ({
           id: t.id ?? '(no id)',
+          source: t.source,
           ts_type: typeof t.transactionTimestamp,
           ts: t.transactionTimestamp ?? null,
           ny: getTxNyString(t),
+          incomplete: t.__incomplete
         })),
       },
     };
@@ -283,7 +338,9 @@ export function TransactionHistory() {
     }
   }
 
-
+  // ============================================================
+  // 第 1 部分：已修复语法错误
+  // ============================================================
   return (
     <section id="history" className="scroll-mt-20">
       <Card>
@@ -354,7 +411,7 @@ export function TransactionHistory() {
         </CardHeader>
         {DEBUG_HISTORY && (
           <div className="px-4 -mt-2 text-xs text-muted-foreground">
-            uid: {user?.uid ?? 'n/a'} · 抓到: {Array.isArray(transactions) ? transactions.length : 'n/a'}
+            uid: {user?.uid ?? 'n/a'} · 抓到: (tx:{Array.isArray(transactions) ? transactions.length : 'n/a'} + tr:{Array.isArray(trades) ? trades.length : 'n/a'})
             · 过滤后: {Array.isArray(filteredTransactions) ? filteredTransactions.length : 'n/a'}
           </div>
         )}
