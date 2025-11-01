@@ -47,7 +47,7 @@ import {
 import { Calendar } from '@/components/ui/calendar';
 import { Badge } from '../ui/badge';
 import { cn } from '@/lib/utils';
-import { useMemo, useState } from 'react';
+import { useMemo, useState, useEffect } from 'react';
 import type { DateRange } from 'react-day-picker';
 import { format } from 'date-fns';
 import { zhCN } from 'date-fns/locale';
@@ -64,6 +64,8 @@ import { Skeleton } from '../ui/skeleton';
 import { SymbolName } from './symbol-name';
 import { toNyCalendarDayString } from '@/lib/ny-time';
 import dynamic from 'next/dynamic';
+
+const DEBUG_HISTORY = true; // 仅调试用；验证完可删/置 false
 
 const EditIcon = dynamic(() => import('@icon-park/react').then(m => m.Edit), {
   ssr: false,
@@ -133,6 +135,29 @@ export function TransactionHistory() {
   }, [transactions, startNy, endNy]);
 
   const isLoading = isUserLoading || isTransactionsLoading;
+
+  useEffect(() => {
+    if (!DEBUG_HISTORY) return;
+    // 只读打印关键状态与样本
+    // eslint-disable-next-line no-console
+    console.log('[HistoryDebug]', {
+      uid: user?.uid ?? null,
+      isUserLoading,
+      isTransactionsLoading,
+      isLoading,
+      error: error?.message ?? null,
+      fetched: Array.isArray(transactions) ? transactions.length : null,
+      filtered: Array.isArray(filteredTransactions) ? filteredTransactions.length : null,
+      sample: (transactions ?? []).slice(0, 3).map((t: any) => ({
+        id: t.id ?? '(no id field)',
+        ts_type: typeof t.transactionTimestamp,
+        ts: t.transactionTimestamp ?? null,
+        date_type: t.transactionDate === null ? 'null' : typeof t.transactionDate,
+        date: t.transactionDate ?? null,
+        ny: getTxNyString(t),
+      })),
+    });
+  }, [user, isUserLoading, isTransactionsLoading, isLoading, error, transactions, filteredTransactions]);
 
   // Edit logic
   const openEdit = (tx: any) => {
@@ -230,6 +255,12 @@ export function TransactionHistory() {
             </Popover>
           </div>
         </CardHeader>
+        {DEBUG_HISTORY && (
+          <div className="px-4 -mt-2 text-xs text-muted-foreground">
+            uid: {user?.uid ?? 'n/a'} · 抓到: {Array.isArray(transactions) ? transactions.length : 'n/a'}
+            · 过滤后: {Array.isArray(filteredTransactions) ? filteredTransactions.length : 'n/a'}
+          </div>
+        )}
         <CardContent className="p-0">
           <div className="relative w-full overflow-auto">
             <Table className="tx-table w-full">
