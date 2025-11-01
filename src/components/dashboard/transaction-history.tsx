@@ -220,15 +220,12 @@ export function TransactionHistory() {
     error,
   } = useCollection<Transaction>(transactionsQuery);
 
-  // 把历史误写到“另一门牌号”的文档也并入只读查询（不改库）
-  const STRAY_UID_ALLOWLIST = ['fqbkSoyuAKQ4JDG1anan2anananananana'];
-
   const tradesQuery = useMemoFirebase(() => {
     if (!user || !firestore) return null;
-    // 跨 users/*/trades 的集合组查询，只读拿到当前UID + 异常UID
+    // 只读取当前登录用户自己的 trades（兼容 collectionGroup + 规则约束）
     return query(
       collectionGroup(firestore, 'trades'),
-      where('userId', 'in', [user.uid, ...STRAY_UID_ALLOWLIST])
+      where('userId', '==', user.uid)
     );
   }, [user, firestore]);
 
@@ -349,6 +346,7 @@ export function TransactionHistory() {
     }
   }
 
+  // ============================================================
   return (
     <section id="history" className="scroll-mt-20">
       <Card>
