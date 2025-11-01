@@ -267,7 +267,7 @@ export function TransactionHistory() {
                   filteredTransactions.map((tx) => (
                     <TableRow key={tx.id}>
                       <TableCell className="whitespace-nowrap">
-                        {format(new Date(tx.transactionDate), 'yyyy-MM-dd')}
+                        {getTxNyString(tx) ?? '—'}
                       </TableCell>
                       <TableCell className="font-medium">
                         <SymbolName symbol={tx.symbol} />
