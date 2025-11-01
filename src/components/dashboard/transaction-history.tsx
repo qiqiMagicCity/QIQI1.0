@@ -222,11 +222,8 @@ export function TransactionHistory() {
 
   const tradesQuery = useMemoFirebase(() => {
     if (!user || !firestore) return null;
-    // 只读取当前登录用户自己的 trades（兼容 collectionGroup + 规则约束）
-    return query(
-      collectionGroup(firestore, 'trades'),
-      where('userId', '==', user.uid)
-    );
+    // 只读取当前登录用户自己的 trades
+    return query(collection(firestore, 'users', user.uid, 'trades'));
   }, [user, firestore]);
 
   const {
