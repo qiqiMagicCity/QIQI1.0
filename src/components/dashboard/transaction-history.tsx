@@ -139,13 +139,15 @@ export function TransactionHistory() {
         if (typeof tx.transactionTimestamp === 'number') {
           return tx.transactionTimestamp;
         }
-        if (typeof tx.date === 'string') {
-          const d = new Date(tx.date);
+        // Fallback for old data: parse from 'date' or 'transactionDate' string
+        const dateStr = tx.date || tx.transactionDate;
+        if (typeof dateStr === 'string') {
+          const d = new Date(dateStr);
           if (!isNaN(d.getTime())) {
             return d.getTime();
           }
         }
-        return 0;
+        return 0; // Return 0 if no valid time can be found
       };
       const ta = getTimestamp(a);
       const tb = getTimestamp(b);
