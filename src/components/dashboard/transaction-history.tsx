@@ -138,9 +138,8 @@ export function TransactionHistory() {
 
   useEffect(() => {
     if (!DEBUG_HISTORY) return;
-    // 只读打印关键状态与样本
-    // eslint-disable-next-line no-console
-    console.log('[HistoryDebug]', {
+  
+    const snapshot = {
       uid: user?.uid ?? null,
       isUserLoading,
       isTransactionsLoading,
@@ -156,7 +155,14 @@ export function TransactionHistory() {
         date: t.transactionDate ?? null,
         ny: getTxNyString(t),
       })),
-    });
+    };
+  
+    // 保存一份到 window，方便你一键复制
+    (window as any).__HISTORY_DEBUG_LAST = snapshot;
+  
+    // 打印稳定的 JSON 文本，不会被折叠/延迟求值
+    // eslint-disable-next-line no-console
+    console.log('[HistoryDebug]', JSON.stringify(snapshot, null, 2));
   }, [user, isUserLoading, isTransactionsLoading, isLoading, error, transactions, filteredTransactions]);
 
   // Edit logic
