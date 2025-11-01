@@ -1,3 +1,4 @@
+
 "use client";
 
 import { useForm } from "react-hook-form";
@@ -30,6 +31,7 @@ import { addDocumentNonBlocking } from "@/firebase/non-blocking-updates";
 import { collection } from "firebase/firestore";
 import { useToast } from "@/hooks/use-toast";
 import { v4 as uuidv4 } from 'uuid';
+import { toNyCalendarDayString } from '@/lib/ny-time';
 
 
 const formSchema = z.object({
@@ -42,16 +44,21 @@ const formSchema = z.object({
 
 type AddTransactionFormProps = {
   onSuccess?: () => void;
+  isEditing?: boolean;
+  defaultValues?: any;
 };
 
-export function AddTransactionForm({ onSuccess }: AddTransactionFormProps) {
+export function AddTransactionForm({ onSuccess, isEditing = false, defaultValues }: AddTransactionFormProps) {
   const { toast } = useToast();
   const firestore = useFirestore();
   const { user } = useUser();
 
   const form = useForm<z.infer<typeof formSchema>>({
     resolver: zodResolver(formSchema),
-    defaultValues: {
+    defaultValues: defaultValues ? {
+      ...defaultValues,
+      date: defaultValues.transactionDate ? new Date(defaultValues.transactionDate) : new Date(),
+    } : {
       symbol: "",
       type: "Buy",
       date: new Date(),
@@ -69,19 +76,25 @@ export function AddTransactionForm({ onSuccess }: AddTransactionFormProps) {
     }
 
     try {
+      const originalDate = values.date instanceof Date ? values.date : new Date(values.date);
+      if (isNaN(originalDate.getTime())) {
+        throw new Error('[add-transaction-form] Invalid date input');
+      }
+
+      const transactionDateNy = toNyCalendarDayString(originalDate);
+      const transactionTimestamp = originalDate.getTime();
+      
       const transactionData = {
         ...values,
-        id: uuidv4(), //虽然 Firestore 会自动生成 ID，但在写入前生成一个有助于 optimitic updates
+        id: defaultValues?.id || uuidv4(),
         userId: user.uid,
-        transactionDate: values.date.toISOString(),
+        transactionDate: originalDate.toISOString(),
+        transactionDateNy,
+        transactionTimestamp,
         total: values.quantity * values.price,
       };
       
-      // The `date` property is a Date object from the form, but Firestore expects a string.
-      // We are sending `transactionDate` as the ISO string, but we also need to handle the `date` property from `values`.
-      // Let's remove the original `date` property to avoid conflicts.
       delete (transactionData as any).date;
-
 
       const transactionsRef = collection(
         firestore,
@@ -90,22 +103,21 @@ export function AddTransactionForm({ onSuccess }: AddTransactionFormProps) {
         "transactions"
       );
       
-      // 使用非阻塞方式添加文档
       addDocumentNonBlocking(transactionsRef, transactionData);
 
       toast({
         title: "成功！",
-        description: "您的交易已成功记录。",
+        description: `您的交易已成功${isEditing ? '更新' : '记录'}。`,
       });
       
-      onSuccess?.(); // Callback to close the dialog
+      onSuccess?.();
 
     } catch (error) {
-      console.error("Error adding transaction: ", error);
+      console.error(`Error ${isEditing ? 'updating' : 'adding'} transaction: `, error);
       toast({
         variant: "destructive",
-        title: "保存失败",
-        description: "无法保存您的交易记录，请稍后再试。",
+        title: `保存失败`,
+        description: `无法${isEditing ? '更新' : '保存'}您的交易记录，请稍后再试。`,
       });
     }
   }
@@ -233,3 +245,5 @@ export function AddTransactionForm({ onSuccess }: AddTransactionFormProps) {
     </Form>
   );
 }
+
+    
