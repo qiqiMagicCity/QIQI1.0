@@ -61,9 +61,17 @@ import type { Transaction } from '@/lib/data';
 import { collection, query, orderBy, doc, deleteDoc } from 'firebase/firestore';
 import { AddTransactionForm } from './add-transaction-form';
 import { Skeleton } from '../ui/skeleton';
-import { Edit, DeleteFive } from '@icon-park/react';
 import { SymbolName } from './symbol-name';
 import { toNyCalendarDayString } from '@/lib/ny-time';
+import dynamic from 'next/dynamic';
+
+const EditIcon = dynamic(() => import('@icon-park/react').then(m => m.Edit), {
+  ssr: false,
+});
+const DeleteFiveIcon = dynamic(() => import('@icon-park/react').then(m => m.DeleteFive), {
+  ssr: false,
+});
+
 
 // Helper to get doc ref safely, returns null if params are missing
 function getTxDocRef(firestore: any, tx: any, ownerUid: any) {
@@ -310,7 +318,7 @@ export function TransactionHistory() {
                             className="mr-1 h-7 w-7 transition-transform hover:scale-110"
                             aria-label="编辑"
                           >
-                            <Edit
+                            <EditIcon
                               theme="multi-color"
                               size={18}
                               strokeWidth={3}
@@ -328,7 +336,7 @@ export function TransactionHistory() {
                                 className="h-7 w-7 transition-transform hover:scale-110"
                                 aria-label="删除"
                               >
-                                <DeleteFive
+                                <DeleteFiveIcon
                                   theme="multi-color"
                                   size={18}
                                   strokeWidth={3}
