@@ -31,7 +31,7 @@ import { addDocumentNonBlocking } from "@/firebase/non-blocking-updates";
 import { collection } from "firebase/firestore";
 import { useToast } from "@/hooks/use-toast";
 import { v4 as uuidv4 } from 'uuid';
-import { toNyCalendarDayString } from '@/lib/ny-time';
+import { toNyCalendarDayString, nowNyCalendarDayString } from '@/lib/ny-time';
 
 
 const formSchema = z.object({
@@ -121,6 +121,9 @@ export function AddTransactionForm({ onSuccess, isEditing = false, defaultValues
       });
     }
   }
+
+  const nyTodayStr = nowNyCalendarDayString();   // 'YYYY-MM-DD' in NY
+  const minDateLocal = new Date(1990, 0, 1);     // 安全的数值构造
 
   return (
     <Form {...form}>
@@ -226,9 +229,11 @@ export function AddTransactionForm({ onSuccess, isEditing = false, defaultValues
                     mode="single"
                     selected={field.value}
                     onSelect={field.onChange}
-                    disabled={(date) =>
-                      date > new Date() || date < new Date("1990-01-01")
-                    }
+                    disabled={(date) => {
+                      if (!date) return false;
+                      const dNy = toNyCalendarDayString(date);
+                      return dNy > nyTodayStr || date < minDateLocal;
+                    }}
                     initialFocus
                     locale={zhCN}
                   />
