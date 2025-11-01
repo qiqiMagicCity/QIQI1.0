@@ -135,8 +135,20 @@ export function TransactionHistory() {
   const baseRows = useMemo(() => {
     const rows = [...(transactions ?? []), ...(trades ?? [])];
     rows.sort((a, b) => {
-      const ta = (typeof a.transactionTimestamp === 'number') ? a.transactionTimestamp : 0;
-      const tb = (typeof b.transactionTimestamp === 'number') ? b.transactionTimestamp : 0;
+      const getTimestamp = (tx: any): number => {
+        if (typeof tx.transactionTimestamp === 'number') {
+          return tx.transactionTimestamp;
+        }
+        if (typeof tx.date === 'string') {
+          const d = new Date(tx.date);
+          if (!isNaN(d.getTime())) {
+            return d.getTime();
+          }
+        }
+        return 0;
+      };
+      const ta = getTimestamp(a);
+      const tb = getTimestamp(b);
       return tb - ta; // desc
     });
     return rows;
