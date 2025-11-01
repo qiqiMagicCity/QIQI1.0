@@ -123,7 +123,9 @@ export function TransactionHistory() {
   const tradesQuery = useMemoFirebase(() => {
     if (!user || !firestore) return null;
     const coll = collection(firestore, 'users', user.uid, 'trades');
-    return query(coll, orderBy('transactionTimestamp', 'desc'));
+    // We cannot sort by timestamp here as it may not exist on old documents.
+    // Sorting will be handled in memory after data fetching and normalization.
+    return query(coll);
   }, [user, firestore]);
 
   const {
@@ -131,15 +133,17 @@ export function TransactionHistory() {
     isLoading: isTradesLoading,
   } = useCollection<Transaction>(tradesQuery);
 
-  // 两源合并 + 时间倒序
+  // 两源合并 + 智能排序
   const baseRows = useMemo(() => {
     const rows = [...(transactions ?? []), ...(trades ?? [])];
     rows.sort((a, b) => {
+      // 智能获取时间戳的函数
       const getTimestamp = (tx: any): number => {
-        if (typeof tx.transactionTimestamp === 'number') {
+        // 优先使用数字类型的时间戳
+        if (typeof tx.transactionTimestamp === 'number' && !isNaN(tx.transactionTimestamp)) {
           return tx.transactionTimestamp;
         }
-        // Fallback for old data: parse from 'date' or 'transactionDate' string
+        // 回退方案：从日期字符串解析
         const dateStr = tx.date || tx.transactionDate;
         if (typeof dateStr === 'string') {
           const d = new Date(dateStr);
@@ -147,11 +151,13 @@ export function TransactionHistory() {
             return d.getTime();
           }
         }
-        return 0; // Return 0 if no valid time can be found
+        // 如果都失败，返回0，确保排序稳定
+        return 0;
       };
+
       const ta = getTimestamp(a);
       const tb = getTimestamp(b);
-      return tb - ta; // desc
+      return tb - ta; // 降序（最新在前）
     });
     return rows;
   }, [transactions, trades]);
@@ -173,54 +179,54 @@ export function TransactionHistory() {
   const isLoading = isUserLoading || isTransactionsLoading || isTradesLoading;
 
   // === REPLACE the whole "[HistoryDebug]" useEffect with THIS block ===
-useEffect(() => {
-  if (!DEBUG_HISTORY) return;
+  useEffect(() => {
+    if (!DEBUG_HISTORY) return;
 
-  const snapshot = {
-    uid: user?.uid ?? null,
+    const snapshot = {
+      uid: user?.uid ?? null,
+      isUserLoading,
+      isTransactionsLoading,
+      isTradesLoading,
+      isLoading,
+      error: error?.message ?? null,
+      counts: {
+        transactions: Array.isArray(transactions) ? transactions.length : null,
+        trades: Array.isArray(trades) ? trades.length : null,
+        baseRows: Array.isArray(baseRows) ? baseRows.length : null,
+      },
+      samples: {
+        trades: (trades ?? []).slice(0, 3).map((t: any) => ({
+          id: t.id ?? '(no id)',
+          ts_type: typeof t.transactionTimestamp,
+          ts: t.transactionTimestamp ?? null,
+          date_type: t.transactionDate === null ? 'null' : typeof t.transactionDate,
+          date: t.transactionDate ?? null,
+          ny: getTxNyString(t),
+        })),
+        base: (baseRows ?? []).slice(0, 3).map((t: any) => ({
+          id: t.id ?? '(no id)',
+          ts_type: typeof t.transactionTimestamp,
+          ts: t.transactionTimestamp ?? null,
+          ny: getTxNyString(t),
+        })),
+      },
+    };
+
+    (window as any).__HISTORY_DEBUG_LAST = snapshot;
+    // eslint-disable-next-line no-console
+    console.log('[HistoryDebug]', JSON.stringify(snapshot, null, 2));
+  }, [
+    user,
     isUserLoading,
     isTransactionsLoading,
     isTradesLoading,
     isLoading,
-    error: error?.message ?? null,
-    counts: {
-      transactions: Array.isArray(transactions) ? transactions.length : null,
-      trades: Array.isArray(trades) ? trades.length : null,
-      baseRows: Array.isArray(baseRows) ? baseRows.length : null,
-    },
-    samples: {
-      trades: (trades ?? []).slice(0, 3).map((t: any) => ({
-        id: t.id ?? '(no id)',
-        ts_type: typeof t.transactionTimestamp,
-        ts: t.transactionTimestamp ?? null,
-        date_type: t.transactionDate === null ? 'null' : typeof t.transactionDate,
-        date: t.transactionDate ?? null,
-        ny: getTxNyString(t),
-      })),
-      base: (baseRows ?? []).slice(0, 3).map((t: any) => ({
-        id: t.id ?? '(no id)',
-        ts_type: typeof t.transactionTimestamp,
-        ts: t.transactionTimestamp ?? null,
-        ny: getTxNyString(t),
-      })),
-    },
-  };
-
-  (window as any).__HISTORY_DEBUG_LAST = snapshot;
-  // eslint-disable-next-line no-console
-  console.log('[HistoryDebug]', JSON.stringify(snapshot, null, 2));
-}, [
-  user,
-  isUserLoading,
-  isTransactionsLoading,
-  isTradesLoading,
-  isLoading,
-  error,
-  transactions,
-  trades,
-  baseRows,
-  filteredTransactions,
-]);
+    error,
+    transactions,
+    trades,
+    baseRows,
+    filteredTransactions,
+  ]);
 
   useEffect(() => {
     if (!user || !firestore) return;
@@ -425,7 +431,7 @@ useEffect(() => {
                         {tx.quantity}
                       </TableCell>
                       <TableCell className="text-right font-mono">
-                        {tx.total.toLocaleString(undefined, {
+                        {(tx.price * tx.quantity).toLocaleString(undefined, {
                           minimumFractionDigits: 2,
                           maximumFractionDigits: 2,
                         })}
@@ -504,7 +510,7 @@ useEffect(() => {
             <DialogDescription>
               修改您的交易记录。请谨慎操作。
             </DialogDescription>
-          </DialogHeader>
+          </Header>
           {editingTx && (
             <AddTransactionForm
               key={editingTx.id} /* Force re-render */
