@@ -84,21 +84,57 @@ function getTxDocRef(firestore: any, tx: any, ownerUid: any) {
 }
 
 function getTxNyString(tx: any): string | null {
-  // 1) 优先用已存在的字段
+  // 已有的 NY 日字段，且格式正确，直接返回
   if (typeof tx.transactionDateNy === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(tx.transactionDateNy)) {
     return tx.transactionDateNy;
   }
-  // 2) 否则从 ISO 或时间戳派生（只读计算，严禁写回 DB）
-  if (tx.transactionDate) {
-    const d = new Date(tx.transactionDate);
-    if (!isNaN(d.getTime())) return toNyCalendarDayString(d);
+
+  // 尝试把各种可能的“时间字段”统一解析为 Date
+  const tryToDate = (v: any): Date | null => {
+    if (!v && v !== 0) return null;
+
+    // Firestore Timestamp
+    if (typeof v === 'object' && v && typeof v.toMillis === 'function') {
+      const d = new Date(v.toMillis());
+      return isNaN(d.getTime()) ? null : d;
+    }
+    if (typeof v === 'object' && v && typeof v.seconds === 'number') {
+      const d = new Date(v.seconds * 1000);
+      return isNaN(d.getTime()) ? null : d;
+    }
+
+    // number: 视为毫秒时间戳
+    if (typeof v === 'number') {
+      const d = new Date(v);
+      return isNaN(d.getTime()) ? null : d;
+    }
+
+    // string: 允许 ISO / 含时区 / 简单日期字符串
+    if (typeof v === 'string') {
+      const d = new Date(v);
+      return isNaN(d.getTime()) ? null : d;
+    }
+
+    return null;
+  };
+
+  // 优先级：transactionDate → date → tradeDate → createdAt → transactionTimestamp
+  const candidates = [
+    tx.transactionDate,
+    tx.date,
+    tx.tradeDate,
+    tx.createdAt,
+    tx.transactionTimestamp,
+  ];
+
+  for (const c of candidates) {
+    const d = tryToDate(c);
+    if (d) return toNyCalendarDayString(d); // 统一入口：纽约交易日 YYYY-MM-DD
   }
-  if (typeof tx.transactionTimestamp === 'number') {
-    const d = new Date(tx.transactionTimestamp);
-    if (!isNaN(d.getTime())) return toNyCalendarDayString(d);
-  }
-  return null;
+
+  return null; // 仍解析不了则返回空，交由上层显示 '—'
 }
+
 
 // ============================================================
 // 第 2 部分：“日期兜底”与数据标准化函数
