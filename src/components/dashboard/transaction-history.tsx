@@ -137,12 +137,14 @@ function normalizeTx(rawTx: any, source: 'transactions' | 'trades'): any {
   if (!hasValidTimestamp) {
     const dateFields = ['transactionDate', 'date', 'tradeDate'];
     for(const field of dateFields) {
-      const fromStr = getTimestampFromDateString(rawTx[field]);
-      if (fromStr !== null) {
-        timestamp = fromStr;
-        rawDate = rawTx[field];
-        hasValidTimestamp = true;
-        break;
+      if (rawTx[field]) {
+        const fromStr = getTimestampFromDateString(rawTx[field]);
+        if (fromStr !== null) {
+          timestamp = fromStr;
+          rawDate = rawTx[field];
+          hasValidTimestamp = true;
+          break;
+        }
       }
     }
   }
@@ -479,16 +481,26 @@ export function TransactionHistory() {
                         </Badge>
                       </TableCell>
                       <TableCell className="text-right font-mono">
-                        {tx.price.toFixed(2)}
+                        {(() => {
+                          const p = Number(String(tx.price ?? '').replace(/,/g, ''));
+                          return Number.isFinite(p) ? p.toFixed(2) : '—';
+                        })()}
                       </TableCell>
                       <TableCell className="text-right font-mono">
-                        {tx.quantity}
+                        {(() => {
+                          const q = Number(String(tx.quantity ?? '').replace(/,/g, ''));
+                          return Number.isFinite(q) ? q : (tx.quantity ?? '—');
+                        })()}
                       </TableCell>
                       <TableCell className="text-right font-mono">
-                        {(tx.price * tx.quantity).toLocaleString(undefined, {
-                          minimumFractionDigits: 2,
-                          maximumFractionDigits: 2,
-                        })}
+                        {(() => {
+                          const p = Number(String(tx.price ?? '').replace(/,/g, ''));
+                          const q = Number(String(tx.quantity ?? '').replace(/,/g, ''));
+                          if (Number.isFinite(p) && Number.isFinite(q)) {
+                            return (p * q).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+                          }
+                          return '—';
+                        })()}
                       </TableCell>
                       <TableCell className="text-center">
                         <div className="flex items-center justify-center">
