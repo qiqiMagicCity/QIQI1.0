@@ -58,14 +58,14 @@ import {
   useMemoFirebase,
 } from '@/firebase';
 import type { Transaction } from '@/lib/data';
-import { collection, query, orderBy, doc, deleteDoc, collectionGroup, getDocs, where, orderBy as fbOrderBy, limit as fbLimit } from 'firebase/firestore';
+import { collection, query, orderBy, doc, deleteDoc, collectionGroup, where } from 'firebase/firestore';
 import { AddTransactionForm } from './add-transaction-form';
 import { Skeleton } from '../ui/skeleton';
 import { SymbolName } from './symbol-name';
 import { toNyCalendarDayString } from '@/lib/ny-time';
 import dynamic from 'next/dynamic';
 
-const DEBUG_HISTORY = true; // 仅调试用；验证完可删/置 false
+const DEBUG_HISTORY = true; 
 
 const EditIcon = dynamic(() => import('@icon-park/react').then(m => m.Edit), {
   ssr: false,
@@ -77,9 +77,10 @@ const DeleteFiveIcon = dynamic(() => import('@icon-park/react').then(m => m.Dele
 
 // Helper to get doc ref safely, returns null if params are missing
 function getTxDocRef(firestore: any, tx: any, ownerUid: any) {
-  if (firestore && tx && tx.id && ownerUid) {
+  if (firestore && tx && tx.id && ownerUid && tx.source === 'transactions') {
     return doc(firestore, 'users', ownerUid, 'transactions', tx.id);
   }
+  // Deletion/Editing of 'trades' is disabled for now.
   return null;
 }
 
@@ -210,8 +211,7 @@ export function TransactionHistory() {
 
   const transactionsQuery = useMemoFirebase(() => {
     if (!user || !firestore) return null;
-    const coll = collection(firestore, 'users', user.uid, 'transactions');
-    return query(coll, orderBy('transactionTimestamp', 'desc'));
+    return query(collection(firestore, 'users', user.uid, 'transactions'), orderBy('transactionTimestamp', 'desc'));
   }, [user, firestore]);
 
   const {
@@ -222,14 +222,14 @@ export function TransactionHistory() {
 
   const tradesQuery = useMemoFirebase(() => {
     if (!user || !firestore) return null;
-    const coll = collection(firestore, 'users', user.uid, 'trades');
-    return query(coll);
+    return query(collectionGroup(firestore, 'trades'), where('userId', '==', user.uid));
   }, [user, firestore]);
 
   const {
     data: trades,
     isLoading: isTradesLoading,
   } = useCollection<Transaction>(tradesQuery);
+
 
   const baseRows = useMemo(() => {
     const rows: Array<any> = [];
@@ -281,25 +281,12 @@ export function TransactionHistory() {
         transactions: Array.isArray(transactions) ? transactions.length : null,
         trades: Array.isArray(trades) ? trades.length : null,
         baseRows: Array.isArray(baseRows) ? baseRows.length : null,
+        filtered: Array.isArray(filteredTransactions) ? filteredTransactions.length : null,
       },
-      samples: {
-        trades: (trades ?? []).slice(0, 3).map((t: any) => ({
-          id: t.id ?? '(no id)',
-          ts_type: typeof t.transactionTimestamp,
-          ts: t.transactionTimestamp ?? null,
-          date_type: t.transactionDate === null ? 'null' : typeof t.transactionDate,
-          date: t.transactionDate ?? null,
-          ny: getTxNyString(t),
-        })),
-        base: (baseRows ?? []).slice(0, 3).map((t: any) => ({
-          id: t.id ?? '(no id)',
-          source: t.source,
-          ts_type: typeof t.transactionTimestamp,
-          ts: t.transactionTimestamp ?? null,
-          ny: getTxNyString(t),
-          incomplete: t.__incomplete
-        })),
-      },
+      queries: {
+        transactions: transactionsQuery?.type,
+        trades: tradesQuery?.type
+      }
     };
 
     (window as any).__HISTORY_DEBUG_LAST = snapshot;
@@ -316,38 +303,16 @@ export function TransactionHistory() {
     trades,
     baseRows,
     filteredTransactions,
+    transactionsQuery,
+    tradesQuery
   ]);
-
-  useEffect(() => {
-    if (!user || !firestore) return;
-  
-    (async () => {
-      try {
-        const cg = collectionGroup(firestore, "transactions");
-        // 只读：找出所有 userId 等于当前 UID 的交易
-        const q = query(
-          cg,
-          where("userId", "==", user.uid),
-          fbOrderBy("transactionTimestamp", "desc"),
-          fbLimit(3)
-        );
-        const snap = await getDocs(q);
-        const sample = snap.docs.map(d => ({ path: d.ref.path, ...d.data() })).slice(0, 3);
-        // eslint-disable-next-line no-console
-        console.log(
-          "[HistoryProbe][collectionGroup by userId]",
-          JSON.stringify({ uid: user.uid, count: snap.size, sample }, null, 2)
-        );
-        (window as any).__HISTORY_PROBE_LAST = { uid: user.uid, count: snap.size, sample };
-      } catch (e: any) {
-        // eslint-disable-next-line no-console
-        console.error("[HistoryProbe][collectionGroup error]", e?.message || e);
-      }
-    })();
-  }, [user, firestore]);
 
   // Edit logic
   const openEdit = (tx: any) => {
+    if (tx.source !== 'transactions') {
+        alert('历史导入的 `trades` 记录当前为只读状态，无法编辑。请通过“添加交易”功能创建新记录进行调整。');
+        return;
+    }
     setEditingTx(tx);
   };
   const closeEdit = () => {
@@ -362,8 +327,12 @@ export function TransactionHistory() {
     try {
       const ref = getTxDocRef(firestore, tx, user?.uid);
       if (!ref) {
-        console.warn('[delete] 无法定位文档路径，缺少 ref/ownerUid/id', tx);
-        alert('删除失败：无法定位该交易的文档路径（缺少 ref/ownerUid/id）。');
+        let msg = '删除失败：无法定位该交易的文档路径。';
+        if(tx.source === 'trades') {
+            msg = '历史导入的 `trades` 记录当前为只读状态，无法删除。'
+        }
+        console.warn('[delete] ' + msg, tx);
+        alert(msg);
         return;
       }
       await deleteDoc(ref);
@@ -373,9 +342,6 @@ export function TransactionHistory() {
     }
   }
 
-  // ============================================================
-  // 第 1 部分：已修复语法错误
-  // ============================================================
   return (
     <section id="history" className="scroll-mt-20">
       <Card>
@@ -565,6 +531,7 @@ export function TransactionHistory() {
                                 title="删除"
                                 className="h-7 w-7 transition-transform hover:scale-110"
                                 aria-label="删除"
+                                disabled={tx.source === 'trades'}
                               >
                                 <DeleteFiveIcon
                                   theme="multi-color"
