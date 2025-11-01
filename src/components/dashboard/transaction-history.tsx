@@ -193,9 +193,6 @@ export function TransactionHistory() {
     isLoading: isTradesLoading,
   } = useCollection<Transaction>(tradesQuery);
 
-  // ============================================================
-  // 第 3 部分：合并、标准化并排序
-  // ============================================================
   const baseRows = useMemo(() => {
     const rows: Array<any> = [];
 
@@ -567,7 +564,7 @@ export function TransactionHistory() {
             <DialogDescription>
               修改您的交易记录。请谨慎操作。
             </DialogDescription>
-          </Header>
+          </DialogHeader>
           {editingTx && (
             <AddTransactionForm
               key={editingTx.id} /* Force re-render */
