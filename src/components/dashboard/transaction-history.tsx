@@ -49,7 +49,7 @@ import { Badge } from '../ui/badge';
 import { cn } from '@/lib/utils';
 import { useMemo, useState } from 'react';
 import type { DateRange } from 'react-day-picker';
-import { addDays, format } from 'date-fns';
+import { format } from 'date-fns';
 import { zhCN } from 'date-fns/locale';
 import {
   useCollection,
@@ -63,11 +63,29 @@ import { AddTransactionForm } from './add-transaction-form';
 import { Skeleton } from '../ui/skeleton';
 import { Edit, DeleteFive } from '@icon-park/react';
 import { SymbolName } from './symbol-name';
+import { toNyCalendarDayString } from '@/lib/ny-time';
 
 // Helper to get doc ref safely, returns null if params are missing
 function getTxDocRef(firestore: any, tx: any, ownerUid: any) {
   if (firestore && tx && tx.id && ownerUid) {
     return doc(firestore, 'users', ownerUid, 'transactions', tx.id);
+  }
+  return null;
+}
+
+function getTxNyString(tx: any): string | null {
+  // 1) 优先用已存在的字段
+  if (typeof tx.transactionDateNy === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(tx.transactionDateNy)) {
+    return tx.transactionDateNy;
+  }
+  // 2) 否则从 ISO 或时间戳派生（只读计算，严禁写回 DB）
+  if (tx.transactionDate) {
+    const d = new Date(tx.transactionDate);
+    if (!isNaN(d.getTime())) return toNyCalendarDayString(d);
+  }
+  if (typeof tx.transactionTimestamp === 'number') {
+    const d = new Date(tx.transactionTimestamp);
+    if (!isNaN(d.getTime())) return toNyCalendarDayString(d);
   }
   return null;
 }
@@ -91,18 +109,20 @@ export function TransactionHistory() {
     isLoading: isTransactionsLoading,
     error,
   } = useCollection<Transaction>(transactionsQuery);
+  
+  const startNy = date?.from ? toNyCalendarDayString(date.from) : null;
+  const endNy   = date?.to   ? toNyCalendarDayString(date.to)   : startNy;
 
   const filteredTransactions = useMemo(() => {
     if (!transactions) return [];
-    if (!date?.from) return transactions;
+    if (!startNy || !endNy) return transactions;
 
-    return transactions.filter((transaction) => {
-      const transactionDate = new Date(transaction.transactionDate);
-      const from = date.from!;
-      const to = date.to ? addDays(date.to, 1) : addDays(from, 1);
-      return transactionDate >= from && transactionDate < to;
+    return transactions.filter((tx) => {
+      const txNy = getTxNyString(tx);
+      if (!txNy) return false;
+      return txNy >= startNy && txNy <= endNy;
     });
-  }, [transactions, date]);
+  }, [transactions, startNy, endNy]);
 
   const isLoading = isUserLoading || isTransactionsLoading;
 
