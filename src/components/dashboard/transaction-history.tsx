@@ -110,7 +110,7 @@ export function TransactionHistory() {
 
   const transactionsQuery = useMemoFirebase(() => {
     if (!user || !firestore) return null;
-    const coll = collection(firestore, 'users', user.uid, 'trades');
+    const coll = collection(firestore, 'users', user.uid, 'transactions');
     return query(coll, orderBy('transactionTimestamp', 'desc'));
   }, [user, firestore]);
 
