@@ -131,8 +131,16 @@ export function TransactionHistory() {
     isLoading: isTradesLoading,
   } = useCollection<Transaction>(tradesQuery);
 
-  // 优先用新集合 transactions；若为空则回退旧集合 trades
-  const baseRows = (transactions && transactions.length > 0) ? transactions : (trades ?? []);
+  // 两源合并 + 时间倒序
+  const baseRows = useMemo(() => {
+    const rows = [...(transactions ?? []), ...(trades ?? [])];
+    rows.sort((a, b) => {
+      const ta = (typeof a.transactionTimestamp === 'number') ? a.transactionTimestamp : 0;
+      const tb = (typeof b.transactionTimestamp === 'number') ? b.transactionTimestamp : 0;
+      return tb - ta; // desc
+    });
+    return rows;
+  }, [transactions, trades]);
   
   const startNy = date?.from ? toNyCalendarDayString(date.from) : null;
   const endNy   = date?.to   ? toNyCalendarDayString(date.to)   : startNy;
