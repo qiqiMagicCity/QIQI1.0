@@ -158,34 +158,55 @@ export function TransactionHistory() {
 
   const isLoading = isUserLoading || isTransactionsLoading || isTradesLoading;
 
-  useEffect(() => {
-    if (!DEBUG_HISTORY) return;
-  
-    const snapshot = {
-      uid: user?.uid ?? null,
-      isUserLoading,
-      isTransactionsLoading,
-      isLoading,
-      error: error?.message ?? null,
-      fetched: Array.isArray(transactions) ? transactions.length : null,
-      filtered: Array.isArray(filteredTransactions) ? filteredTransactions.length : null,
-      sample: (transactions ?? []).slice(0, 3).map((t: any) => ({
-        id: t.id ?? '(no id field)',
+  // === REPLACE the whole "[HistoryDebug]" useEffect with THIS block ===
+useEffect(() => {
+  if (!DEBUG_HISTORY) return;
+
+  const snapshot = {
+    uid: user?.uid ?? null,
+    isUserLoading,
+    isTransactionsLoading,
+    isTradesLoading,
+    isLoading,
+    error: error?.message ?? null,
+    counts: {
+      transactions: Array.isArray(transactions) ? transactions.length : null,
+      trades: Array.isArray(trades) ? trades.length : null,
+      baseRows: Array.isArray(baseRows) ? baseRows.length : null,
+    },
+    samples: {
+      trades: (trades ?? []).slice(0, 3).map((t: any) => ({
+        id: t.id ?? '(no id)',
         ts_type: typeof t.transactionTimestamp,
         ts: t.transactionTimestamp ?? null,
         date_type: t.transactionDate === null ? 'null' : typeof t.transactionDate,
         date: t.transactionDate ?? null,
         ny: getTxNyString(t),
       })),
-    };
-  
-    // 保存一份到 window，方便你一键复制
-    (window as any).__HISTORY_DEBUG_LAST = snapshot;
-  
-    // 打印稳定的 JSON 文本，不会被折叠/延迟求值
-    // eslint-disable-next-line no-console
-    console.log('[HistoryDebug]', JSON.stringify(snapshot, null, 2));
-  }, [user, isUserLoading, isTransactionsLoading, isLoading, error, transactions, filteredTransactions]);
+      base: (baseRows ?? []).slice(0, 3).map((t: any) => ({
+        id: t.id ?? '(no id)',
+        ts_type: typeof t.transactionTimestamp,
+        ts: t.transactionTimestamp ?? null,
+        ny: getTxNyString(t),
+      })),
+    },
+  };
+
+  (window as any).__HISTORY_DEBUG_LAST = snapshot;
+  // eslint-disable-next-line no-console
+  console.log('[HistoryDebug]', JSON.stringify(snapshot, null, 2));
+}, [
+  user,
+  isUserLoading,
+  isTransactionsLoading,
+  isTradesLoading,
+  isLoading,
+  error,
+  transactions,
+  trades,
+  baseRows,
+  filteredTransactions,
+]);
 
   useEffect(() => {
     if (!user || !firestore) return;
