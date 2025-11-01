@@ -110,7 +110,7 @@ export function TransactionHistory() {
 
   const transactionsQuery = useMemoFirebase(() => {
     if (!user || !firestore) return null;
-    const coll = collection(firestore, 'users', user.uid, 'trades'); // ← 先读 trades
+    const coll = collection(firestore, 'users', user.uid, 'transactions');
     return query(coll, orderBy('transactionTimestamp', 'desc'));
   }, [user, firestore]);
 
@@ -216,7 +216,7 @@ export function TransactionHistory() {
       await deleteDoc(ref);
     } catch (err: any) {
       console.error('[delete] 删除失败：', err);
-      alert(`删除失败：${'\'\''}err?.message || String(err)${'\'\''}`);
+      alert(`删除失败：${err?.message || String(err)}`);
     }
   }
 
