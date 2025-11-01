@@ -16,7 +16,10 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { Button } from '../ui/button';
-import { Calendar as CalendarIcon, ListFilter, PlusCircle } from 'lucide-react';
+import {
+  Calendar as CalendarIcon,
+  PlusCircle,
+} from 'lucide-react';
 import {
   Popover,
   PopoverContent,
@@ -30,18 +33,21 @@ import {
   DialogTitle,
   DialogTrigger,
 } from '@/components/ui/dialog';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from '@/components/ui/alert-dialog';
 import { Calendar } from '@/components/ui/calendar';
 import { Badge } from '../ui/badge';
 import { cn } from '@/lib/utils';
-import {
-  DropdownMenu,
-  DropdownMenuCheckboxItem,
-  DropdownMenuContent,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from '../ui/dropdown-menu';
-import { useMemo, useState, useEffect } from 'react';
+import { useMemo, useState } from 'react';
 import type { DateRange } from 'react-day-picker';
 import { addDays, format } from 'date-fns';
 import { zhCN } from 'date-fns/locale';
@@ -52,12 +58,24 @@ import {
   useMemoFirebase,
 } from '@/firebase';
 import type { Transaction } from '@/lib/data';
-import { collection, query, orderBy } from 'firebase/firestore';
+import { collection, query, orderBy, doc, deleteDoc } from 'firebase/firestore';
 import { AddTransactionForm } from './add-transaction-form';
+import { Skeleton } from '../ui/skeleton';
+import { Edit, DeleteFive } from '@icon-park/react';
+import { SymbolName } from './symbol-name';
+
+// Helper to get doc ref safely, returns null if params are missing
+function getTxDocRef(firestore: any, tx: any, ownerUid: any) {
+  if (firestore && tx && tx.id && ownerUid) {
+    return doc(firestore, 'users', ownerUid, 'transactions', tx.id);
+  }
+  return null;
+}
 
 export function TransactionHistory() {
   const [date, setDate] = useState<DateRange | undefined>(undefined);
-  const [isFormOpen, setIsFormOpen] = useState(false);
+  const [isAddFormOpen, setAddFormOpen] = useState(false);
+  const [editingTx, setEditingTx] = useState<any>(null); // For edit dialog
 
   const firestore = useFirestore();
   const { user, isUserLoading } = useUser();
@@ -76,11 +94,10 @@ export function TransactionHistory() {
 
   const filteredTransactions = useMemo(() => {
     if (!transactions) return [];
-    if (!date?.from) return transactions; // 如果没有选择日期范围，则返回所有交易
+    if (!date?.from) return transactions;
 
     return transactions.filter((transaction) => {
       const transactionDate = new Date(transaction.transactionDate);
-      // 如果只有 from，则 to 设为 from 的一天后
       const from = date.from!;
       const to = date.to ? addDays(date.to, 1) : addDays(from, 1);
       return transactionDate >= from && transactionDate < to;
@@ -88,6 +105,34 @@ export function TransactionHistory() {
   }, [transactions, date]);
 
   const isLoading = isUserLoading || isTransactionsLoading;
+
+  // Edit logic
+  const openEdit = (tx: any) => {
+    setEditingTx(tx);
+  };
+  const closeEdit = () => {
+    setEditingTx(null);
+  };
+  const handleEditSuccess = () => {
+    closeEdit();
+  };
+
+  // Delete logic
+  async function handleDelete(tx: any) {
+    try {
+      const ref = getTxDocRef(firestore, tx, user?.uid);
+      if (!ref) {
+        console.warn('[delete] 无法定位文档路径，缺少 ref/ownerUid/id', tx);
+        alert('删除失败：无法定位该交易的文档路径（缺少 ref/ownerUid/id）。');
+        return;
+      }
+      await deleteDoc(ref);
+    } catch (err: any) {
+      console.error('[delete] 删除失败：', err);
+      alert(`删除失败：${err?.message || String(err)}`);
+    }
+  }
+
 
   return (
     <section id="history" className="scroll-mt-20">
@@ -98,7 +143,7 @@ export function TransactionHistory() {
             <CardDescription>所有过去交易的详细记录。</CardDescription>
           </div>
           <div className="flex items-center gap-2">
-            <Dialog open={isFormOpen} onOpenChange={setIsFormOpen}>
+            <Dialog open={isAddFormOpen} onOpenChange={setAddFormOpen}>
               <DialogTrigger asChild>
                 <Button size="sm" className="h-8 gap-1">
                   <PlusCircle className="h-3.5 w-3.5" />
@@ -114,25 +159,9 @@ export function TransactionHistory() {
                     请填写以下信息以记录您的新交易。
                   </DialogDescription>
                 </DialogHeader>
-                <AddTransactionForm onSuccess={() => setIsFormOpen(false)} />
+                <AddTransactionForm onSuccess={() => setAddFormOpen(false)} />
               </DialogContent>
             </Dialog>
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button variant="outline" size="sm" className="h-8 gap-1">
-                  <ListFilter className="h-3.5 w-3.5" />
-                  <span className="sr-only sm:not-sr-only sm:whitespace-nowrap">
-                    过滤
-                  </span>
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end">
-                <DropdownMenuLabel>按类型筛选</DropdownMenuLabel>
-                <DropdownMenuSeparator />
-                <DropdownMenuCheckboxItem checked>买入</DropdownMenuCheckboxItem>
-                <DropdownMenuCheckboxItem checked>卖出</DropdownMenuCheckboxItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
             <Popover>
               <PopoverTrigger asChild>
                 <Button
@@ -173,31 +202,34 @@ export function TransactionHistory() {
             </Popover>
           </div>
         </CardHeader>
-        <CardContent>
+        <CardContent className="p-0">
           <div className="relative w-full overflow-auto">
-            <Table>
+            <Table className="tx-table w-full">
               <TableHeader>
                 <TableRow>
                   <TableHead>日期</TableHead>
-                  <TableHead>股票</TableHead>
+                  <TableHead>标的</TableHead>
                   <TableHead>类型</TableHead>
                   <TableHead className="text-right">价格</TableHead>
                   <TableHead className="text-right">数量</TableHead>
                   <TableHead className="text-right">总计</TableHead>
+                  <TableHead className="text-center">管理</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {isLoading && (
-                  <TableRow>
-                    <TableCell colSpan={6} className="text-center">
-                      正在加载交易记录...
-                    </TableCell>
-                  </TableRow>
+                  Array.from({ length: 5 }).map((_, i) => (
+                    <TableRow key={i}>
+                      <TableCell colSpan={7}>
+                        <Skeleton className="h-6 w-full" />
+                      </TableCell>
+                    </TableRow>
+                  ))
                 )}
                 {error && (
                   <TableRow>
                     <TableCell
-                      colSpan={6}
+                      colSpan={7}
                       className="text-center text-destructive"
                     >
                       加载失败: {error.message}
@@ -206,39 +238,105 @@ export function TransactionHistory() {
                 )}
                 {!isLoading && !error && filteredTransactions.length === 0 && (
                   <TableRow>
-                    <TableCell colSpan={6} className="text-center">
-                      在此日期范围内未找到任何交易，或您的用户下暂无记录。
+                    <TableCell colSpan={7} className="h-24 text-center">
+                      无记录。
                     </TableCell>
                   </TableRow>
                 )}
                 {!isLoading &&
-                  filteredTransactions.map((transaction) => (
-                    <TableRow key={transaction.id}>
+                  filteredTransactions.map((tx) => (
+                    <TableRow key={tx.id}>
                       <TableCell className="whitespace-nowrap">
-                        {format(new Date(transaction.transactionDate), 'yyyy-MM-dd')}
+                        {format(new Date(tx.transactionDate), 'yyyy-MM-dd')}
                       </TableCell>
                       <TableCell className="font-medium">
-                        {transaction.symbol}
+                        <SymbolName symbol={tx.symbol} />
                       </TableCell>
                       <TableCell>
                         <Badge
                           variant={
-                            transaction.type === 'Buy'
+                            tx.type === 'Buy'
                               ? 'default'
                               : 'destructive'
                           }
+                          className={cn(
+                            'w-[40px] flex justify-center',
+                            tx.type === 'Buy' && 'bg-ok',
+                            tx.type === 'Sell' && 'bg-negative'
+                          )}
                         >
-                          {transaction.type === 'Buy' ? '买入' : '卖出'}
+                          {tx.type === 'Buy' ? '买' : '卖'}
                         </Badge>
                       </TableCell>
-                      <TableCell className="text-right">
-                        ${transaction.price.toFixed(2)}
+                      <TableCell className="text-right font-mono">
+                        {tx.price.toFixed(2)}
                       </TableCell>
-                      <TableCell className="text-right">
-                        {transaction.quantity}
+                      <TableCell className="text-right font-mono">
+                        {tx.quantity}
                       </TableCell>
-                      <TableCell className="text-right">
-                        ${transaction.total.toLocaleString()}
+                      <TableCell className="text-right font-mono">
+                        {tx.total.toLocaleString(undefined, {
+                          minimumFractionDigits: 2,
+                          maximumFractionDigits: 2,
+                        })}
+                      </TableCell>
+                      <TableCell className="text-center">
+                        <div className="flex items-center justify-center">
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            title="编辑"
+                            onClick={() => openEdit(tx)}
+                            className="mr-1 h-7 w-7 transition-transform hover:scale-110"
+                            aria-label="编辑"
+                          >
+                            <Edit
+                              theme="multi-color"
+                              size={18}
+                              strokeWidth={3}
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                              fill={['#34D399', '#FFFFFF', '#059669', '#065F46']}
+                            />
+                          </Button>
+                          <AlertDialog>
+                            <AlertDialogTrigger asChild>
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                title="删除"
+                                className="h-7 w-7 transition-transform hover:scale-110"
+                                aria-label="删除"
+                              >
+                                <DeleteFive
+                                  theme="multi-color"
+                                  size={18}
+                                  strokeWidth={3}
+                                  strokeLinecap="round"
+                                  strokeLinejoin="round"
+                                  fill={['#FCA5A5', '#FFFFFF', '#EF4444', '#991B1B']}
+                                />
+                              </Button>
+                            </AlertDialogTrigger>
+                            <AlertDialogContent>
+                              <AlertDialogHeader>
+                                <AlertDialogTitle>确认删除该交易？</AlertDialogTitle>
+                                <AlertDialogDescription>
+                                  {tx.symbol} 将被永久删除，此操作不可撤销。
+                                </AlertDialogDescription>
+                              </AlertDialogHeader>
+                              <AlertDialogFooter>
+                                <AlertDialogCancel>取消</AlertDialogCancel>
+                                <AlertDialogAction
+                                  onClick={() => handleDelete(tx)}
+                                  className="bg-red-600 hover:bg-red-700 text-white"
+                                >
+                                  确认删除
+                                </AlertDialogAction>
+                              </AlertDialogFooter>
+                            </AlertDialogContent>
+                          </AlertDialog>
+                        </div>
                       </TableCell>
                     </TableRow>
                   ))}
@@ -247,6 +345,26 @@ export function TransactionHistory() {
           </div>
         </CardContent>
       </Card>
+
+      {/* Edit Dialog */}
+      <Dialog open={!!editingTx} onOpenChange={(isOpen) => !isOpen && closeEdit()}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>编辑交易</DialogTitle>
+            <DialogDescription>
+              修改您的交易记录。请谨慎操作。
+            </DialogDescription>
+          </DialogHeader>
+          {editingTx && (
+            <AddTransactionForm
+              key={editingTx.id} /* Force re-render */
+              isEditing={true}
+              defaultValues={editingTx}
+              onSuccess={handleEditSuccess}
+            />
+          )}
+        </DialogContent>
+      </Dialog>
     </section>
   );
 }

@@ -1,16 +1,15 @@
 "use client";
 
 import { useState } from "react";
+import dynamic from "next/dynamic";
 import { Plus } from "lucide-react";
 import { DashboardHeader } from "@/components/dashboard/dashboard-header";
 import { CalculationGrid } from "@/components/dashboard/calculation-grid";
 import { HoldingsList } from "@/components/dashboard/holdings-list";
 import { StockDetails } from "@/components/dashboard/stock-details";
-import { TransactionHistory } from "@/components/dashboard/transaction-history";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { StatusBadge, type Status } from "@/components/ui/status-badge";
-import { cn } from "@/lib/utils";
 import {
   Dialog,
   DialogContent,
@@ -22,7 +21,29 @@ import {
 import { AddTransactionForm } from "@/components/dashboard/add-transaction-form";
 import { Button } from "@/components/ui/button";
 import { useRequireAuth } from "@/components/auth/guards";
+import { Skeleton } from "@/components/ui/skeleton";
 
+const TransactionHistory = dynamic(
+  () => import('@/components/dashboard/transaction-history').then(mod => mod.TransactionHistory),
+  {
+    ssr: false,
+    loading: () => (
+      <Card>
+        <CardHeader>
+          <Skeleton className="h-6 w-1/2" />
+          <Skeleton className="h-4 w-3/4" />
+        </CardHeader>
+        <CardContent>
+          <div className="space-y-2">
+            <Skeleton className="h-8 w-full" />
+            <Skeleton className="h-8 w-full" />
+            <Skeleton className="h-8 w-full" />
+          </div>
+        </CardContent>
+      </Card>
+    ),
+  }
+);
 
 const portfolioStatus: Status = 'close'; 
 
