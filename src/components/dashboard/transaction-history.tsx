@@ -58,7 +58,7 @@ import {
   useMemoFirebase,
 } from '@/firebase';
 import type { Transaction } from '@/lib/data';
-import { collection, query, orderBy, doc, deleteDoc } from 'firebase/firestore';
+import { collection, query, orderBy, doc, deleteDoc, collectionGroup, getDocs, where, orderBy as fbOrderBy, limit as fbLimit } from 'firebase/firestore';
 import { AddTransactionForm } from './add-transaction-form';
 import { Skeleton } from '../ui/skeleton';
 import { SymbolName } from './symbol-name';
@@ -164,6 +164,34 @@ export function TransactionHistory() {
     // eslint-disable-next-line no-console
     console.log('[HistoryDebug]', JSON.stringify(snapshot, null, 2));
   }, [user, isUserLoading, isTransactionsLoading, isLoading, error, transactions, filteredTransactions]);
+
+  useEffect(() => {
+    if (!user || !firestore) return;
+  
+    (async () => {
+      try {
+        const cg = collectionGroup(firestore, "transactions");
+        // 只读：找出所有 userId 等于当前 UID 的交易
+        const q = query(
+          cg,
+          where("userId", "==", user.uid),
+          fbOrderBy("transactionTimestamp", "desc"),
+          fbLimit(3)
+        );
+        const snap = await getDocs(q);
+        const sample = snap.docs.map(d => ({ path: d.ref.path, ...d.data() })).slice(0, 3);
+        // eslint-disable-next-line no-console
+        console.log(
+          "[HistoryProbe][collectionGroup by userId]",
+          JSON.stringify({ uid: user.uid, count: snap.size, sample }, null, 2)
+        );
+        (window as any).__HISTORY_PROBE_LAST = { uid: user.uid, count: snap.size, sample };
+      } catch (e: any) {
+        // eslint-disable-next-line no-console
+        console.error("[HistoryProbe][collectionGroup error]", e?.message || e);
+      }
+    })();
+  }, [user, firestore]);
 
   // Edit logic
   const openEdit = (tx: any) => {
