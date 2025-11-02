@@ -326,7 +326,21 @@ export function TransactionHistory() {
   const startNy = date?.from ? toNyCalendarDayString(date.from) : null;
   const endNy   = date?.to   ? toNyCalendarDayString(date.to)   : startNy;
 
-  const filteredTransactions = baseRows; // 暂时禁用日期过滤，以显示所有数据
+  const filteredTransactions = useMemo(() => {
+    if (!baseRows?.length) return [];
+    // 未选区间：显示全部
+    if (!startNy || !endNy) return baseRows;
+  
+    // 确保起止顺序（防御）
+    const s = startNy <= endNy ? startNy : endNy;
+    const e = startNy <= endNy ? endNy : startNy;
+  
+    return baseRows.filter(tx => {
+      if (!tx.transactionTimestamp) return false; // 无有效时间戳的记录不参与过滤
+      const d = toNyCalendarDayString(tx.transactionTimestamp); // 纽约日
+      return d >= s && d <= e; // 含边界
+    });
+  }, [baseRows, startNy, endNy]);
 
   const isLoading = isUserLoading || isTransactionsLoading || isTradesLoading;
 
@@ -527,12 +541,14 @@ export function TransactionHistory() {
                     <TableRow key={tx.id}>
                       <TableCell className="whitespace-nowrap">
                         <div>
-                          {tx.transactionTimestamp ? (
-                            <>
-                              {toNyCalendarDayString(tx.transactionTimestamp)}{' '}
-                              {toNyHmsString(tx.transactionTimestamp)}{' '}
-                            </>
-                          ) : '—'}
+                          {tx.transactionTimestamp
+                            ? (
+                                <>
+                                  {toNyCalendarDayString(tx.transactionTimestamp)}{' '}
+                                  {toNyHmsString(tx.transactionTimestamp)}{' '}
+                                </>
+                              )
+                            : '—'}
                         </div>
                       
                         {/* 新增：严格按 NY 计算的周几 */}
