@@ -222,6 +222,31 @@ function normalizeTrade(rawTx: any, source: 'transactions' | 'trades'): Normaliz
   };
 }
 
+// 规则 4：“健壮的时间格式化” (The Robust Time Formatter)
+// 目标：修复“只有日期没有时间”的 BUG
+function formatRobustTimestamp(timestamp: number): string {
+  if (timestamp === 0) {
+    // 这是我们为“残次品”设置的兜底值，显示 "N/A"
+    return '—';
+  }
+  try {
+    // 尝试将数字时间戳格式化为 YYYY-MM-DD HH:mm:ss
+    const date = new Date(timestamp);
+    if (isNaN(date.getTime())) return '—'; // 预防无效日期
+    
+    const y = date.getFullYear();
+    const m = String(date.getMonth() + 1).padStart(2, '0');
+    const d = String(date.getDate()).padStart(2, '0');
+    const h = String(date.getHours()).padStart(2, '0');
+    const min = String(date.getMinutes()).padStart(2, '0');
+    const s = String(date.getSeconds()).padStart(2, '0');
+    
+    return `${y}-${m}-${d} ${h}:${min}:${s}`;
+  } catch (e) {
+    return '—'; // 捕获未知错误
+  }
+}
+
 // 规则 3：“格式化字典” (The Formatter)
 // 目标：修复 Buy/Sell 显示错误 (开放性方案)
 function formatAction(actionString: string): string {
@@ -488,7 +513,7 @@ export function TransactionHistory() {
                   filteredTransactions.map((tx) => (
                     <TableRow key={tx.id}>
                       <TableCell className="whitespace-nowrap">
-                        {getTxNyString(tx.raw) ?? '—'}
+                        {formatRobustTimestamp(tx.transactionTimestamp)}
                       </TableCell>
                       <TableCell className="font-medium">
                         <SymbolName symbol={tx.symbol} />
