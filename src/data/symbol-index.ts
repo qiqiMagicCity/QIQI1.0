@@ -34,6 +34,7 @@ export const SYMBOLS: SymbolEntry[] = [
   { symbol: 'CLF',  nameEn: 'Cleveland-Cliffs Inc.', nameZh: '克利夫兰-克里夫斯', type: 'equity' },
   { symbol: 'SBUX', nameEn: 'Starbucks Corporation', nameZh: '星巴克', type: 'equity' },
   { symbol: 'APP',  nameEn: 'AppLovin Corp.', nameZh: 'AppLovin', type: 'equity' },
+  { symbol: 'TSLA', nameEn: 'Tesla, Inc.', nameZh: '特斯拉', type: 'equity', aliases: ['TESLA'] },
 
   { symbol: 'DUK',  nameEn: 'Duke Energy Corporation', nameZh: '杜克能源', type: 'equity' },
   { symbol: 'SO',   nameEn: 'The Southern Company', nameZh: '南方公司', type: 'equity' },
@@ -46,7 +47,8 @@ export const SYMBOLS: SymbolEntry[] = [
   { symbol: 'KBWB', nameEn: 'Invesco KBW Bank ETF', nameZh: 'KBW 银行ETF', type: 'etf' },
   { symbol: 'USO',  nameEn: 'United States Oil Fund', nameZh: '美国原油基金', type: 'etf' },
   { symbol: 'NVDL', nameEn: 'GraniteShares 1.5x Long NVDA Daily ETF', type: 'etf' },
-  // 如需：{ symbol: 'TSDD', nameEn: 'Direxion Daily TSLA Bear 1X Shares', type: 'etf' },
+  { symbol: 'TSLL', nameEn: 'Direxion Daily TSLA Bull 1.5X Shares', type: 'etf', aliases: ['TSLA BULL'] },
+  { symbol: 'TSLQ', nameEn: 'AXS TSLA Bear Daily ETF', type: 'etf', aliases: ['TSLA BEAR'] },
 ];
 
 // 归一化（大小写/空白）
