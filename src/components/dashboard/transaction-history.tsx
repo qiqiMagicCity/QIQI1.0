@@ -247,6 +247,20 @@ function formatRobustTimestamp(timestamp: number): string {
   }
 }
 
+// 规则 5：“星期几格式化” (The Day of Week Formatter)
+function formatDayOfWeek(timestamp: number): string | null {
+  if (timestamp === 0) return null; // “残次品”数据不显示星期
+  try {
+    const date = new Date(timestamp);
+    if (isNaN(date.getTime())) return null;
+    const day = date.getDay();
+    // 0=周日, 1=周一, ...
+    return `(周${['日', '一', '二', '三', '四', '五', '六'][day]})`;
+  } catch (e) {
+    return null;
+  }
+}
+
 // 规则 3：“格式化字典” (The Formatter)
 // 目标：修复 Buy/Sell 显示错误 (开放性方案)
 function formatAction(actionString: string): string {
@@ -513,22 +527,21 @@ export function TransactionHistory() {
                   filteredTransactions.map((tx) => (
                     <TableRow key={tx.id}>
                       <TableCell className="whitespace-nowrap">
-                        {formatRobustTimestamp(tx.transactionTimestamp)}
+                        <div>{formatRobustTimestamp(tx.transactionTimestamp)}</div>
+                        <div className="text-xs text-muted-foreground -mt-1">
+                          {formatDayOfWeek(tx.transactionTimestamp)}
+                        </div>
                       </TableCell>
                       <TableCell className="font-medium">
                         <SymbolName symbol={tx.symbol} />
                       </TableCell>
                       <TableCell>
                         <Badge
-                          variant={
-                            (tx.action === 'Buy' || tx.action === 'Short Cover')
-                              ? 'default'
-                              : 'destructive'
-                          }
+                          variant="outline" // 使用中性 variant
                           className={cn(
-                            'w-[40px] flex justify-center',
-                            (tx.action === 'Buy' || tx.action === 'Short Cover') && 'bg-ok',
-                            (tx.action === 'Sell' || tx.action === 'Short Sell') && 'bg-negative'
+                            'w-[40px] flex justify-center border-none text-white', // 强制白色文字, 移除边框
+                            (tx.action === 'Buy' || tx.action === 'Short Cover') && 'bg-ok', // 强制绿色背景
+                            (tx.action === 'Sell' || tx.action === 'Short Sell') && 'bg-negative' // 强制红色背景
                           )}
                         >
                           {formatAction(tx.action)}
