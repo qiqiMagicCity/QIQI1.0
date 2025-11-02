@@ -463,11 +463,10 @@ export function TransactionHistory() {
                   {date?.from ? (
                     date.to ? (
                       <>
-                        {format(date.from, 'y-MM-dd', { locale: zhCN })} -{' '}
-                        {format(date.to, 'y-MM-dd', { locale: zhCN })}
+                        {toNyCalendarDayString(date.from)} - {toNyCalendarDayString(date.to)}
                       </>
                     ) : (
-                      format(date.from, 'y-MM-dd', { locale: zhCN })
+                      toNyCalendarDayString(date.from)
                     )
                   ) : (
                     <span>选择一个日期</span>
@@ -541,14 +540,12 @@ export function TransactionHistory() {
                     <TableRow key={tx.id}>
                       <TableCell className="whitespace-nowrap">
                         <div>
-                          {tx.transactionTimestamp
-                            ? (
-                                <>
-                                  {toNyCalendarDayString(tx.transactionTimestamp)}{' '}
-                                  {toNyHmsString(tx.transactionTimestamp)}{' '}
-                                </>
-                              )
-                            : '—'}
+                          {tx.transactionTimestamp ? (
+                            <>
+                              {toNyCalendarDayString(tx.transactionTimestamp)}{' '}
+                              {toNyHmsString(tx.transactionTimestamp)}{' '}
+                            </>
+                          ) : '—'}
                         </div>
                       
                         {/* 新增：严格按 NY 计算的周几 */}
