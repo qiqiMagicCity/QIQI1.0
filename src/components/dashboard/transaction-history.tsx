@@ -235,6 +235,7 @@ function formatAction(actionString: string): string {
   return DICTIONARY[actionString] || actionString;
 }
 
+
 export function TransactionHistory() {
   const [date, setDate] = useState<DateRange | undefined>(undefined);
   const [isAddFormOpen, setAddFormOpen] = useState(false);
@@ -267,7 +268,7 @@ export function TransactionHistory() {
 
 
   const baseRows = useMemo(() => {
-    const rows: Array<any> = [];
+    const rows: NormalizedTrade[] = [];
 
     (transactions ?? []).forEach((item) => {
       rows.push(normalizeTrade(item, 'transactions'));
