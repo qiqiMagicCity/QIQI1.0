@@ -32,6 +32,7 @@ import { collection } from "firebase/firestore";
 import { useToast } from "@/hooks/use-toast";
 import { v4 as uuidv4 } from 'uuid';
 import { toNyCalendarDayString, nowNyCalendarDayString, toNyHmsString, nyLocalDateTimeToUtcMillis } from '@/lib/ny-time';
+import SymbolCombobox from '@/components/inputs/symbol-combobox';
 
 
 const formSchema = z.object({
@@ -143,7 +144,12 @@ export function AddTransactionForm({ onSuccess, isEditing = false, defaultValues
             <FormItem>
               <FormLabel>股票代码</FormLabel>
               <FormControl>
-                <Input placeholder="例如：AAPL" {...field} />
+                {/* 使用只读索引 + 本地联想，不触碰后端 */}
+                <SymbolCombobox
+                  value={field.value ?? ''}
+                  onChange={(v) => field.onChange(v)}
+                  placeholder="输入代码/中文/英文查找，例如：AAPL / 苹果 / Apple"
+                />
               </FormControl>
               <FormMessage />
             </FormItem>
