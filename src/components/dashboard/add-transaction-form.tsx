@@ -31,7 +31,7 @@ import { addDocumentNonBlocking } from "@/firebase/non-blocking-updates";
 import { collection } from "firebase/firestore";
 import { useToast } from "@/hooks/use-toast";
 import { v4 as uuidv4 } from 'uuid';
-import { toNyCalendarDayString, nowNyCalendarDayString } from '@/lib/ny-time';
+import { toNyCalendarDayString, nowNyCalendarDayString, toNyHmsString, nyLocalDateTimeToUtcMillis } from '@/lib/ny-time';
 
 
 const formSchema = z.object({
@@ -40,6 +40,8 @@ const formSchema = z.object({
   quantity: z.coerce.number().positive("数量必须为正数。"),
   price: z.coerce.number().positive("价格必须为正数。"),
   date: z.date({ required_error: "请选择交易日期。" }),
+  time: z.string()
+    .regex(/^([01]\d|2[0-3]):([0-5]\d):([0-5]\d)$/, "请输入形如 16:00:00 的时间（纽约时区）。"),
 });
 
 type AddTransactionFormProps = {
@@ -58,10 +60,14 @@ export function AddTransactionForm({ onSuccess, isEditing = false, defaultValues
     defaultValues: defaultValues ? {
       ...defaultValues,
       date: defaultValues.transactionDate ? new Date(defaultValues.transactionDate) : new Date(),
+      time: (typeof defaultValues.transactionTimestamp === 'number')
+        ? toNyHmsString(defaultValues.transactionTimestamp)
+        : "16:00:00",
     } : {
       symbol: "",
       type: "Buy",
       date: new Date(),
+      time: "16:00:00",
     },
   });
 
@@ -81,21 +87,23 @@ export function AddTransactionForm({ onSuccess, isEditing = false, defaultValues
         throw new Error('[add-transaction-form] Invalid date input');
       }
 
-      const transactionDateNy = toNyCalendarDayString(originalDate);
-      const transactionTimestamp = originalDate.getTime();
-      
+      const yyyyMmDdNy = toNyCalendarDayString(originalDate); // 日期仍用 NY 日历
+      const transactionTimestamp = nyLocalDateTimeToUtcMillis(yyyyMmDdNy, values.time);
+      const transactionDate = new Date(transactionTimestamp).toISOString();
+      const transactionDateNy = toNyCalendarDayString(transactionTimestamp);
+
       const transactionData = {
         ...values,
         id: defaultValues?.id || uuidv4(),
         userId: user.uid,
-        transactionDate: originalDate.toISOString(),
-        transactionDateNy,
+        transactionDate,       // 用从 UTC 毫秒反推的 ISO
+        transactionDateNy,     // 由时间戳再求 NY 日期，避免边界误差
         transactionTimestamp,
         total: values.quantity * values.price,
       };
-      
       delete (transactionData as any).date;
-
+      delete (transactionData as any).time;
+      
       const transactionsRef = collection(
         firestore,
         "users",
@@ -165,7 +173,7 @@ export function AddTransactionForm({ onSuccess, isEditing = false, defaultValues
                     </FormControl>
                     <FormLabel className="font-normal">卖出</FormLabel>
                   </FormItem>
-                  <FormItem className="flex items-center space-x-2 space-y-0">
+                  <FormItem className="flex items-center space-x-2 space-y-0-">
                     <FormControl>
                       <RadioGroupItem value="Short Sell" />
                     </FormControl>
@@ -251,6 +259,19 @@ export function AddTransactionForm({ onSuccess, isEditing = false, defaultValues
                   />
                 </PopoverContent>
               </Popover>
+              <FormMessage />
+            </FormItem>
+          )}
+        />
+        <FormField
+          control={form.control}
+          name="time"
+          render={({ field }) => (
+            <FormItem>
+              <FormLabel>时间 (纽约)</FormLabel>
+              <FormControl>
+                <Input placeholder="16:00:00" {...field} />
+              </FormControl>
               <FormMessage />
             </FormItem>
           )}

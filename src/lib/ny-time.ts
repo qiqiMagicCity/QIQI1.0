@@ -101,3 +101,38 @@ export function assertYyyyMmDd(s: string): void {
 export function nowNyCalendarDayString(): string {
   return toNyCalendarDayString(new Date());
 }
+
+export function toNyHmsString(input: DateInput): string {
+  const p = getNyParts(input);
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${pad(p.hour)}:${pad(p.minute)}:${pad(p.second)}`;
+}
+
+export function nyLocalDateTimeToUtcMillis(yyyyMmDd: string, hhmmss: string): number {
+  assertYyyyMmDd(yyyyMmDd);
+  if (!/^\d{2}:\d{2}:\d{2}$/.test(hhmmss)) {
+    throw new Error(`[ny-time] Not a HH:mm:ss string: ${hhmmss}`);
+  }
+  const [y, m, d] = yyyyMmDd.split('-').map(Number);
+  const [hh, mm, ss] = hhmmss.split(':').map(Number);
+
+  const match = (ms: number) => {
+    const p = getNyParts(ms);
+    return p.year === y && p.month === m && p.day === d &&
+           p.hour === hh && p.minute === mm && p.second === ss;
+  };
+
+  // 初始猜测（不带时区的 UTC 构造）
+  const guess = Date.UTC(y, m - 1, d, hh, mm, ss);
+  if (match(guess)) return guess;
+
+  const ONE_MIN = 60_000;
+  // 双向扩散搜索，覆盖 DST 前后
+  for (let delta = 1; delta <= 24 * 60; delta++) {
+    const plus = guess + delta * ONE_MIN;
+    if (match(plus)) return plus;
+    const minus = guess - delta * ONE_MIN;
+    if (match(minus)) return minus;
+  }
+  throw new Error('[ny-time] Failed to map NY local time to UTC (likely an invalid local time due to DST).');
+}
