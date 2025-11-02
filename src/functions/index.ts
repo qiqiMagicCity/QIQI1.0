@@ -1,6 +1,5 @@
 import * as admin from "firebase-admin";
 import * as functions from "firebase-functions";
-import './export'; // 导入新文件以确保它被部署
 
 try {
   admin.app();
@@ -16,9 +15,9 @@ try {
  * 2) 管理员管理：当调用者已是 admin 时，可为任意用户（通过 email 指定）开启/关闭 admin。
  *
  * 调用示例（客户端）：
- *   const fn = httpsCallable(functions, "setAdminClaim");
- *   await fn({ mode: "bootstrap" });
- *   await fn({ mode: "set", email: "someone@example.com", enable: true });
+ * const fn = httpsCallable(functions, "setAdminClaim");
+ * await fn({ mode: "bootstrap" });
+ * await fn({ mode: "set", email: "someone@example.com", enable: true });
  */
 export const setAdminClaim = functions.https.onCall(async (data, context) => {
   if (!context.auth) {
