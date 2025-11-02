@@ -137,6 +137,59 @@
 ### 违规处理
 任何违反上述轮动、间隔、阻塞处理或启停控制规则的实现，都将被视为违规，必须立即修复以确保价格系统的稳定性和合规性。
 
+## 规则 2.5：纽约时间唯一制 — UI 文案与交互一致性
+
+**目的**  
+确保项目**任何可见/不可见的日期与时间文案**在 UI 层面与数据层面**全部以纽约时区为唯一基准**呈现与计算，杜绝因本地时区/本地化格式产生的歧义。
+
+**范围**  
+前端（按钮、表格、标签、Toast、日志中对用户可见的片段）、SSR、服务端渲染的初始文案、PDF/导出、通知内容。
+
+**允许的 API（仅限 `@/lib/ny-time`）**  
+- `toNyCalendarDayString(input)` → `YYYY-MM-DD`（NY）  
+- `toNyHmsString(input)` → `HH:mm:ss`（NY）  
+- `nyWeekdayLabel(input)` → `周一/周二/...`（NY）  
+- `nowNyCalendarDayString()` → 今日 NY 日历日  
+- `nyLocalDateTimeToUtcMillis(yyyyMmDdNy, hhmmss)` → 规范写入 UTC 毫秒
+
+**禁止的模式（UI 文案层面）**  
+- 直接或间接使用本地化/本地时区格式化输出：  
+  - `date-fns/format(value, "P"|"PP"|"PPP"|... )`  
+  - `Date.prototype.toLocaleDateString(...)` / `Intl.DateTimeFormat(...)`  
+  - 原生 `new Date().toString()` / `toISOString()` 直接展示  
+- 在文案中添加 “(NY)” / “（NY）” / “(纽约)” 等冗余后缀（NY 为**系统默认**，无需标注）。
+
+> 如需显示日期：**必须**使用 `toNyCalendarDayString(...)`。  
+> 如需显示时间：**必须**使用 `toNyHmsString(...)`。
+
+**数据契约（只读复述，勿破坏）**  
+- 持久化字段：  
+  - `transactionTimestamp`：UTC 毫秒（**唯一权威时间戳**）  
+  - `transactionDate`：由 `transactionTimestamp` 反推的 ISO，仅作冗余展示  
+  - `transactionDateNy`：`YYYY-MM-DD`（NY 日），用于对齐/过滤  
+- UI 展示一律基于上述字段 + 允许 API 完成 NY 转换。
+
+**默认值与交互**  
+- “新增表单”默认日期/时间：从**当前纽约时刻**推导 ——  
+  - `date = new Date()` 后用 `toNyCalendarDayString(date)` 取 NY 日  
+  - `time = toNyHmsString(new Date())` 取 NY 下 `HH:mm:ss`  
+- 日期范围过滤：**仅比较 NY 日字符串**（含边界）。
+
+**代码评审核对清单（Reviewer 必勾）**  
+1. 所有可见日期/时间是否均使用 `@/lib/ny-time` 的函数渲染？  
+2. 是否存在 `format(..., "P/PP/PPP")`、`toLocaleDateString`、`Intl.DateTimeFormat`？（若有→一律改用 NY 工具）  
+3. 是否出现 “(NY)” 等冗余标识？（若有→删除）  
+4. 表单默认值是否来自 NY 当前时刻？  
+5. 过滤/聚合是否在 NY 日维度执行？
+
+**后续自动化（拟定）**  
+- 通过 lint/regex 守卫（示例正则，后续单独 PR 落地）：  
+  - `format\\s*\\(.*?,\\s*"(P|PP|PPP|PPPP)"`  
+  - `toLocale(Date|Time)String\\(` / `Intl\\.DateTimeFormat\\(`  
+- 新增 CI 检查：发现上述模式直接失败。
+
+> 本条为**强制性全局规则**，新增/修改任意功能时均需满足；已有代码逐步迁移，禁止引入新违例。
+
 # 3. 功能区1 算法设定 (M1-Mx)
 
 *(本功能区指首页顶部的核心指标卡片)*
@@ -303,3 +356,5 @@
 4.  **合并得到单标的当日浮动盈亏 (`M5_single_asset`)**
     - `M5_single_asset = pl_overnight + pl_intraday`
     - *特殊情况：如果此刻净持仓 `qty_now` 为 0，则 `M5_single_asset` 必须为 0。*
+
+    
