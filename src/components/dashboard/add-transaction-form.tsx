@@ -24,8 +24,6 @@ import { Calendar } from "@/components/ui/calendar";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { cn } from "@/lib/utils";
 import { Calendar as CalendarIcon } from "lucide-react";
-import { format } from "date-fns";
-import { zhCN } from "date-fns/locale";
 import { useFirestore, useUser } from "@/firebase";
 import { addDocumentNonBlocking } from "@/firebase/non-blocking-updates";
 import { collection } from "firebase/firestore";
@@ -34,6 +32,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { toNyCalendarDayString, nowNyCalendarDayString, toNyHmsString, nyLocalDateTimeToUtcMillis } from '@/lib/ny-time';
 import SymbolCombobox from '@/components/inputs/symbol-combobox';
 import { useRef } from "react";
+import { zhCN } from 'date-fns/locale';
 
 
 const formSchema = z.object({
