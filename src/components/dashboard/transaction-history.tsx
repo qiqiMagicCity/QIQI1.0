@@ -58,7 +58,7 @@ import {
   useMemoFirebase,
 } from '@/firebase';
 import type { Transaction } from '@/lib/data';
-import { collection, query, doc, deleteDoc, where, collectionGroup } from 'firebase/firestore';
+import { collection, query, doc, deleteDoc } from 'firebase/firestore';
 import { AddTransactionForm } from './add-transaction-form';
 import { Skeleton } from '../ui/skeleton';
 import { SymbolName } from './symbol-name';
@@ -76,12 +76,10 @@ const DeleteFiveIcon = dynamic(() => import('@icon-park/react').then(m => m.Dele
 
 
 // Helper to get doc ref safely, returns null if params are missing
-function getTxDocRef(firestore: any, tx: any, ownerUid: any) {
-  if (firestore && tx && tx.id && ownerUid && tx.source === 'transactions') {
-    return doc(firestore, 'users', ownerUid, 'transactions', tx.id);
-  }
-  // Deletion/Editing of 'trades' is disabled for now.
-  return null;
+function getTxDocRef(firestore: any, tx: { id: string; source: 'transactions' | 'trades' }, ownerUid: string | null) {
+   if (!firestore || !ownerUid || !tx?.id) return null;
+   if (tx.source !== 'transactions') return null; // 'trades' 只读
+   return doc(firestore, 'users', ownerUid, 'transactions', tx.id);
 }
 
 function getTxNyString(tx: any): string | null {
@@ -390,7 +388,7 @@ export function TransactionHistory() {
   // Delete logic
   async function handleDelete(tx: any) {
     try {
-      const ref = getTxDocRef(firestore, tx.raw, user?.uid);
+      const ref = getTxDocRef(firestore, tx, user?.uid);
       if (!ref) {
         let msg = '删除失败：无法定位该交易的文档路径。';
         if(tx.source === 'trades') {
@@ -543,10 +541,10 @@ export function TransactionHistory() {
                             'w-[40px] flex justify-center border-none text-white', // 基础样式
                             
                             (tx.action === 'Buy' || tx.action === 'Short Cover')
-                              ? '!bg-ok !text-white' // 强制 绿色背景 + 白色文字
+                              ? 'bg-[hsl(var(--ok))] text-white'
                               : (tx.action === 'Sell' || tx.action === 'Short Sell')
-                                ? '!bg-negative !text-white' // 强制 红色背景 + 白色文字
-                                : 'bg-gray-400 text-white' // 未知操作的兜底样式
+                                ? 'bg-[hsl(var(--destructive))] text-white'
+                                : 'bg-gray-400 text-white'
                           )}
                         >
                           {formatAction(tx.action)}
