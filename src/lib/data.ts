@@ -56,7 +56,7 @@ export type Transaction = {
   userId: string;
   transactionDate: string;
   symbol: string;
-  type: 'Buy' | 'Sell';
+  type: 'Buy' | 'Sell' | 'Short Sell' | 'Short Cover';
   price: number;
   quantity: number;
   total: number;

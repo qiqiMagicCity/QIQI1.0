@@ -36,7 +36,7 @@ import { toNyCalendarDayString, nowNyCalendarDayString } from '@/lib/ny-time';
 
 const formSchema = z.object({
   symbol: z.string().min(1, "股票代码不能为空。").max(10, "股票代码过长。").toUpperCase(),
-  type: z.enum(["Buy", "Sell"], { required_error: "请选择交易类型。" }),
+  type: z.enum(["Buy", "Sell", "Short Sell", "Short Cover"], { required_error: "请选择交易类型。" }),
   quantity: z.coerce.number().positive("数量必须为正数。"),
   price: z.coerce.number().positive("价格必须为正数。"),
   date: z.date({ required_error: "请选择交易日期。" }),
@@ -164,6 +164,18 @@ export function AddTransactionForm({ onSuccess, isEditing = false, defaultValues
                       <RadioGroupItem value="Sell" />
                     </FormControl>
                     <FormLabel className="font-normal">卖出</FormLabel>
+                  </FormItem>
+                  <FormItem className="flex items-center space-x-2 space-y-0">
+                    <FormControl>
+                      <RadioGroupItem value="Short Sell" />
+                    </FormControl>
+                    <FormLabel className="font-normal">卖空</FormLabel>
+                  </FormItem>
+                  <FormItem className="flex items-center space-x-2 space-y-0">
+                    <FormControl>
+                      <RadioGroupItem value="Short Cover" />
+                    </FormControl>
+                    <FormLabel className="font-normal">卖空补回</FormLabel>
                   </FormItem>
                 </RadioGroup>
               </FormControl>
