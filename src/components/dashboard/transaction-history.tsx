@@ -62,7 +62,7 @@ import { collection, query, doc, deleteDoc } from 'firebase/firestore';
 import { AddTransactionForm } from './add-transaction-form';
 import { Skeleton } from '../ui/skeleton';
 import { SymbolName } from './symbol-name';
-import { toNyCalendarDayString, toNyHmsString } from '@/lib/ny-time';
+import { toNyCalendarDayString, toNyHmsString, nyWeekdayLabel } from '@/lib/ny-time';
 import dynamic from 'next/dynamic';
 
 const DEBUG_HISTORY = true; 
@@ -488,6 +488,7 @@ export function TransactionHistory() {
                   <TableHead>日期</TableHead>
                   <TableHead>标的代码</TableHead>
                   <TableHead>标的中文名</TableHead>
+
                   <TableHead>类型</TableHead>
                   <TableHead className="text-right">价格</TableHead>
                   <TableHead className="text-right">数量</TableHead>
@@ -527,15 +528,18 @@ export function TransactionHistory() {
                     <TableRow key={tx.id}>
                       <TableCell className="whitespace-nowrap">
                         <div>
-                          {tx.transactionTimestamp
-                            ? (
-                                <>
-                                  {toNyCalendarDayString(tx.transactionTimestamp)}{' '}
-                                  {toNyHmsString(tx.transactionTimestamp)}{' '}
-                                  <span className="text-xs text-muted-foreground">(NY)</span>
-                                </>
-                              )
-                            : '—'}
+                          {tx.transactionTimestamp ? (
+                            <>
+                              {toNyCalendarDayString(tx.transactionTimestamp)}{' '}
+                              {toNyHmsString(tx.transactionTimestamp)}{' '}
+                              <span className="text-xs text-muted-foreground">(NY)</span>
+                            </>
+                          ) : '—'}
+                        </div>
+                      
+                        {/* 新增：严格按 NY 计算的周几 */}
+                        <div className="text-xs text-muted-foreground -mt-1">
+                          {tx.transactionTimestamp ? nyWeekdayLabel(tx.transactionTimestamp) : null}
                         </div>
                       </TableCell>
                       <TableCell className="font-mono">{tx.symbol}</TableCell>

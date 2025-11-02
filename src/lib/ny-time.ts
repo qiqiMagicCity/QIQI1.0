@@ -136,3 +136,22 @@ export function nyLocalDateTimeToUtcMillis(yyyyMmDd: string, hhmmss: string): nu
   }
   throw new Error('[ny-time] Failed to map NY local time to UTC (likely an invalid local time due to DST).');
 }
+
+// 返回纽约时区的星期索引：0=周日 ... 6=周六
+export function nyWeekdayIndex(input: Date | number | string): number {
+  const d = (input instanceof Date) ? input : new Date(input);
+  // 使用带时区的 Intl 计算星期，避免本地时区偏差
+  const s = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'America/New_York',
+    weekday: 'short',
+  }).format(d); // e.g. 'Sun' | 'Mon' ...
+  const map: Record<string, number> = { Sun:0, Mon:1, Tue:2, Wed:3, Thu:4, Fri:5, Sat:6 };
+  return map[s] ?? 0;
+}
+
+// 返回形如 "(周三)" 的中文短标签（纽约时区）
+export function nyWeekdayLabel(input: Date | number | string): string {
+  const zh = ['日','一','二','三','四','五','六'];
+  const idx = nyWeekdayIndex(input);
+  return `(周${zh[idx]})`;
+}
