@@ -287,16 +287,7 @@ export function TransactionHistory() {
   const startNy = date?.from ? toNyCalendarDayString(date.from) : null;
   const endNy   = date?.to   ? toNyCalendarDayString(date.to)   : startNy;
 
-  const filteredTransactions = useMemo(() => {
-    const rows = baseRows;
-    if (!rows) return [];
-    if (!startNy || !endNy) return rows;
-    return rows.filter((tx) => {
-      const txNy = getTxNyString(tx.raw);
-      if (!txNy) return false;
-      return txNy >= startNy && txNy <= endNy;
-    });
-  }, [baseRows, startNy, endNy]);
+  const filteredTransactions = baseRows; // 暂时禁用日期过滤，以显示所有数据
 
   const isLoading = isUserLoading || isTransactionsLoading || isTradesLoading;
 
