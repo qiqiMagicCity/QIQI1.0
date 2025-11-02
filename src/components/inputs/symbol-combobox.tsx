@@ -14,6 +14,7 @@ type Props = {
   placeholder?: string;
   disabled?: boolean;
   className?: string;
+  onSelected?: (symbol: string) => void;
 };
 
 export default function SymbolCombobox({
@@ -22,6 +23,7 @@ export default function SymbolCombobox({
   placeholder = '输入代码/中文/英文查找，例如：AAPL / 苹果 / Apple',
   disabled,
   className,
+  onSelected,
 }: Props) {
   const [open, setOpen] = React.useState(false);
   const [query, setQuery] = React.useState(value ?? '');
@@ -42,6 +44,7 @@ export default function SymbolCombobox({
     onChange?.(up);
     setQuery(up);
     setOpen(false);
+    onSelected?.(up);
   };
 
   return (
@@ -64,7 +67,7 @@ export default function SymbolCombobox({
           <CommandInput
             placeholder={placeholder}
             value={query}
-            onValueValueChange={setQuery}
+            onValueChange={setQuery}
             // 允许按 Enter 直接使用当前输入（即便不在索引）
             onKeyDown={(e) => {
               if (e.key === 'Enter') {

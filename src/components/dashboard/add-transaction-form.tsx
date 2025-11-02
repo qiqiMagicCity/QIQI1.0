@@ -33,6 +33,7 @@ import { useToast } from "@/hooks/use-toast";
 import { v4 as uuidv4 } from 'uuid';
 import { toNyCalendarDayString, nowNyCalendarDayString, toNyHmsString, nyLocalDateTimeToUtcMillis } from '@/lib/ny-time';
 import SymbolCombobox from '@/components/inputs/symbol-combobox';
+import { useRef } from "react";
 
 
 const formSchema = z.object({
@@ -55,6 +56,7 @@ export function AddTransactionForm({ onSuccess, isEditing = false, defaultValues
   const { toast } = useToast();
   const firestore = useFirestore();
   const { user } = useUser();
+  const qtyRef = useRef<HTMLInputElement>(null);
 
   const form = useForm<z.infer<typeof formSchema>>({
     resolver: zodResolver(formSchema),
@@ -149,6 +151,7 @@ export function AddTransactionForm({ onSuccess, isEditing = false, defaultValues
                   value={field.value ?? ''}
                   onChange={(v) => field.onChange(v)}
                   placeholder="输入代码/中文/英文查找，例如：AAPL / 苹果 / Apple"
+                  onSelected={() => qtyRef.current?.focus()}
                 />
               </FormControl>
               <FormMessage />
@@ -205,7 +208,7 @@ export function AddTransactionForm({ onSuccess, isEditing = false, defaultValues
               <FormItem>
                 <FormLabel>数量 (股)</FormLabel>
                 <FormControl>
-                  <Input type="number" placeholder="100" {...field} />
+                  <Input type="number" placeholder="100" {...field} ref={qtyRef} />
                 </FormControl>
                 <FormMessage />
               </FormItem>
