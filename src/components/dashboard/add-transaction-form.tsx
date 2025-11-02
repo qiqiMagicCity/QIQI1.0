@@ -69,8 +69,9 @@ export function AddTransactionForm({ onSuccess, isEditing = false, defaultValues
     } : {
       symbol: "",
       type: "Buy",
-      date: new Date(),
-      time: "16:00:00",
+      // 以“此刻”的纽约时间作为默认值
+      date: new Date(),                 // 日期后续用 toNyCalendarDayString 解释为“纽约日”，安全
+      time: toNyHmsString(new Date()),  // 纽约时区下的 HH:mm:ss
     },
   });
 
