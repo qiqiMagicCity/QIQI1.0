@@ -488,7 +488,6 @@ export function TransactionHistory() {
                   <TableHead>日期</TableHead>
                   <TableHead>标的代码</TableHead>
                   <TableHead>标的中文名</TableHead>
-
                   <TableHead>类型</TableHead>
                   <TableHead className="text-right">价格</TableHead>
                   <TableHead className="text-right">数量</TableHead>
@@ -532,7 +531,6 @@ export function TransactionHistory() {
                             <>
                               {toNyCalendarDayString(tx.transactionTimestamp)}{' '}
                               {toNyHmsString(tx.transactionTimestamp)}{' '}
-                              <span className="text-xs text-muted-foreground">(NY)</span>
                             </>
                           ) : '—'}
                         </div>
