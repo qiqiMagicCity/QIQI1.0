@@ -62,7 +62,7 @@ import { collection, query, doc, deleteDoc } from 'firebase/firestore';
 import { AddTransactionForm } from './add-transaction-form';
 import { Skeleton } from '../ui/skeleton';
 import { SymbolName } from './symbol-name';
-import { toNyCalendarDayString } from '@/lib/ny-time';
+import { toNyCalendarDayString, toNyHmsString } from '@/lib/ny-time';
 import dynamic from 'next/dynamic';
 
 const DEBUG_HISTORY = true; 
@@ -526,9 +526,16 @@ export function TransactionHistory() {
                   filteredTransactions.map((tx) => (
                     <TableRow key={tx.id}>
                       <TableCell className="whitespace-nowrap">
-                        <div>{formatRobustTimestamp(tx.transactionTimestamp)}</div>
-                        <div className="text-xs text-muted-foreground -mt-1">
-                          {formatDayOfWeek(tx.transactionTimestamp)}
+                        <div>
+                          {tx.transactionTimestamp
+                            ? (
+                                <>
+                                  {toNyCalendarDayString(tx.transactionTimestamp)}{' '}
+                                  {toNyHmsString(tx.transactionTimestamp)}{' '}
+                                  <span className="text-xs text-muted-foreground">(NY)</span>
+                                </>
+                              )
+                            : '—'}
                         </div>
                       </TableCell>
                       <TableCell className="font-mono">{tx.symbol}</TableCell>
