@@ -488,11 +488,12 @@ export function TransactionHistory() {
               <TableHeader>
                 <TableRow>
                   <TableHead>日期</TableHead>
-                  <TableHead>标的</TableHead>
+                  <TableHead>标的代码</TableHead>
+                  <TableHead>标的中文名</TableHead>
                   <TableHead>类型</TableHead>
                   <TableHead className="text-right">价格</TableHead>
                   <TableHead className="text-right">数量</TableHead>
-                  <TableHead className="text-right">总计</TableHead>
+                  <TableHead className="text-right">总计金额</TableHead>
                   <TableHead className="text-center">管理</TableHead>
                 </TableRow>
               </TableHeader>
@@ -500,7 +501,7 @@ export function TransactionHistory() {
                 {isLoading && (
                   Array.from({ length: 5 }).map((_, i) => (
                     <TableRow key={i}>
-                      <TableCell colSpan={7}>
+                      <TableCell colSpan={8}>
                         <Skeleton className="h-6 w-full" />
                       </TableCell>
                     </TableRow>
@@ -509,7 +510,7 @@ export function TransactionHistory() {
                 {error && (
                   <TableRow>
                     <TableCell
-                      colSpan={7}
+                      colSpan={8}
                       className="text-center text-destructive"
                     >
                       加载失败: {error.message}
@@ -518,7 +519,7 @@ export function TransactionHistory() {
                 )}
                 {!isLoading && !error && filteredTransactions.length === 0 && (
                   <TableRow>
-                    <TableCell colSpan={7} className="h-24 text-center">
+                    <TableCell colSpan={8} className="h-24 text-center">
                       无记录。
                     </TableCell>
                   </TableRow>
@@ -532,20 +533,19 @@ export function TransactionHistory() {
                           {formatDayOfWeek(tx.transactionTimestamp)}
                         </div>
                       </TableCell>
-                      <TableCell className="font-medium">
+                      <TableCell className="font-mono">{tx.symbol}</TableCell>
+                      <TableCell>
                         <SymbolName symbol={tx.symbol} />
                       </TableCell>
                       <TableCell>
                         <Badge
-                          // 【移除 variant 属性】: 彻底禁用组件库的默认样式，我们只使用 className
                           className={cn(
-                            'w-[40px] flex justify-center border-none text-white', // 移除边框，强制白色文字
+                            'w-[40px] flex justify-center border-none text-white', // 基础样式
                             
-                            // 强制覆盖背景色
-                            (tx.action === 'Buy' || tx.action === 'Short Cover') 
-                              ? '!bg-ok !text-white' // 使用 !important 确保常亮绿色
+                            (tx.action === 'Buy' || tx.action === 'Short Cover')
+                              ? '!bg-ok !text-white' // 强制 绿色背景 + 白色文字
                               : (tx.action === 'Sell' || tx.action === 'Short Sell')
-                                ? '!bg-negative !text-white' // 使用 !important 确保常亮红色
+                                ? '!bg-negative !text-white' // 强制 红色背景 + 白色文字
                                 : 'bg-gray-400 text-white' // 未知操作的兜底样式
                           )}
                         >
