@@ -207,7 +207,7 @@ function normalizeTrade(rawTx: any, source: 'transactions' | 'trades'): Normaliz
     source: source,
     
     // 保证永不为 null/undefined (符合 规则 2.2)
-    action: safeToString(rawTx.action, '未知'),
+    action: safeToString(rawTx.action || rawTx.type, '未知'), // 统一“旧数据”的 'action' 和“新数据”的 'type'
     symbol: safeToString(rawTx.symbol, 'N/A'),
     type: safeToString(rawTx.type, '未知'),
 
@@ -521,13 +521,13 @@ export function TransactionHistory() {
                       <TableCell>
                         <Badge
                           variant={
-                            tx.action === 'Buy'
+                            (tx.action === 'Buy' || tx.action === 'Short Cover')
                               ? 'default'
                               : 'destructive'
                           }
                           className={cn(
                             'w-[40px] flex justify-center',
-                            tx.action === 'Buy' && 'bg-ok',
+                            (tx.action === 'Buy' || tx.action === 'Short Cover') && 'bg-ok',
                             (tx.action === 'Sell' || tx.action === 'Short Sell') && 'bg-negative'
                           )}
                         >
