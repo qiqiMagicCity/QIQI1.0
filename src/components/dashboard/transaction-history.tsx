@@ -138,68 +138,102 @@ function getTxNyString(tx: any): string | null {
 
 
 // ============================================================
-// 第 2 部分：“日期兜底”与数据标准化函数
+// “强制规范化范式” (The Policy)
+// 规则 1：“数据契约” (The Contract)
 // ============================================================
-function normalizeTx(rawTx: any, source: 'transactions' | 'trades'): any {
-  let timestamp: number = 0;
-  let hasValidTimestamp = false;
-  let rawDate: any = null;
+interface NormalizedTrade {
+  id: string;
+  source: 'transactions' | 'trades';
+  
+  // 保证永不为 null/undefined 的字段 (符合 规则 2.2)
+  action: string;
+  symbol: string;
+  type: string;
+  
+  // 保证为 number 或 null 的字段 (符合 规则 2.2)
+  price: number | null;
+  quantity: number | null;
+  
+  // 保证为 number 的排序字段
+  transactionTimestamp: number;
+  
+  // 原始数据引用（用于日期显示等）
+  raw: any; 
+}
 
-  const getTimestampFromDateString = (dateStr: any) => {
-    if (typeof dateStr !== 'string' || !dateStr) return null;
-    const parsed = Date.parse(dateStr);
-    return isNaN(parsed) ? null : parsed;
-  }
+// 规则 2：“净化工厂” (The Sanitizer)
+// 目标：强制所有“脏数据”符合“数据契约”
+function normalizeTrade(rawTx: any, source: 'transactions' | 'trades'): NormalizedTrade {
+  // 辅助函数：安全地将(string | number | null)转换为 (number | null)
+  const safeToNumber = (v: any): number | null => {
+    if (v === null || v === undefined) return null;
+    const n = Number(String(v).replace(/,/g, ''));
+    return Number.isFinite(n) ? n : null;
+  };
 
-  // 1. 检查 number 类型的 transactionTimestamp
-  if (typeof rawTx.transactionTimestamp === 'number') {
-    timestamp = rawTx.transactionTimestamp;
-    rawDate = new Date(timestamp).toISOString();
-    hasValidTimestamp = true;
-  }
+  // 辅助函数：安全地将(any)转换为 (string)
+  const safeToString = (v: any, fallback: string): string => {
+    return String(v ?? fallback);
+  };
 
-  // 2. 检查 Firestore Timestamp 对象
-  if (!hasValidTimestamp && rawTx.createdAt) {
-    rawDate = rawTx.createdAt;
+  // 1. 优先使用已有的 transactionTimestamp (数字)
+  let ts = safeToNumber(rawTx.transactionTimestamp);
+  
+  // 2. 如果没有，则从 createdAt (对象) 转换
+  if (ts === null && rawTx.createdAt) {
     if (typeof rawTx.createdAt.toMillis === 'function') {
-      timestamp = rawTx.createdAt.toMillis();
-      hasValidTimestamp = true;
+      ts = rawTx.createdAt.toMillis();
     } else if (typeof rawTx.createdAt.seconds === 'number') {
-      timestamp = rawTx.createdAt.seconds * 1000;
-      hasValidTimestamp = true;
+      ts = rawTx.createdAt.seconds * 1000;
     }
   }
 
-  // 3. 检查各种字符串日期字段
-  if (!hasValidTimestamp) {
+  // 3. 如果还没有，则从各种 date 字符串 (字符串) 转换
+  if (ts === null) {
     const dateFields = ['transactionDate', 'date', 'tradeDate'];
-    for(const field of dateFields) {
+    for (const field of dateFields) {
       if (rawTx[field]) {
-        const fromStr = getTimestampFromDateString(rawTx[field]);
-        if (fromStr !== null) {
-          timestamp = fromStr;
-          rawDate = rawTx[field];
-          hasValidTimestamp = true;
+        const fromStr = Date.parse(String(rawTx[field]));
+        if (!isNaN(fromStr)) {
+          ts = fromStr;
           break;
         }
       }
     }
   }
 
-  if (!hasValidTimestamp) {
-    timestamp = 0; // Fallback for very old/broken data
-  }
-
   return {
-    ...rawTx,
-    id: rawTx.id,
-    source,
-    transactionTimestamp: timestamp,
-    rawDate: rawDate,
-    __incomplete: !hasValidTimestamp,
+    id: safeToString(rawTx.id, 'MISSING_ID'),
+    source: source,
+    
+    // 保证永不为 null/undefined (符合 规则 2.2)
+    action: safeToString(rawTx.action, '未知'),
+    symbol: safeToString(rawTx.symbol, 'N/A'),
+    type: safeToString(rawTx.type, '未知'),
+
+    // 保证为 number | null (符合 规则 2.2)
+    price: safeToNumber(rawTx.price),
+    quantity: safeToNumber(rawTx.quantity),
+
+    // 保证为 number (用于排序，永不崩溃)
+    transactionTimestamp: ts ?? 0, // 最终兜底
+
+    raw: rawTx, // 保留原始引用，用于 getTxNyString
   };
 }
 
+// 规则 3：“格式化字典” (The Formatter)
+// 目标：修复 Buy/Sell 显示错误 (开放性方案)
+function formatAction(actionString: string): string {
+  const DICTIONARY: { [key: string]: string } = {
+    'Buy': '买',
+    'Sell': '卖',
+    'Short Sell': '卖空', // 示例：为未来扩展
+    'Short Cover': '卖空补回' // 示例：为未来扩展
+  };
+  // 找到了就翻译，没找到就原样返回
+  return DICTIONARY[actionString] || actionString;
+}
 
 export function TransactionHistory() {
   const [date, setDate] = useState<DateRange | undefined>(undefined);
@@ -236,17 +270,15 @@ export function TransactionHistory() {
     const rows: Array<any> = [];
 
     (transactions ?? []).forEach((item) => {
-      rows.push(normalizeTx(item, 'transactions'));
+      rows.push(normalizeTrade(item, 'transactions'));
     });
 
     (trades ?? []).forEach((item) => {
-      rows.push(normalizeTx(item, 'trades'));
+      rows.push(normalizeTrade(item, 'trades'));
     });
 
     rows.sort((a, b) => {
-      const at = a.transactionTimestamp ?? 0;
-      const bt = b.transactionTimestamp ?? 0;
-      return bt - at; // newest first
+      return b.transactionTimestamp - a.transactionTimestamp; // newest first
     });
 
     return rows;
@@ -260,7 +292,7 @@ export function TransactionHistory() {
     if (!rows) return [];
     if (!startNy || !endNy) return rows;
     return rows.filter((tx) => {
-      const txNy = getTxNyString(tx);
+      const txNy = getTxNyString(tx.raw);
       if (!txNy) return false;
       return txNy >= startNy && txNy <= endNy;
     });
@@ -314,7 +346,7 @@ export function TransactionHistory() {
         alert('历史导入的 `trades` 记录当前为只读状态，无法编辑。请通过“添加交易”功能创建新记录进行调整。');
         return;
     }
-    setEditingTx(tx);
+    setEditingTx(tx.raw);
   };
   const closeEdit = () => {
     setEditingTx(null);
@@ -326,7 +358,7 @@ export function TransactionHistory() {
   // Delete logic
   async function handleDelete(tx: any) {
     try {
-      const ref = getTxDocRef(firestore, tx, user?.uid);
+      const ref = getTxDocRef(firestore, tx.raw, user?.uid);
       if (!ref) {
         let msg = '删除失败：无法定位该交易的文档路径。';
         if(tx.source === 'trades') {
@@ -463,7 +495,7 @@ export function TransactionHistory() {
                   filteredTransactions.map((tx) => (
                     <TableRow key={tx.id}>
                       <TableCell className="whitespace-nowrap">
-                        {getTxNyString(tx) ?? '—'}
+                        {getTxNyString(tx.raw) ?? '—'}
                       </TableCell>
                       <TableCell className="font-medium">
                         <SymbolName symbol={tx.symbol} />
@@ -471,40 +503,29 @@ export function TransactionHistory() {
                       <TableCell>
                         <Badge
                           variant={
-                            tx.type === 'Buy'
+                            tx.action === 'Buy'
                               ? 'default'
                               : 'destructive'
                           }
                           className={cn(
                             'w-[40px] flex justify-center',
-                            tx.type === 'Buy' && 'bg-ok',
-                            tx.type === 'Sell' && 'bg-negative'
+                            tx.action === 'Buy' && 'bg-ok',
+                            (tx.action === 'Sell' || tx.action === 'Short Sell') && 'bg-negative'
                           )}
                         >
-                          {tx.type === 'Buy' ? '买' : '卖'}
+                          {formatAction(tx.action)}
                         </Badge>
                       </TableCell>
                       <TableCell className="text-right font-mono">
-                        {(() => {
-                          const p = Number(String(tx.price ?? '').replace(/,/g, ''));
-                          return Number.isFinite(p) ? p.toFixed(2) : '—';
-                        })()}
+                        {tx.price === null ? '—' : tx.price.toFixed(2)}
                       </TableCell>
                       <TableCell className="text-right font-mono">
-                        {(() => {
-                          const q = Number(String(tx.quantity ?? '').replace(/,/g, ''));
-                          return Number.isFinite(q) ? q : (tx.quantity ?? '—');
-                        })()}
+                        {tx.quantity === null ? '—' : tx.quantity}
                       </TableCell>
                       <TableCell className="text-right font-mono">
-                        {(() => {
-                          const p = Number(String(tx.price ?? '').replace(/,/g, ''));
-                          const q = Number(String(tx.quantity ?? '').replace(/,/g, ''));
-                          if (Number.isFinite(p) && Number.isFinite(q)) {
-                            return (p * q).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-                          }
-                          return '—';
-                        })()}
+                        {(tx.price !== null && tx.quantity !== null)
+                          ? (tx.price * tx.quantity).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+                          : '—'}
                       </TableCell>
                       <TableCell className="text-center">
                         <div className="flex items-center justify-center">
