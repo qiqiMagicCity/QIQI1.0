@@ -58,7 +58,7 @@ import {
   useMemoFirebase,
 } from '@/firebase';
 import type { Transaction } from '@/lib/data';
-import { collection, query, orderBy, doc, deleteDoc, where, collectionGroup } from 'firebase/firestore';
+import { collection, query, doc, deleteDoc, where, collectionGroup } from 'firebase/firestore';
 import { AddTransactionForm } from './add-transaction-form';
 import { Skeleton } from '../ui/skeleton';
 import { SymbolName } from './symbol-name';
@@ -246,7 +246,8 @@ export function TransactionHistory() {
 
   const transactionsQuery = useMemoFirebase(() => {
     if (!user || !firestore) return null;
-    return query(collection(firestore, 'users', user.uid, 'transactions'), orderBy('transactionTimestamp', 'desc'));
+    // 【已移除】数据库层面的排序，改为在 baseRows 中进行“健壮性”排序
+    return query(collection(firestore, 'users', user.uid, 'transactions'));
   }, [user, firestore]);
 
   const {
