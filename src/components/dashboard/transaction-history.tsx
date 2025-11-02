@@ -537,15 +537,15 @@ export function TransactionHistory() {
                       </TableCell>
                       <TableCell>
                         <Badge
-                          // 【已移除】所有 variant，我们手动控制所有样式
+                          // 【移除 variant 属性】: 彻底禁用组件库的默认样式，我们只使用 className
                           className={cn(
-                            'w-[40px] flex justify-center border-none', // 基础样式
+                            'w-[40px] flex justify-center border-none text-white', // 移除边框，强制白色文字
                             
-                            // 修复后的逻辑：
-                            (tx.action === 'Buy' || tx.action === 'Short Cover')
-                              ? 'bg-ok text-white' // 强制 绿色背景 + 白色文字
+                            // 强制覆盖背景色
+                            (tx.action === 'Buy' || tx.action === 'Short Cover') 
+                              ? '!bg-ok !text-white' // 使用 !important 确保常亮绿色
                               : (tx.action === 'Sell' || tx.action === 'Short Sell')
-                                ? 'bg-negative text-white' // 强制 红色背景 + 白色文字
+                                ? '!bg-negative !text-white' // 使用 !important 确保常亮红色
                                 : 'bg-gray-400 text-white' // 未知操作的兜底样式
                           )}
                         >
