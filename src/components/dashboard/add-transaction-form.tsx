@@ -246,7 +246,7 @@ export function AddTransactionForm({ onSuccess, isEditing = false, defaultValues
                       )}
                     >
                       {field.value ? (
-                        format(field.value, "PPP", { locale: zhCN })
+                        toNyCalendarDayString(field.value)
                       ) : (
                         <span>选择一个日期</span>
                       )}
