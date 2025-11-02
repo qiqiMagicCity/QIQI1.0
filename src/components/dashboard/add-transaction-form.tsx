@@ -173,7 +173,7 @@ export function AddTransactionForm({ onSuccess, isEditing = false, defaultValues
                     </FormControl>
                     <FormLabel className="font-normal">卖出</FormLabel>
                   </FormItem>
-                  <FormItem className="flex items-center space-x-2 space-y-0-">
+                  <FormItem className="flex items-center space-x-2 space-y-0">
                     <FormControl>
                       <RadioGroupItem value="Short Sell" />
                     </FormControl>
