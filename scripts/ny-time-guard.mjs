@@ -10,15 +10,21 @@ const BAN_PATTERNS = [
   { name: 'date-fns format with P tokens', re: /format\s*\([^,]+,\s*"(?:P|PP|PPP|PPPP)"/g },
   { name: 'toLocaleDateString/TimeString', re: /\.toLocale(?:Date|Time)String\s*\(/g },
   { name: 'Intl.DateTimeFormat', re: /Intl\.DateTimeFormat\s*\(/g },
-  // UI 冗余 “(NY)” 标注
   { name: 'Redundant (NY) label', re: /\((?:NY|纽约)\)|（?:NY|纽约）/g },
+  { name: 'Date-only string ctor', re: /new\s+Date\s*\(\s*['"]\d{4}-\d{2}-\d{2}['"]\s*\)/g },
+  { name: 'Date.parse(YYYY-MM-DD)', re: /Date\.parse\s*\(\s*['"]\d{4}-d{2}-\d{2}['"]\s*\)/g },
 ];
 
 const violations = [];
 
 function scanFile(filePath) {
+  const isNyLib = filePath.replaceAll('\\','/').includes('/src/lib/ny-time');
+  const patterns = isNyLib
+    ? BAN_PATTERNS.filter(p => !['Intl.DateTimeFormat','toLocaleDateString/TimeString'].includes(p.name))
+    : BAN_PATTERNS;
+
   const text = fs.readFileSync(filePath, 'utf8');
-  BAN_PATTERNS.forEach(({ name, re }) => {
+  patterns.forEach(({ name, re }) => {
     let m;
     while ((m = re.exec(text)) !== null) {
       const idx = m.index;
@@ -36,7 +42,6 @@ function walk(dir) {
   for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
     const p = path.join(dir, entry.name);
     if (entry.isDirectory()) {
-      // 排除测试/构建产物等
       if (/(^|\/)(\.next|dist|build|coverage|node_modules|\.git)\//.test(p.replaceAll('\\','/') + '/')) continue;
       walk(p);
     } else if (FILE_RE.test(entry.name)) {

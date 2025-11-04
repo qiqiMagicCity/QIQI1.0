@@ -62,7 +62,7 @@ export default function SymbolCombobox({
           <ChevronsUpDown className="ml-2 h-4 w-4 opacity-50" />
         </Button>
       </PopoverTrigger>
-      <PopoverContent className="p-0 w-[420px]" align="start">
+      <PopoverContent className="p-0 w-[min(420px,calc(100vw-2rem))] sm:w-[420px]" align="start">
         <Command shouldFilter={false}>
           <CommandInput
             placeholder={placeholder}

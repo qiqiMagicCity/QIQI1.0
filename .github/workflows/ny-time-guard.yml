@@ -2,10 +2,19 @@ name: NY Time Guard
 on:
   push:
   pull_request:
+
 jobs:
   guard:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - run: npm ci
       - name: Run NY-time UI guard
-        run: node scripts/ny-time-guard.mjs
+        run: npm run guard:nytime
+      - name: Run NY-time DST tests
+        run: npm run test:nytime
+      - name: Type check
+        run: npm run typecheck

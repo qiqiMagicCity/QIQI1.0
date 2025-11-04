@@ -1,11 +1,20 @@
-import type {Metadata} from 'next';
+import type {Metadata, Viewport} from 'next';
 import './globals.css';
 import { Toaster } from "@/components/ui/toaster";
 import { FirebaseClientProvider } from '@/firebase';
 
 export const metadata: Metadata = {
-  title: '绿トレーダー分析',
+  title: {
+    default: "LuckTrading 777",
+    template: "%s · LuckTrading 777",
+  },
   description: '一个绿色主题的交易分析网站。',
+};
+
+export const viewport: Viewport = {
+  width: 'device-width',
+  initialScale: 1,
+  viewportFit: 'cover'
 };
 
 export default function RootLayout({

@@ -1,4 +1,3 @@
-
 'use client';
 
 import {
@@ -20,20 +19,18 @@ import { Button } from '../ui/button';
 import {
   Calendar as CalendarIcon,
   PlusCircle,
+  ArrowUpRight,
+  ArrowDownLeft,
+  TrendingDown,
+  Undo2,
+  Tag,
+  Sparkles,
 } from 'lucide-react';
 import {
   Popover,
   PopoverContent,
   PopoverTrigger,
 } from '@/components/ui/popover';
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger,
-} from '@/components/ui/dialog';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -48,24 +45,21 @@ import {
 import { Calendar } from '@/components/ui/calendar';
 import { Badge } from '../ui/badge';
 import { cn } from '@/lib/utils';
-import { useMemo, useState, useEffect } from 'react';
+import { useMemo, useState } from 'react';
 import type { DateRange } from 'react-day-picker';
 import { zhCN } from 'date-fns/locale';
 import {
-  useCollection,
   useUser,
   useFirestore,
-  useMemoFirebase,
 } from '@/firebase';
-import type { Transaction } from '@/lib/data';
-import { collection, query, doc, deleteDoc } from 'firebase/firestore';
-import { AddTransactionForm } from './add-transaction-form';
+import { doc, deleteDoc } from 'firebase/firestore';
 import { Skeleton } from '../ui/skeleton';
 import { SymbolName } from './symbol-name';
 import { toNyCalendarDayString, toNyHmsString, nyWeekdayLabel } from '@/lib/ny-time';
 import dynamic from 'next/dynamic';
-
-const DEBUG_HISTORY = true; 
+import Link from 'next/link';
+import { useIsMobile } from '@/hooks/use-is-mobile';
+import { useUserTransactions, type Tx, type OpKind } from '@/hooks/use-user-transactions';
 
 const EditIcon = dynamic(() => import('@icon-park/react').then(m => m.Edit), {
   ssr: false,
@@ -75,334 +69,97 @@ const DeleteFiveIcon = dynamic(() => import('@icon-park/react').then(m => m.Dele
 });
 
 
-// Helper to get doc ref safely, returns null if params are missing
-function getTxDocRef(firestore: any, tx: { id: string; source: 'transactions' | 'trades' }, ownerUid: string | null) {
-   if (!firestore || !ownerUid || !tx?.id) return null;
-   if (tx.source !== 'transactions') return null; // 'trades' 只读
-   return doc(firestore, 'users', ownerUid, 'transactions', tx.id);
+const fmtNum = (n: number) => Number(n).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const fmtInt = (n: number) => Number(n).toLocaleString(undefined, { maximumFractionDigits: 0 });
+
+function AssetBadge({ assetType }: { assetType: Tx['assetType'] }) {
+  const isOption = assetType === 'option';
+  return (
+    <Badge
+      className={cn(
+        'text-white border-none gap-1',
+        isOption ? 'bg-orange-600' : 'bg-slate-700'
+      )}
+    >
+      <Tag className="w-3.5 h-3.5" />
+      {isOption ? '期权' : '股票'}
+    </Badge>
+  );
 }
 
-function getTxNyString(tx: any): string | null {
-  // 已有的 NY 日字段，且格式正确，直接返回
-  if (typeof tx.transactionDateNy === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(tx.transactionDateNy)) {
-    return tx.transactionDateNy;
-  }
+// 让“操作”列对【股票与期权】使用同一套标签与色板（买入/卖出/卖空/补回）
+function ActionBadge({ opKind }: { opKind: OpKind }) {
+  const PALETTE = {
+    BUY:  'bg-emerald-600',
+    SELL: 'bg-red-600',
+    SHORT:'bg-violet-600',
+    COVER:'bg-blue-600',
+    // 期权动作映射到同色板（保持一致）
+    BTO:  'bg-emerald-600',
+    STC:  'bg-red-600',
+    STO:  'bg-violet-600',
+    BTC:  'bg-blue-600',
+  } as const;
 
-  // 尝试把各种可能的“时间字段”统一解析为 Date
-  const tryToDate = (v: any): Date | null => {
-    if (!v && v !== 0) return null;
+  const Icon =
+    opKind === 'SHORT' || opKind === 'STO' ? TrendingDown
+    : opKind === 'COVER' || opKind === 'BTC' ? Undo2
+    : opKind === 'SELL'  || opKind === 'STC' ? ArrowDownLeft
+    : ArrowUpRight;
 
-    // Firestore Timestamp
-    if (typeof v === 'object' && v && typeof v.toMillis === 'function') {
-      const d = new Date(v.toMillis());
-      return isNaN(d.getTime()) ? null : d;
-    }
-    if (typeof v === 'object' && v && typeof v.seconds === 'number') {
-      const d = new Date(v.seconds * 1000);
-      return isNaN(d.getTime()) ? null : d;
-    }
+  const text =
+    opKind === 'BTO'   ? '买入' :
+    opKind === 'STO'   ? '卖空' :
+    opKind === 'STC'   ? '卖出' :
+    opKind === 'BTC'   ? '补回' :
+    opKind === 'SELL'  ? '卖出' :
+    opKind === 'SHORT' ? '卖空' :
+    opKind === 'COVER' ? '补回' : '买入';
 
-    // number: 视为毫秒时间戳
-    if (typeof v === 'number') {
-      const d = new Date(v);
-      return isNaN(d.getTime()) ? null : d;
-    }
-
-    // string: 允许 ISO / 含时区 / 简单日期字符串
-    if (typeof v === 'string') {
-      const d = new Date(v);
-      return isNaN(d.getTime()) ? null : d;
-    }
-
-    return null;
-  };
-
-  // 优先级：transactionDate → date → tradeDate → createdAt → transactionTimestamp
-  const candidates = [
-    tx.transactionDate,
-    tx.date,
-    tx.tradeDate,
-    tx.createdAt,
-    tx.transactionTimestamp,
-  ];
-
-  for (const c of candidates) {
-    const d = tryToDate(c);
-    if (d) return toNyCalendarDayString(d); // 统一入口：纽约交易日 YYYY-MM-DD
-  }
-
-  return null; // 仍解析不了则返回空，交由上层显示 '—'
-}
-
-
-// ============================================================
-// “强制规范化范式” (The Policy)
-// 规则 1：“数据契约” (The Contract)
-// ============================================================
-interface NormalizedTrade {
-  id: string;
-  source: 'transactions' | 'trades';
-  
-  // 保证永不为 null/undefined 的字段 (符合 规则 2.2)
-  action: string;
-  symbol: string;
-  type: string;
-  
-  // 保证为 number 或 null 的字段 (符合 规则 2.2)
-  price: number | null;
-  quantity: number | null;
-  
-  // 保证为 number 的排序字段
-  transactionTimestamp: number;
-  
-  // 原始数据引用（用于日期显示等）
-  raw: any; 
-}
-
-// 规则 2：“净化工厂” (The Sanitizer)
-// 目标：强制所有“脏数据”符合“数据契约”
-function normalizeTrade(rawTx: any, source: 'transactions' | 'trades'): NormalizedTrade {
-  // 辅助函数：安全地将(string | number | null)转换为 (number | null)
-  const safeToNumber = (v: any): number | null => {
-    if (v === null || v === undefined) return null;
-    const n = Number(String(v).replace(/,/g, ''));
-    return Number.isFinite(n) ? n : null;
-  };
-
-  // 辅助函数：安全地将(any)转换为 (string)
-  const safeToString = (v: any, fallback: string): string => {
-    return String(v ?? fallback);
-  };
-
-  // 1. 优先使用已有的 transactionTimestamp (数字)
-  let ts = safeToNumber(rawTx.transactionTimestamp);
-  
-  // 2. 如果没有，则从 createdAt (对象) 转换
-  if (ts === null && rawTx.createdAt) {
-    if (typeof rawTx.createdAt.toMillis === 'function') {
-      ts = rawTx.createdAt.toMillis();
-    } else if (typeof rawTx.createdAt.seconds === 'number') {
-      ts = rawTx.createdAt.seconds * 1000;
-    }
-  }
-
-  // 3. 如果还没有，则从各种 date 字符串 (字符串) 转换
-  if (ts === null) {
-    const dateFields = ['transactionDate', 'date', 'tradeDate'];
-    for (const field of dateFields) {
-      if (rawTx[field]) {
-        const fromStr = Date.parse(String(rawTx[field]));
-        if (!isNaN(fromStr)) {
-          ts = fromStr;
-          break;
-        }
-      }
-    }
-  }
-
-  return {
-    id: safeToString(rawTx.id, 'MISSING_ID'),
-    source: source,
-    
-    // 保证永不为 null/undefined (符合 规则 2.2)
-    action: safeToString(rawTx.action || rawTx.type, '未知'), // 统一“旧数据”的 'action' 和“新数据”的 'type'
-    symbol: safeToString(rawTx.symbol, 'N/A'),
-    type: safeToString(rawTx.type, '未知'),
-
-    // 保证为 number | null (符合 规则 2.2)
-    price: safeToNumber(rawTx.price),
-    quantity: safeToNumber(rawTx.quantity),
-
-    // 保证为 number (用于排序，永不崩溃)
-    transactionTimestamp: ts ?? 0, // 最终兜底
-
-    raw: rawTx, // 保留原始引用，用于 getTxNyString
-  };
-}
-
-// 规则 4：“健壮的时间格式化” (The Robust Time Formatter)
-// 目标：修复“只有日期没有时间”的 BUG
-function formatRobustTimestamp(timestamp: number): string {
-  if (timestamp === 0) {
-    // 这是我们为“残次品”设置的兜底值，显示 "N/A"
-    return '—';
-  }
-  try {
-    // 尝试将数字时间戳格式化为 YYYY-MM-DD HH:mm:ss
-    const date = new Date(timestamp);
-    if (isNaN(date.getTime())) return '—'; // 预防无效日期
-    
-    const y = date.getFullYear();
-    const m = String(date.getMonth() + 1).padStart(2, '0');
-    const d = String(date.getDate()).padStart(2, '0');
-    const h = String(date.getHours()).padStart(2, '0');
-    const min = String(date.getMinutes()).padStart(2, '0');
-    const s = String(date.getSeconds()).padStart(2, '0');
-    
-    return `${y}-${m}-${d} ${h}:${min}:${s}`;
-  } catch (e) {
-    return '—'; // 捕获未知错误
-  }
-}
-
-// 规则 5：“星期几格式化” (The Day of Week Formatter)
-function formatDayOfWeek(timestamp: number): string | null {
-  if (timestamp === 0) return null; // “残次品”数据不显示星期
-  try {
-    const date = new Date(timestamp);
-    if (isNaN(date.getTime())) return null;
-    const day = date.getDay();
-    // 0=周日, 1=周一, ...
-    return `(周${['日', '一', '二', '三', '四', '五', '六'][day]})`;
-  } catch (e) {
-    return null;
-  }
-}
-
-// 规则 3：“格式化字典” (The Formatter)
-// 目标：修复 Buy/Sell 显示错误 (开放性方案)
-function formatAction(actionString: string): string {
-  const DICTIONARY: { [key: string]: string } = {
-    'Buy': '买',
-    'Sell': '卖',
-    'Short Sell': '卖空', // 示例：为未来扩展
-    'Short Cover': '卖空补回' // 示例：为未来扩展
-  };
-  // 找到了就翻译，没找到就原样返回
-  return DICTIONARY[actionString] || actionString;
+  return (
+    <span className={cn('inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-white', PALETTE[opKind])}>
+      <Icon className="w-3.5 h-3.5" />
+      <span>{text}</span>
+    </span>
+  );
 }
 
 
 export function TransactionHistory() {
   const [date, setDate] = useState<DateRange | undefined>(undefined);
-  const [isAddFormOpen, setAddFormOpen] = useState(false);
-  const [editingTx, setEditingTx] = useState<any>(null); // For edit dialog
+  const isMobile = useIsMobile();
 
   const firestore = useFirestore();
-  const { user, isUserLoading } = useUser();
+  const { user } = useUser();
 
-  const transactionsQuery = useMemoFirebase(() => {
-    if (!user || !firestore) return null;
-    // 【已移除】数据库层面的排序，改为在 baseRows 中进行“健壮性”排序
-    return query(collection(firestore, 'users', user.uid, 'transactions'));
-  }, [user, firestore]);
-
-  const {
-    data: transactions,
-    isLoading: isTransactionsLoading,
-    error,
-  } = useCollection<Transaction>(transactionsQuery);
-
-  const tradesQuery = useMemoFirebase(() => {
-    if (!user || !firestore) return null;
-    // 只读取当前登录用户自己的 trades
-    return query(collection(firestore, 'users', user.uid, 'trades'));
-  }, [user, firestore]);
-
-  const {
-    data: trades,
-    isLoading: isTradesLoading,
-  } = useCollection<Transaction>(tradesQuery);
-
-
-  const baseRows = useMemo(() => {
-    const rows: NormalizedTrade[] = [];
-
-    (transactions ?? []).forEach((item) => {
-      rows.push(normalizeTrade(item, 'transactions'));
-    });
-
-    (trades ?? []).forEach((item) => {
-      rows.push(normalizeTrade(item, 'trades'));
-    });
-
-    rows.sort((a, b) => {
-      return b.transactionTimestamp - a.transactionTimestamp; // newest first
-    });
-
-    return rows;
-  }, [transactions, trades]);
+  const { data, loading, error, warnings } = useUserTransactions(user?.uid);
   
   const startNy = date?.from ? toNyCalendarDayString(date.from) : null;
   const endNy   = date?.to   ? toNyCalendarDayString(date.to)   : startNy;
 
-  const filteredTransactions = useMemo(() => {
-    if (!baseRows?.length) return [];
-    // 未选区间：显示全部
-    if (!startNy || !endNy) return baseRows;
+  const rows = useMemo(() => {
+    if (!data?.length) return [];
   
-    // 确保起止顺序（防御）
-    const s = startNy <= endNy ? startNy : endNy;
-    const e = startNy <= endNy ? endNy : startNy;
-  
-    return baseRows.filter(tx => {
-      if (!tx.transactionTimestamp) return false; // 无有效时间戳的记录不参与过滤
-      const d = toNyCalendarDayString(tx.transactionTimestamp); // 纽约日
-      return d >= s && d <= e; // 含边界
+    const filtered = (!startNy || !endNy) ? data : data.filter(tx => {
+      if (!tx.transactionTimestamp) return false;
+      const d = toNyCalendarDayString(tx.transactionTimestamp);
+      const s = startNy <= endNy ? startNy : endNy;
+      const e = startNy <= endNy ? endNy : startNy;
+      return d >= s && d <= e;
     });
-  }, [baseRows, startNy, endNy]);
 
-  const isLoading = isUserLoading || isTransactionsLoading || isTradesLoading;
+    return filtered.map(tx => {
+        const absQty = Math.abs(tx.qty);
+        const amount = tx.qty * tx.price * tx.multiplier;
+        return { ...tx, absQty, amount };
+    });
 
-  useEffect(() => {
-    if (!DEBUG_HISTORY) return;
-
-    const snapshot = {
-      uid: user?.uid ?? null,
-      isUserLoading,
-      isTransactionsLoading,
-      isTradesLoading,
-      isLoading,
-      error: error?.message ?? null,
-      counts: {
-        transactions: Array.isArray(transactions) ? transactions.length : null,
-        trades: Array.isArray(trades) ? trades.length : null,
-        baseRows: Array.isArray(baseRows) ? baseRows.length : null,
-        filtered: Array.isArray(filteredTransactions) ? filteredTransactions.length : null,
-      },
-      queries: {
-        transactions: transactionsQuery?.type,
-        trades: tradesQuery?.type
-      }
-    };
-
-    (window as any).__HISTORY_DEBUG_LAST = snapshot;
-    // eslint-disable-next-line no-console
-    console.log('[HistoryDebug]', JSON.stringify(snapshot, null, 2));
-  }, [
-    user,
-    isUserLoading,
-    isTransactionsLoading,
-    isTradesLoading,
-    isLoading,
-    error,
-    transactions,
-    trades,
-    baseRows,
-    filteredTransactions,
-    transactionsQuery,
-    tradesQuery
-  ]);
-
-  // Edit logic
-  const openEdit = (tx: any) => {
-    if (tx.source !== 'transactions') {
-        alert('历史导入的 `trades` 记录当前为只读状态，无法编辑。请通过“添加交易”功能创建新记录进行调整。');
-        return;
-    }
-    setEditingTx(tx.raw);
-  };
-  const closeEdit = () => {
-    setEditingTx(null);
-  };
-  const handleEditSuccess = () => {
-    closeEdit();
-  };
+  }, [data, startNy, endNy]);
 
   // Delete logic
   async function handleDelete(tx: any) {
     try {
-      const ref = getTxDocRef(firestore, tx, user?.uid);
+      const ref = getTxDocRef(firestore, tx, user?.uid ?? null);
       if (!ref) {
         let msg = '删除失败：无法定位该交易的文档路径。';
         if(tx.source === 'trades') {
@@ -419,7 +176,6 @@ export function TransactionHistory() {
     }
   }
 
-  // ============================================================
   return (
     <section id="history" className="scroll-mt-20">
       <Card>
@@ -429,25 +185,16 @@ export function TransactionHistory() {
             <CardDescription>所有过去交易的详细记录。</CardDescription>
           </div>
           <div className="flex items-center gap-2">
-            <Dialog open={isAddFormOpen} onOpenChange={setAddFormOpen}>
-              <DialogTrigger asChild>
-                <Button size="sm" className="h-8 gap-1">
-                  <PlusCircle className="h-3.5 w-3.5" />
-                  <span className="sr-only sm:not-sr-only sm:whitespace-nowrap">
-                    添加交易
-                  </span>
+            <Link href="/transactions/editor" passHref>
+                <Button asChild size="sm" className="h-8 gap-1">
+                <a>
+                    <PlusCircle className="h-3.5 w-3.5" />
+                    <span className="sr-only sm:not-sr-only sm:whitespace-nowrap">
+                        添加交易
+                    </span>
+                </a>
                 </Button>
-              </DialogTrigger>
-              <DialogContent>
-                <DialogHeader>
-                  <DialogTitle>添加一笔新交易</DialogTitle>
-                  <DialogDescription>
-                    请填写以下信息以记录您的新交易。
-                  </DialogDescription>
-                </DialogHeader>
-                <AddTransactionForm onSuccess={() => setAddFormOpen(false)} />
-              </DialogContent>
-            </Dialog>
+            </Link>
             <Popover>
               <PopoverTrigger asChild>
                 <Button
@@ -480,195 +227,165 @@ export function TransactionHistory() {
                   defaultMonth={date?.from}
                   selected={date}
                   onSelect={setDate}
-                  numberOfMonths={2}
+                  numberOfMonths={isMobile ? 1 : 2}
                   locale={zhCN}
                 />
               </PopoverContent>
             </Popover>
           </div>
         </CardHeader>
-        {DEBUG_HISTORY && (
-          <div className="px-4 -mt-2 text-xs text-muted-foreground">
-            uid: {user?.uid ?? 'n/a'} · 抓到: (tx:{Array.isArray(transactions) ? transactions.length : 'n/a'} + tr:{Array.isArray(trades) ? trades.length : 'n/a'})
-            · 过滤后: {Array.isArray(filteredTransactions) ? filteredTransactions.length : 'n/a'}
+        {warnings && warnings.length > 0 && (
+          <div className="px-6 pb-2 -mt-4 text-xs text-amber-600 dark:text-amber-500">
+             ⚠ 部分数据源加载失败或存在格式问题: {warnings.join('; ')}
           </div>
         )}
         <CardContent className="p-0">
-          <div className="relative w-full overflow-auto">
-            <Table className="tx-table w-full">
-              <TableHeader>
-                <TableRow>
-                  <TableHead>日期</TableHead>
-                  <TableHead>标的代码</TableHead>
-                  <TableHead>标的中文名</TableHead>
-                  <TableHead>类型</TableHead>
-                  <TableHead className="text-right">价格</TableHead>
-                  <TableHead className="text-right">数量</TableHead>
-                  <TableHead className="text-right">总计金额</TableHead>
-                  <TableHead className="text-center">管理</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {isLoading && (
-                  Array.from({ length: 5 }).map((_, i) => (
-                    <TableRow key={i}>
-                      <TableCell colSpan={8}>
-                        <Skeleton className="h-6 w-full" />
+          <div className="w-full overflow-x-auto">
+            <div className="min-w-[800px] sm:min-w-full">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead className="min-w-[160px]">日期</TableHead>
+                    <TableHead>标的代码</TableHead>
+                    <TableHead className="hidden sm:table-cell">标的中文名</TableHead>
+                    <TableHead>类型</TableHead>
+                    <TableHead>操作</TableHead>
+                    <TableHead className="text-right">价格</TableHead>
+                    <TableHead className="text-right">数量</TableHead>
+                    <TableHead className="text-right">总计金额</TableHead>
+                    <TableHead className="text-center">管理</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {loading && (
+                    Array.from({ length: 5 }).map((_, i) => (
+                      <TableRow key={i}>
+                        <TableCell colSpan={9}>
+                          <Skeleton className="h-6 w-full" />
+                        </TableCell>
+                      </TableRow>
+                    ))
+                  )}
+                  {error && (
+                    <TableRow>
+                      <TableCell
+                        colSpan={9}
+                        className="text-center text-destructive"
+                      >
+                        加载失败: {error.message}
                       </TableCell>
                     </TableRow>
-                  ))
-                )}
-                {error && (
-                  <TableRow>
-                    <TableCell
-                      colSpan={8}
-                      className="text-center text-destructive"
-                    >
-                      加载失败: {error.message}
-                    </TableCell>
-                  </TableRow>
-                )}
-                {!isLoading && !error && filteredTransactions.length === 0 && (
-                  <TableRow>
-                    <TableCell colSpan={8} className="h-24 text-center">
-                      无记录。
-                    </TableCell>
-                  </TableRow>
-                )}
-                {!isLoading &&
-                  filteredTransactions.map((tx) => (
-                    <TableRow key={tx.id}>
-                      <TableCell className="whitespace-nowrap">
-                        <div>
-                          {tx.transactionTimestamp ? (
-                            <>
-                              {toNyCalendarDayString(tx.transactionTimestamp)}{' '}
-                              {toNyHmsString(tx.transactionTimestamp)}{' '}
-                            </>
-                          ) : '—'}
-                        </div>
-                      
-                        {/* 新增：严格按 NY 计算的周几 */}
-                        <div className="text-xs text-muted-foreground -mt-1">
-                          {tx.transactionTimestamp ? nyWeekdayLabel(tx.transactionTimestamp) : null}
-                        </div>
+                  )}
+                  {!loading && !error && rows.length === 0 && (
+                    <TableRow>
+                      <TableCell colSpan={9} className="h-24 text-center">
+                        无记录。
                       </TableCell>
-                      <TableCell className="font-mono">{tx.symbol}</TableCell>
-                      <TableCell>
-                        <SymbolName symbol={tx.symbol} />
-                      </TableCell>
-                      <TableCell>
-                        <Badge
-                          className={cn(
-                            'w-[40px] flex justify-center border-none text-white', // 基础样式
-                            
-                            (tx.action === 'Buy' || tx.action === 'Short Cover')
-                              ? 'bg-[hsl(var(--ok))] text-white'
-                              : (tx.action === 'Sell' || tx.action === 'Short Sell')
-                                ? 'bg-[hsl(var(--destructive))] text-white'
-                                : 'bg-gray-400 text-white'
-                          )}
-                        >
-                          {formatAction(tx.action)}
-                        </Badge>
-                      </TableCell>
-                      <TableCell className="text-right font-mono">
-                        {tx.price === null ? '—' : tx.price.toFixed(2)}
-                      </TableCell>
-                      <TableCell className="text-right font-mono">
-                        {tx.quantity === null ? '—' : tx.quantity}
-                      </TableCell>
-                      <TableCell className="text-right font-mono">
-                        {(tx.price !== null && tx.quantity !== null)
-                          ? (tx.price * tx.quantity).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })
-                          : '—'}
-                      </TableCell>
-                      <TableCell className="text-center">
-                        <div className="flex items-center justify-center">
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            title="编辑"
-                            onClick={() => openEdit(tx)}
-                            className="mr-1 h-7 w-7 transition-transform hover:scale-110"
-                            aria-label="编辑"
-                          >
-                            <EditIcon
-                              theme="multi-color"
-                              size={18}
-                              strokeWidth={3}
-                              strokeLinecap="round"
-                              strokeLinejoin="round"
-                              fill={['#34D399', '#FFFFFF', '#059669', '#065F46']}
-                            />
-                          </Button>
-                          <AlertDialog>
-                            <AlertDialogTrigger asChild>
-                              <Button
-                                variant="ghost"
-                                size="icon"
-                                title="删除"
-                                className="h-7 w-7 transition-transform hover:scale-110"
-                                aria-label="删除"
-                                disabled={tx.source === 'trades'}
-                              >
-                                <DeleteFiveIcon
-                                  theme="multi-color"
-                                  size={18}
-                                  strokeWidth={3}
-                                  strokeLinecap="round"
-                                  strokeLinejoin="round"
-                                  fill={['#FCA5A5', '#FFFFFF', '#EF4444', '#991B1B']}
-                                />
+                    </TableRow>
+                  )}
+                  {!loading && !error &&
+                    rows.map((tx) => (
+                      <TableRow key={`${tx.source}-${tx.id}`}>
+                        <TableCell>
+                          <div>
+                            {tx.transactionTimestamp ? (
+                              <>
+                                {toNyCalendarDayString(tx.transactionTimestamp)}{' '}
+                                <span className="hidden sm:inline">{toNyHmsString(tx.transactionTimestamp)}</span>
+                              </>
+                            ) : <span className="text-muted-foreground">—</span>}
+                          </div>
+                          <div className="text-xs text-muted-foreground -mt-1">
+                            {tx.transactionTimestamp ? nyWeekdayLabel(tx.transactionTimestamp) : null}
+                          </div>
+                        </TableCell>
+                        <TableCell className="font-mono">{tx.symbol === 'UNKNOWN' ? '—' : tx.symbol}</TableCell>
+                        <TableCell className="hidden sm:table-cell">
+                          <SymbolName symbol={tx.symbol} />
+                        </TableCell>
+                        <TableCell><AssetBadge assetType={tx.assetType} /></TableCell>
+                        <TableCell><ActionBadge opKind={tx.opKind} /></TableCell>
+                        <TableCell className="text-right font-mono">
+                           {fmtNum(tx.price)}
+                        </TableCell>
+                        <TableCell className="text-right font-mono">
+                           {fmtInt(tx.absQty)}
+                           {tx.multiplier !== 1 ? <span className="text-muted-foreground text-xs"> ×{fmtInt(tx.multiplier)}</span> : null}
+                        </TableCell>
+                        <TableCell className={cn('text-right font-mono', tx.amount < 0 ? 'text-red-600' : 'text-emerald-600')}>
+                          {fmtNum(tx.amount)}
+                        </TableCell>
+                        <TableCell className="text-center">
+                          <div className="flex items-center justify-center">
+                            <Link href={`/transactions/editor?id=${tx.id}`} passHref>
+                              <Button asChild variant="ghost" size="icon" title="编辑" className="mr-1 h-7 w-7 transition-transform hover:scale-110" aria-label="编辑" disabled={tx.source === 'trades'}>
+                                <a>
+                                  <EditIcon
+                                    theme="multi-color"
+                                    size={18}
+                                    strokeWidth={3}
+                                    strokeLinecap="round"
+                                    strokeLinejoin="round"
+                                    fill={['#34D399', '#FFFFFF', '#059669', '#065F46']}
+                                  />
+                                </a>
                               </Button>
-                            </AlertDialogTrigger>
-                            <AlertDialogContent>
-                              <AlertDialogHeader>
-                                <AlertDialogTitle>确认删除该交易？</AlertDialogTitle>
-                                <AlertDialogDescription>
-                                  {tx.symbol} 将被永久删除，此操作不可撤销。
-                                </AlertDialogDescription>
-                              </AlertDialogHeader>
-                              <AlertDialogFooter>
-                                <AlertDialogCancel>取消</AlertDialogCancel>
-                                <AlertDialogAction
-                                  onClick={() => handleDelete(tx)}
-                                  className="bg-red-600 hover:bg-red-700 text-white"
+                            </Link>
+                            <AlertDialog>
+                              <AlertDialogTrigger asChild>
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  title="删除"
+                                  className="h-7 w-7 transition-transform hover:scale-110"
+                                  aria-label="删除"
+                                  disabled={tx.source === 'trades'}
                                 >
-                                  确认删除
-                                </AlertDialogAction>
-                              </AlertDialogFooter>
-                            </AlertDialogContent>
-                          </AlertDialog>
-                        </div>
-                      </TableCell>
-                    </TableRow>
-                  ))}
-              </TableBody>
-            </Table>
+                                  <DeleteFiveIcon
+                                    theme="multi-color"
+                                    size={18}
+                                    strokeWidth={3}
+                                    strokeLinecap="round"
+                                    strokeLinejoin="round"
+                                    fill={['#FCA5A5', '#FFFFFF', '#EF4444', '#991B1B']}
+                                  />
+                                </Button>
+                              </AlertDialogTrigger>
+                              <AlertDialogContent>
+                                <AlertDialogHeader>
+                                  <AlertDialogTitle>确认删除该交易？</AlertDialogTitle>
+                                  <AlertDialogDescription>
+                                    {tx.symbol} 将被永久删除，此操作不可撤销。
+                                  </AlertDialogDescription>
+                                </AlertDialogHeader>
+                                <AlertDialogFooter>
+                                  <AlertDialogCancel>取消</AlertDialogCancel>
+                                  <AlertDialogAction
+                                    onClick={() => handleDelete(tx)}
+                                    className="bg-red-600 hover:bg-red-700 text-white"
+                                  >
+                                    确认删除
+                                  </AlertDialogAction>
+                                </AlertDialogFooter>
+                              </AlertDialogContent>
+                            </AlertDialog>
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                </TableBody>
+              </Table>
+            </div>
           </div>
         </CardContent>
       </Card>
-
-      {/* Edit Dialog */}
-      <Dialog open={!!editingTx} onOpenChange={(isOpen) => !isOpen && closeEdit()}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>编辑交易</DialogTitle>
-            <DialogDescription>
-              修改您的交易记录。请谨慎操作。
-            </DialogDescription>
-          </DialogHeader>
-          {editingTx && (
-            <AddTransactionForm
-              key={editingTx.id} /* Force re-render */
-              isEditing={true}
-              defaultValues={editingTx}
-              onSuccess={handleEditSuccess}
-            />
-          )}
-        </DialogContent>
-      </Dialog>
     </section>
   );
+}
+
+// Helper to get doc ref safely, returns null if params are missing
+function getTxDocRef(firestore: any, tx: { id: string; source: 'transactions' | 'trades' }, ownerUid: string | null) {
+   if (!firestore || !ownerUid || !tx?.id) return null;
+   if (tx.source !== 'transactions') return null; // 'trades' 只读
+   return doc(firestore, 'users', ownerUid, 'transactions', tx.id);
 }
