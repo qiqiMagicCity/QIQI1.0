@@ -108,6 +108,39 @@ export function toNyHmsString(input: DateInput): string {
   return `${pad(p.hour)}:${pad(p.minute)}:${pad(p.second)}`;
 }
 
+/**
+ * Formats a date into a HH:mm:ss string for an arbitrary time zone.
+ * This is a general-purpose UI helper, intended for components like world clocks.
+ * It uses the 'en-CA' locale to ensure a 24-hour format without AM/PM.
+ * @param input The date to format.
+ * @param timeZone The IANA time zone name (e.g., 'Europe/Madrid').
+ * @returns A string in HH:mm:ss format.
+ */
+export function formatHmsForZone(input: DateInput, timeZone: string): string {
+  const d = (input instanceof Date) ? input : new Date(input);
+  if (isNaN(d.getTime())) return 'Invalid Date';
+
+  const fmt = new Intl.DateTimeFormat('en-CA', {
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: false,
+    timeZone: timeZone,
+  });
+  
+  const parts = fmt.formatToParts(d);
+  const map: Record<string, string> = {};
+  for (const p of parts) {
+    map[p.type] = p.value;
+  }
+
+  const hour = map.hour ?? '00';
+  const minute = map.minute ?? '00';
+  const second = map.second ?? '00';
+
+  return `${hour}:${minute}:${second}`;
+}
+
 export function nyLocalDateTimeToUtcMillis(yyyyMmDd: string, hhmmss: string): number {
   assertYyyyMmDd(yyyyMmDd);
   if (!/^\d{2}:\d{2}:\d{2}$/.test(hhmmss)) {

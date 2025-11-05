@@ -46,7 +46,7 @@ const formSchema = z.object({
   price: z.coerce.number().positive("价格必须为正数。"),
   date: z.date({ required_error: "请选择交易日期。" }),
   time: z.string()
-    .regex(/^([01]\d|2[0-3]):([0-5]\d):([0-5]\d)$/, "请输入形如 16:00:00 的时间（纽约时区）。"),
+    .regex(/^([01]\d|2[0-3]):([0-5]\d):([0-5]\d)$/, "请输入形如 16:00:00 的时间。"),
 });
 
 type AddTransactionFormProps = {

@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect } from 'react';
-import { toNyHmsString, nyWeekdayLabel } from '@/lib/ny-time';
+import { nyWeekdayLabel, formatHmsForZone } from '@/lib/ny-time';
 
 type TimeZoneOption = {
   label: string;
@@ -22,20 +22,12 @@ const TimeDisplay = ({ label, timeZone, fontClass }: TimeZoneOption) => {
   useEffect(() => {
     const updateClock = () => {
       const now = new Date();
+      setTime(formatHmsForZone(now, timeZone));
+      
       if (timeZone === 'America/New_York') {
-        setTime(toNyHmsString(now));
         setWeekday(nyWeekdayLabel(now));
       } else {
-        const formattedTime = new Intl.DateTimeFormat('zh-CN', {
-          hour: '2-digit',
-          minute: '2-digit',
-          second: '2-digit',
-          hour12: false,
-          timeZone: timeZone,
-        }).format(now);
-        setTime(formattedTime);
-        // 其他时区目前不需要显示星期
-        setWeekday(''); 
+        setWeekday('');
       }
     };
     
