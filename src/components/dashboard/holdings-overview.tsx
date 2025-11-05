@@ -5,7 +5,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Button } from "@/components/ui/button";
 import { SymbolName } from "@/components/dashboard/symbol-name";
-import { TransactionTypeIcon } from '@/components/common/transaction-type-icon';
+import { AssetTypeIcon } from '@/components/common/asset-type-icon';
 import { Badge } from '@/components/ui/badge';
 
 const formatCurrency = (value: number | null) => {
@@ -78,7 +78,7 @@ export function HoldingsOverview() {
                         <TableCell><SymbolName symbol={row.symbol} /></TableCell>
                         <TableCell>
                           <Badge className={`border-none gap-1 ${row.assetType === 'option' ? 'bg-orange-600 text-white' : 'bg-slate-700 text-white'}`}>
-                            <TransactionTypeIcon type={row.assetType} />
+                            <AssetTypeIcon assetType={row.assetType as any} className="h-4 w-4" />
                             <span>{row.assetType === 'option' ? '期权' : '股票'}</span>
                           </Badge>
                         </TableCell>
