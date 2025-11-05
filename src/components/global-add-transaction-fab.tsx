@@ -53,7 +53,8 @@ export default function GlobalAddTransactionFab() {
 
   useEffect(() => {
     const shouldOpen = tx === "new" || (tx === "edit" && isValidId);
-    if (open !== shouldOpen) setOpen(shouldOpen);
+    const nextOpen = !!shouldOpen;
+    if (open !== nextOpen) setOpen(nextOpen);
   }, [tx, isValidId]);
 
   const openNewViaUrl = () => {
