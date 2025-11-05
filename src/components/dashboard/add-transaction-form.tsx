@@ -23,7 +23,7 @@ import {
 import { Calendar } from "@/components/ui/calendar";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { cn } from "@/lib/utils";
-import { Calendar as CalendarIcon } from "lucide-react";
+import { Calendar as CalendarIcon, Copy, Tag, ArrowUpRight, ArrowDownLeft, LogIn, LogOut } from "lucide-react";
 import { useFirestore, useUser } from "@/firebase";
 import { addDocumentNonBlocking } from "@/firebase/non-blocking-updates";
 import { collection } from "firebase/firestore";
@@ -31,13 +31,17 @@ import { useToast } from "@/hooks/use-toast";
 import { v4 as uuidv4 } from 'uuid';
 import { toNyCalendarDayString, nowNyCalendarDayString, toNyHmsString, nyLocalDateTimeToUtcMillis } from '@/lib/ny-time';
 import SymbolCombobox from '@/components/inputs/symbol-combobox';
-import { useRef } from "react";
+import { useRef, useState, useEffect } from "react";
 import { zhCN } from 'date-fns/locale';
+import { ActionBadge } from "@/components/common/action-badge";
+import { buildOCC } from '@/lib/options/occ';
+import { Badge } from "@/components/ui/badge";
+import { useCopyToClipboard } from "@/hooks/use-copy-to-clipboard";
 
 
 const formSchema = z.object({
-  symbol: z.string().min(1, "股票代码不能为空。").max(10, "股票代码过长。").toUpperCase(),
-  type: z.enum(["Buy", "Sell", "Short Sell", "Short Cover"], { required_error: "请选择交易类型。" }),
+  symbol: z.string().min(1, "代码不能为空。").max(30, "代码过长。").toUpperCase(),
+  type: z.enum(["BUY", "SELL", 'SHORT', 'COVER'], { required_error: "请选择交易类型。" }),
   quantity: z.coerce.number().positive("数量必须为正数。"),
   price: z.coerce.number().positive("价格必须为正数。"),
   date: z.date({ required_error: "请选择交易日期。" }),
@@ -56,6 +60,34 @@ export function AddTransactionForm({ onSuccess, isEditing = false, defaultValues
   const firestore = useFirestore();
   const { user } = useUser();
   const qtyRef = useRef<HTMLInputElement>(null);
+  const [assetType, setAssetType] = useState<'stock' | 'option'>('stock');
+
+  // Option-specific state
+  const [underlying, setUnderlying] = useState('');
+  const [expiry, setExpiry] = useState<Date | undefined>();
+  const [strike, setStrike] = useState<number | string>('');
+  const [cp, setCp] = useState<'C' | 'P'>('C');
+  const [side, setSide] = useState<'buy' | 'sell'>('buy');
+  const [openClose, setOpenClose] = useState<'open' | 'close'>('open');
+  const { copy, copied } = useCopyToClipboard();
+
+  const handleCopy = async () => {
+    const { symbol, quantity, price, type } = form.getValues();
+    let summary = '';
+
+    if (assetType === 'stock') {
+      summary = `${symbol || ''} ${type || ''} ${quantity || ''} @ ${price || ''}`.trim();
+    } else { // option
+      const expiryStr = expiry ? toNyCalendarDayString(expiry) : '';
+      const sideStr = side === 'buy' ? '买' : '卖';
+      const openCloseStr = openClose === 'open' ? '开' : '平';
+      const cpStr = cp;
+      
+      summary = `${symbol || ''} ${openCloseStr}${sideStr} ${quantity || ''} ${expiryStr} ${strike || ''}${cpStr} @ ${price || ''}`.trim();
+    }
+    
+    await copy(summary);
+  };
 
   const form = useForm<z.infer<typeof formSchema>>({
     resolver: zodResolver(formSchema),
@@ -67,14 +99,58 @@ export function AddTransactionForm({ onSuccess, isEditing = false, defaultValues
         : "16:00:00",
     } : {
       symbol: "",
-      type: "Buy",
+      type: "BUY",
       // 以“此刻”的纽约时间作为默认值
       date: new Date(),                 // 日期后续用 toNyCalendarDayString 解释为“纽约日”，安全
       time: toNyHmsString(new Date()),  // 纽约时区下的 HH:mm:ss
     },
   });
 
+  // Effect to build OCC and auto-fill symbol
+  useEffect(() => {
+    if (assetType === 'option' && underlying && expiry && strike !== '' && !isNaN(Number(strike))) {
+      try {
+        const builtOcc = buildOCC({
+          underlying,
+          expiry,
+          cp,
+          strike: Number(strike),
+        });
+        form.setValue('symbol', builtOcc, { shouldValidate: true, shouldDirty: true });
+      } catch {
+        form.setValue('symbol', '无效的期权参数');
+      }
+    } else if (assetType === 'option') {
+      form.setValue('symbol', '');
+    }
+  }, [assetType, underlying, expiry, strike, cp, form]);
+
+  // Effect to map option actions to form.type
+  useEffect(() => {
+    if (assetType !== 'option') return;
+
+    const mapToType = () => {
+      if (side === 'buy' && openClose === 'open') return 'BUY';   // BTO
+      if (side === 'sell' && openClose === 'open') return 'SHORT'; // STO
+      if (side === 'sell' && openClose === 'close') return 'SELL';  // STC
+      if (side === 'buy' && openClose === 'close') return 'COVER'; // BTC
+      return 'BUY'; // Default
+    };
+
+    form.setValue('type', mapToType(), { shouldValidate: true });
+  }, [assetType, side, openClose, form]);
+
   async function onSubmit(values: z.infer<typeof formSchema>) {
+    // Failsafe for option data
+    if (assetType === 'option') {
+      if (!underlying || !expiry || strike === '' || isNaN(Number(strike))) {
+        toast({ variant: "destructive", title: "错误", description: "期权参数不完整，无法提交。" });
+        return;
+      }
+      values.symbol = buildOCC({ underlying, expiry, cp, strike: Number(strike) });
+      values.type = form.getValues('type'); // Ensure latest type is used
+    }
+
     if (!user || !firestore) {
       toast({
         variant: "destructive",
@@ -139,20 +215,123 @@ export function AddTransactionForm({ onSuccess, isEditing = false, defaultValues
   return (
     <Form {...form}>
       <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
+        <div className="flex items-center justify-end gap-2 -mb-4 -mt-4">
+            <Button variant="ghost" size="icon" type="button" onClick={handleCopy} title="复制摘要">
+                <Copy className="h-4 w-4" />
+            </Button>
+            {copied && <span className="text-xs text-muted-foreground animate-pulse">已复制</span>}
+        </div>
+        <FormItem className="space-y-3">
+          <FormLabel>资产类型</FormLabel>
+          <FormControl>
+            <RadioGroup
+              value={assetType}
+              onValueChange={(v) => setAssetType(v as 'stock' | 'option')}
+              className="flex flex-row space-x-4"
+            >
+              <FormItem className="flex items-center space-x-2 space-y-0">
+                <FormControl>
+                  <RadioGroupItem value="stock" id="stock" />
+                </FormControl>
+                <label htmlFor="stock" className="cursor-pointer">
+                  <Badge className="bg-slate-700 text-white gap-1 px-3 py-1 rounded-full">
+                    <Tag className="w-3.5 h-3.5" />
+                    股票
+                  </Badge>
+                </label>
+              </FormItem>
+              <FormItem className="flex items-center space-x-2 space-y-0">
+                <FormControl>
+                  <RadioGroupItem value="option" id="option" />
+                </FormControl>
+                <label htmlFor="option" className="cursor-pointer">
+                  <Badge className="bg-orange-600 text-white gap-1 px-3 py-1 rounded-full">
+                    <Tag className="w-3.5 h-3.5" />
+                    期权
+                  </Badge>
+                </label>
+              </FormItem>
+            </RadioGroup>
+          </FormControl>
+        </FormItem>
+
+        {assetType === 'option' && (
+          <div className="space-y-6 p-4 border rounded-md bg-emerald-100/30 border-emerald-200 dark:bg-emerald-900/20 dark:border-emerald-800">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <FormItem className="md:col-span-1">
+                  <FormLabel>标的</FormLabel>
+                  <FormControl>
+                    <Input placeholder="AAPL" value={underlying} onChange={e => setUnderlying(e.target.value.toUpperCase())} />
+                  </FormControl>
+                </FormItem>
+                <FormItem className="md:col-span-1">
+                  <FormLabel>到期日</FormLabel>
+                  <Popover>
+                    <PopoverTrigger asChild>
+                      <FormControl>
+                        <Button variant={"outline"} className={cn("w-full pl-3 text-left font-normal", !expiry && "text-muted-foreground")}>
+                          {expiry ? toNyCalendarDayString(expiry) : <span>选择日期</span>}
+                          <CalendarIcon className="ml-auto h-4 w-4 opacity-50" />
+                        </Button>
+                      </FormControl>
+                    </PopoverTrigger>
+                    <PopoverContent className="w-auto p-0" align="start">
+                      <Calendar mode="single" selected={expiry} onSelect={setExpiry} initialFocus locale={zhCN} />
+                    </PopoverContent>
+                  </Popover>
+                </FormItem>
+                <FormItem className="md:col-span-1">
+                  <FormLabel>行权价</FormLabel>
+                  <FormControl>
+                    <Input type="number" placeholder="200" value={strike} onChange={e => setStrike(e.target.value)} />
+                  </FormControl>
+                </FormItem>
+            </div>
+            <FormItem className="space-y-3">
+              <FormLabel>类型</FormLabel>
+              <FormControl>
+                <RadioGroup value={cp} onValueChange={(v) => setCp(v as 'C' | 'P')} className="flex flex-row space-x-4">
+                  <FormItem className="flex items-center space-x-2 space-y-0">
+                    <FormControl><RadioGroupItem value="C" id="C" /></FormControl>
+                    <label htmlFor="C" className="cursor-pointer">
+                      <Badge className="bg-emerald-600 text-white gap-1 px-3 py-1 rounded-full">
+                        <ArrowUpRight className="w-3.5 h-3.5" />
+                        Call
+                      </Badge>
+                    </label>
+                  </FormItem>
+                  <FormItem className="flex items-center space-x-2 space-y-0">
+                    <FormControl><RadioGroupItem value="P" id="P" /></FormControl>
+                    <label htmlFor="P" className="cursor-pointer">
+                      <Badge className="bg-violet-600 text-white gap-1 px-3 py-1 rounded-full">
+                        <ArrowDownLeft className="w-3.5 h-3.5" />
+                        Put
+                      </Badge>
+                    </label>
+                  </FormItem>
+                </RadioGroup>
+              </FormControl>
+            </FormItem>
+          </div>
+        )}
+
         <FormField
           control={form.control}
           name="symbol"
           render={({ field }) => (
             <FormItem>
-              <FormLabel>股票代码</FormLabel>
+              <FormLabel>{assetType === 'stock' ? '股票代码' : '期权代码 (OCC, 自动生成)'}</FormLabel>
               <FormControl>
-                {/* 使用只读索引 + 本地联想，不触碰后端 */}
-                <SymbolCombobox
-                  value={field.value ?? ''}
-                  onChange={(v) => field.onChange(v)}
-                  placeholder="输入代码/中文/英文查找，例如：AAPL / 苹果 / Apple"
-                  onSelected={() => qtyRef.current?.focus()}
-                />
+                {assetType === 'stock' ? (
+                  <SymbolCombobox
+                    value={field.value ?? ''}
+                    onChange={(v) => field.onChange(v)}
+                    placeholder="输入代码/中文/英文查找"
+                    onSelected={() => qtyRef.current?.focus()}
+                  />
+                ) : (
+                  <Input readOnly {...field} placeholder="由上方期权要素自动生成" />
+                )}
               </FormControl>
               <FormMessage />
             </FormItem>
@@ -164,38 +343,83 @@ export function AddTransactionForm({ onSuccess, isEditing = false, defaultValues
           render={({ field }) => (
             <FormItem className="space-y-3">
               <FormLabel>交易类型</FormLabel>
-              <FormControl>
-                <RadioGroup
-                  onValueChange={field.onChange}
-                  defaultValue={field.value}
-                  className="flex flex-row space-x-4"
-                >
-                  <FormItem className="flex items-center space-x-2 space-y-0">
-                    <FormControl>
-                      <RadioGroupItem value="Buy" />
-                    </FormControl>
-                    <FormLabel className="font-normal">买入</FormLabel>
-                  </FormItem>
-                  <FormItem className="flex items-center space-x-2 space-y-0">
-                    <FormControl>
-                      <RadioGroupItem value="Sell" />
-                    </FormControl>
-                    <FormLabel className="font-normal">卖出</FormLabel>
-                  </FormItem>
-                  <FormItem className="flex items-center space-x-2 space-y-0">
-                    <FormControl>
-                      <RadioGroupItem value="Short Sell" />
-                    </FormControl>
-                    <FormLabel className="font-normal">卖空</FormLabel>
-                  </FormItem>
-                  <FormItem className="flex items-center space-x-2 space-y-0">
-                    <FormControl>
-                      <RadioGroupItem value="Short Cover" />
-                    </FormControl>
-                    <FormLabel className="font-normal">卖空补回</FormLabel>
-                  </FormItem>
-                </RadioGroup>
-              </FormControl>
+              {assetType === 'stock' ? (
+                <FormControl>
+                  <RadioGroup
+                    onValueChange={field.onChange}
+                    defaultValue={field.value}
+                    className="grid grid-cols-2 gap-4"
+                  >
+                    {["BUY", "SELL", "SHORT", "COVER"].map((type) => (
+                      <FormItem key={type} className="flex items-center space-x-2 space-y-0">
+                        <FormControl>
+                          <RadioGroupItem value={type} id={`stock-${type}`} />
+                        </FormControl>
+                        <label htmlFor={`stock-${type}`} className="flex items-center gap-2 font-normal cursor-pointer">
+                          <ActionBadge opKind={type as any} />
+                        </label>
+                      </FormItem>
+                    ))}
+                  </RadioGroup>
+                </FormControl>
+              ) : (
+                <div className="p-4 border rounded-md bg-emerald-100/30 border-emerald-200 dark:bg-emerald-900/20 dark:border-emerald-800 space-y-4">
+                  <div className="grid grid-cols-2 gap-4">
+                    <FormItem>
+                      <FormLabel>动作</FormLabel>
+                      <RadioGroup value={side} onValueChange={(v) => setSide(v as 'buy' | 'sell')} className="flex flex-row space-x-4 pt-2">
+                        <FormItem className="flex items-center space-x-2 space-y-0">
+                          <FormControl><RadioGroupItem value="buy" id="buy" /></FormControl>
+                          <label htmlFor="buy" className="cursor-pointer font-normal">买</label>
+                        </FormItem>
+                        <FormItem className="flex items-center space-x-2 space-y-0">
+                          <FormControl><RadioGroupItem value="sell" id="sell" /></FormControl>
+                          <label htmlFor="sell" className="cursor-pointer font-normal">卖</label>
+                        </FormItem>
+                      </RadioGroup>
+                      <FormDescription className="mt-2">将记为：</FormDescription>
+                      <div className="mt-1 flex flex-wrap gap-2">
+                        <ActionBadge opKind={(side === 'buy' ? 'BUY' : 'SELL') as any} />
+                      </div>
+                    </FormItem>
+                    <FormItem>
+                      <FormLabel>开/平</FormLabel>
+                      <RadioGroup
+                        value={openClose}
+                        onValueChange={(v) => setOpenClose(v as 'open' | 'close')}
+                        className="flex flex-row space-x-4 pt-2"
+                      >
+                        <FormItem className="flex items-center space-x-2 space-y-0">
+                          <FormControl>
+                            <RadioGroupItem value="open" id="open" />
+                          </FormControl>
+                          <label htmlFor="open" className="cursor-pointer font-normal">开仓</label>
+                        </FormItem>
+                        <FormItem className="flex items-center space-x-2 space-y-0">
+                          <FormControl>
+                            <RadioGroupItem value="close" id="close" />
+                          </FormControl>
+                          <label htmlFor="close" className="cursor-pointer font-normal">平仓</label>
+                        </FormItem>
+                      </RadioGroup>
+                      <FormDescription className="mt-2">将记为：</FormDescription>
+                      <div className="mt-1 flex flex-wrap gap-2">
+                        {openClose === 'open' ? (
+                          <Badge className="bg-sky-600 text-white gap-1 px-3 py-1 rounded-full">
+                            <LogIn className="w-3.5 h-3.5" />
+                            开仓
+                          </Badge>
+                        ) : (
+                          <Badge className="bg-sky-700 text-white gap-1 px-3 py-1 rounded-full">
+                            <LogOut className="w-3.5 h-3.5" />
+                            平仓
+                          </Badge>
+                        )}
+                      </div>
+                    </FormItem>
+                  </div>
+                </div>
+              )}
               <FormMessage />
             </FormItem>
           )}
@@ -206,7 +430,7 @@ export function AddTransactionForm({ onSuccess, isEditing = false, defaultValues
             name="quantity"
             render={({ field }) => (
               <FormItem>
-                <FormLabel>数量 (股)</FormLabel>
+                <FormLabel>{assetType === 'stock' ? '数量 (股)' : '数量 (合约)'}</FormLabel>
                 <FormControl>
                   <Input type="number" placeholder="100" {...field} ref={qtyRef} />
                 </FormControl>
@@ -219,7 +443,7 @@ export function AddTransactionForm({ onSuccess, isEditing = false, defaultValues
             name="price"
             render={({ field }) => (
               <FormItem>
-                <FormLabel>价格 (美元)</FormLabel>
+                <FormLabel>价格 (每份)</FormLabel>
                 <FormControl>
                   <Input type="number" placeholder="150.25" step="0.01" {...field} />
                 </FormControl>
@@ -277,7 +501,7 @@ export function AddTransactionForm({ onSuccess, isEditing = false, defaultValues
           name="time"
           render={({ field }) => (
             <FormItem>
-              <FormLabel>时间 (纽约)</FormLabel>
+              <FormLabel>时间</FormLabel>
               <FormControl>
                 <Input placeholder="16:00:00" {...field} />
               </FormControl>

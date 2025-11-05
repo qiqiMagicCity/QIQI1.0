@@ -185,16 +185,12 @@ export function TransactionHistory() {
             <CardDescription>所有过去交易的详细记录。</CardDescription>
           </div>
           <div className="flex items-center gap-2">
-            <Link href="/transactions/editor" passHref>
-                <Button asChild size="sm" className="h-8 gap-1">
-                <a>
-                    <PlusCircle className="h-3.5 w-3.5" />
-                    <span className="sr-only sm:not-sr-only sm:whitespace-nowrap">
-                        添加交易
-                    </span>
-                </a>
-                </Button>
-            </Link>
+            <Button asChild size="sm" className="h-8 gap-1">
+              <Link href="/transactions/editor">
+                <PlusCircle className="h-3.5 w-3.5" />
+                <span className="sr-only sm:not-sr-only sm:whitespace-nowrap">添加交易</span>
+              </Link>
+            </Button>
             <Popover>
               <PopoverTrigger asChild>
                 <Button
@@ -317,20 +313,26 @@ export function TransactionHistory() {
                         </TableCell>
                         <TableCell className="text-center">
                           <div className="flex items-center justify-center">
-                            <Link href={`/transactions/editor?id=${tx.id}`} passHref>
-                              <Button asChild variant="ghost" size="icon" title="编辑" className="mr-1 h-7 w-7 transition-transform hover:scale-110" aria-label="编辑" disabled={tx.source === 'trades'}>
-                                <a>
-                                  <EditIcon
-                                    theme="multi-color"
-                                    size={18}
-                                    strokeWidth={3}
-                                    strokeLinecap="round"
-                                    strokeLinejoin="round"
-                                    fill={['#34D399', '#FFFFFF', '#059669', '#065F46']}
-                                  />
-                                </a>
-                              </Button>
-                            </Link>
+                            <Button
+                              asChild
+                              variant="ghost"
+                              size="icon"
+                              title="编辑"
+                              className="mr-1 h-7 w-7 transition-transform hover:scale-110"
+                              aria-label="编辑"
+                              disabled={tx.source === "trades"}
+                            >
+                              <Link href={`/transactions/editor?id=${tx.id}`}>
+                                <EditIcon
+                                  theme="multi-color"
+                                  size={18}
+                                  strokeWidth={3}
+                                  strokeLinecap="round"
+                                  strokeLinejoin="round"
+                                  fill={["#34D399", "#FFFFFF", "#059669", "#065F46"]}
+                                />
+                              </Link>
+                            </Button>
                             <AlertDialog>
                               <AlertDialogTrigger asChild>
                                 <Button

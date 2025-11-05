@@ -1,9 +1,6 @@
 "use client";
 
-import { useState } from "react";
 import dynamic from "next/dynamic";
-import { Plus } from "lucide-react";
-import Link from 'next/link';
 import { DashboardHeader } from "@/components/dashboard/dashboard-header";
 import { CalculationGrid } from "@/components/dashboard/calculation-grid";
 import { HoldingsOverview } from "@/components/dashboard/holdings-overview";
@@ -11,7 +8,6 @@ import { StockDetails } from "@/components/dashboard/stock-details";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { StatusBadge, type Status } from "@/components/ui/status-badge";
-import { Button } from "@/components/ui/button";
 import { useRequireAuth } from "@/components/auth/guards";
 import { Skeleton } from "@/components/ui/skeleton";
 
@@ -139,14 +135,12 @@ export default function Home() {
         </div>
       </main>
 
-      <Link href="/transactions/editor" passHref>
-        <Button asChild className="fixed bottom-8 right-8 h-16 w-16 rounded-full shadow-lg" size="icon">
-          <a>
-            <Plus className="h-8 w-8" />
-            <span className="sr-only">添加交易</span>
-          </a>
-        </Button>
-      </Link>
+      <Button asChild className="fixed bottom-8 right-8 h-16 w-16 rounded-full shadow-lg" size="icon">
+        <Link href="/transactions/editor">
+          <Plus className="h-8 w-8" />
+          <span className="sr-only">添加交易</span>
+        </Link>
+      </Button>
     </div>
   );
 }

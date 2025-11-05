@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect } from 'react';
+import { toNyHmsString, nyWeekdayLabel } from '@/lib/ny-time';
 
 type TimeZoneOption = {
   label: string;
@@ -16,17 +17,26 @@ const timeZones: TimeZoneOption[] = [
 
 const TimeDisplay = ({ label, timeZone, fontClass }: TimeZoneOption) => {
   const [time, setTime] = useState('');
+  const [weekday, setWeekday] = useState('');
 
   useEffect(() => {
     const updateClock = () => {
-      const formattedTime = new Intl.DateTimeFormat('zh-CN', {
-        hour: '2-digit',
-        minute: '2-digit',
-        second: '2-digit',
-        hour12: false,
-        timeZone: timeZone,
-      }).format(new Date());
-      setTime(formattedTime);
+      const now = new Date();
+      if (timeZone === 'America/New_York') {
+        setTime(toNyHmsString(now));
+        setWeekday(nyWeekdayLabel(now));
+      } else {
+        const formattedTime = new Intl.DateTimeFormat('zh-CN', {
+          hour: '2-digit',
+          minute: '2-digit',
+          second: '2-digit',
+          hour12: false,
+          timeZone: timeZone,
+        }).format(now);
+        setTime(formattedTime);
+        // 其他时区目前不需要显示星期
+        setWeekday(''); 
+      }
     };
     
     updateClock();
@@ -39,6 +49,7 @@ const TimeDisplay = ({ label, timeZone, fontClass }: TimeZoneOption) => {
     <div className="flex items-center gap-2">
       <span className={`text-base text-muted-foreground ${fontClass}`}>{label}</span>
       <span className="text-base font-semibold text-foreground font-mono">{time}</span>
+      {weekday && <span className="text-sm text-muted-foreground font-sans">{weekday}</span>}
     </div>
   );
 };
