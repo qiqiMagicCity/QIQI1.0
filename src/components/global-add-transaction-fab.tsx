@@ -1,89 +1,94 @@
 'use client';
 
-import { useEffect, useState } from 'react';
-import { usePathname } from 'next/navigation';
-import { Plus } from 'lucide-react';
-
+import React, { useEffect, useState } from 'react';
+import { createPortal } from 'react-dom';
+import { Plus, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger,
-} from '@/components/ui/dialog';
-import {
-  Sheet,
-  SheetContent,
-  SheetHeader,
-  SheetTitle,
-  SheetTrigger,
-} from '@/components/ui/sheet';
-
 import { AddTransactionForm } from '@/components/dashboard/add-transaction-form';
-import { useIsMobile } from '@/hooks/use-is-mobile';
-import { useUser } from '@/firebase';
+import { useSearchParams, useRouter } from "next/navigation";
 
-const EXCLUDED_PATHS = ['/login', '/signup', '/error', '/onboarding', '/healthz'];
+function CenterFloat({
+  children,
+  onClose,
+}: {
+  children: React.ReactNode;
+  onClose: () => void;
+}) {
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose();
+    };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [onClose]);
+
+  if (typeof document === 'undefined') return null;
+
+  return createPortal(
+    <div className="fixed inset-0 z-[60] pointer-events-none">
+      <div className="relative pointer-events-auto mx-auto mt-[10vh] w-[min(92vw,800px)] max-h-[85vh] overflow-y-auto rounded-2xl border bg-card/95 shadow-2xl backdrop-blur p-6">
+        <Button
+          size="icon"
+          variant="ghost"
+          className="absolute right-4 top-4 rounded-full z-20 pointer-events-auto"
+          onClick={onClose}
+          aria-label="关闭"
+        >
+          <X className="h-4 w-4" />
+        </Button>
+        {children}
+      </div>
+    </div>,
+    document.body
+  );
+}
 
 export default function GlobalAddTransactionFab() {
-  const [mounted, setMounted] = useState(false);
   const [open, setOpen] = useState(false);
+  const sp = useSearchParams();
+  const router = useRouter();
+  const tx = sp.get("tx");
+  const id = sp.get("id");
+  const isValidId = id && id !== "null" && id !== "undefined" && id.trim() !== "";
 
-  const { user } = useUser();
-  const pathname = usePathname();
-  const isMobile = useIsMobile();
+  useEffect(() => {
+    const shouldOpen = tx === "new" || (tx === "edit" && isValidId);
+    if (open !== shouldOpen) setOpen(shouldOpen);
+  }, [tx, isValidId]);
 
-  useEffect(() => setMounted(true), []);
+  const openNewViaUrl = () => {
+    const qs = new URLSearchParams(sp.toString());
+    qs.set("tx", "new");
+    qs.delete("id");
+    router.replace(`?${qs.toString()}`, { scroll: false });
+  };
 
-  // 仅客户端渲染，避免水合差异
-  if (!mounted) return null;
-
-  // 未登录或在排除路径，不渲染
-  if (!user) return null;
-  if (pathname && EXCLUDED_PATHS.some((p) => pathname.startsWith(p))) return null;
-
-  const TriggerButton = (
-    <Button size="icon" aria-label="新增交易" className="h-14 w-14 rounded-full shadow-lg">
-      <Plus className="h-6 w-6" />
-    </Button>
-  );
-
-  const Form = <AddTransactionForm onSuccess={() => setOpen(false)} />;
-
-  const Wrapper = ({ children }: { children: React.ReactNode }) => (
-    <div className="fixed bottom-4 right-4 z-50 md:bottom-6 md:right-6 pb-[env(safe-area-inset-bottom)]">
-      {children}
-    </div>
-  );
-
-  if (isMobile) {
-    return (
-      <Wrapper>
-        <Sheet open={open} onOpenChange={setOpen}>
-          <SheetTrigger asChild>{TriggerButton}</SheetTrigger>
-          <SheetContent side="bottom" className="h-[90vh] overflow-y-auto">
-            <SheetHeader>
-              <SheetTitle>新增交易</SheetTitle>
-            </SheetHeader>
-            {Form}
-          </SheetContent>
-        </Sheet>
-      </Wrapper>
-    );
-  }
+  const closeAndCleanUrl = () => {
+    const qs = new URLSearchParams(sp.toString());
+    qs.delete("tx");
+    qs.delete("id");
+    router.replace(qs.toString() ? `?${qs.toString()}` : "?", { scroll: false });
+    setOpen(false);
+  };
 
   return (
-    <Wrapper>
-      <Dialog open={open} onOpenChange={setOpen}>
-        <DialogTrigger asChild>{TriggerButton}</DialogTrigger>
-        <DialogContent className="sm:max-w-lg">
-          <DialogHeader>
-            <DialogTitle>新增交易</DialogTitle>
-          </DialogHeader>
-          {Form}
-        </DialogContent>
-      </Dialog>
-    </Wrapper>
+    <>
+      <div className="fixed bottom-4 right-4 z-50 md:bottom-6 md:right-6 pb-[env(safe-area-inset-bottom)]">
+        <Button
+          size="icon"
+          aria-label="新增交易"
+          className="h-14 w-14 rounded-full shadow-lg"
+          onClick={openNewViaUrl}
+        >
+          <Plus className="h-6 w-6" />
+        </Button>
+      </div>
+
+      {open && (
+        <CenterFloat onClose={closeAndCleanUrl}>
+          <AddTransactionForm onSuccess={closeAndCleanUrl} />
+        </CenterFloat>
+      )}
+    </>
   );
 }

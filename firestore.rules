@@ -137,6 +137,22 @@ service cloud.firestore {
     }
 
     /**
+     * @description Secure trades. Users can only access their own trades.
+     * @path /users/{userId}/trades/{tradeId}
+     * @principle Enforces document ownership for writes and restricts access to the owner.
+     */
+    match /users/{userId}/trades/{tradeId} {
+      function isOwner(userId) {
+        return request.auth.uid == userId;
+      }
+      allow get: if isOwner(userId);
+      allow list: if isOwner(userId);
+      allow create: if isOwner(userId) && request.resource.data.userId == request.auth.uid;
+      allow update: if isOwner(userId) && resource.data.userId == request.resource.data.userId;
+      allow delete: if isOwner(userId) && resource != null;
+    }
+
+    /**
      * @description Allow public read access to stock details.
      * @path /stockDetails/{symbol}
      * @allow (get) Any user can read stock details.

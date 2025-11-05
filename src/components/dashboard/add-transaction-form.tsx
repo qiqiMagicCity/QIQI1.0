@@ -37,6 +37,8 @@ import { ActionBadge } from "@/components/common/action-badge";
 import { buildOCC } from '@/lib/options/occ';
 import { Badge } from "@/components/ui/badge";
 import { useCopyToClipboard } from "@/hooks/use-copy-to-clipboard";
+import { useSearchParams, useRouter } from "next/navigation";
+import { doc, getDoc, updateDoc } from "firebase/firestore";
 
 
 const formSchema = z.object({
@@ -51,11 +53,45 @@ const formSchema = z.object({
 
 type AddTransactionFormProps = {
   onSuccess?: () => void;
-  isEditing?: boolean;
   defaultValues?: any;
 };
 
-export function AddTransactionForm({ onSuccess, isEditing = false, defaultValues }: AddTransactionFormProps) {
+function toMillisAny(input: any): number | null {
+  if (input == null) return null;
+  // Firestore.Timestamp
+  if (typeof input?.toMillis === 'function') {
+    const n = input.toMillis();
+    return Number.isFinite(n) ? n : null;
+  }
+  // Date
+  if (input instanceof Date) {
+    const n = input.getTime();
+    return Number.isFinite(n) ? n : null;
+  }
+  // number: 秒 or 毫秒
+  if (typeof input === 'number' && Number.isFinite(input)) {
+    return input < 1e12 ? Math.round(input * 1000) : Math.round(input);
+  }
+  // string: 纯数字 or 可解析日期
+  if (typeof input === 'string') {
+    const s = input.trim();
+    if (/^\d{10,13}$/.test(s)) {
+      const num = Number(s);
+      return num < 1e12 ? num * 1000 : num;
+    }
+    const d = new Date(s);
+    const n = d.getTime();
+    return Number.isFinite(n) ? n : null;
+  }
+  return null;
+}
+
+export function AddTransactionForm({ onSuccess, defaultValues }: AddTransactionFormProps) {
+  const sp = useSearchParams();
+  const router = useRouter();
+  const rawId = sp.get('id');
+  const editingId = rawId && rawId !== 'null' && rawId !== 'undefined' && rawId.trim() !== '' ? rawId.trim() : null;
+  const isEditing = Boolean(editingId);
   const { toast } = useToast();
   const firestore = useFirestore();
   const { user } = useUser();
@@ -94,12 +130,12 @@ export function AddTransactionForm({ onSuccess, isEditing = false, defaultValues
     defaultValues: defaultValues ? {
       ...defaultValues,
       date: defaultValues.transactionDate ? new Date(defaultValues.transactionDate) : new Date(),
-      time: (typeof defaultValues.transactionTimestamp === 'number')
-        ? toNyHmsString(defaultValues.transactionTimestamp)
-        : "16:00:00",
+      time: toNyHmsString(toMillisAny(defaultValues.transactionTimestamp) ?? new Date()),
     } : {
       symbol: "",
       type: "BUY",
+      quantity: "", // Prevent uncontrolled input warning
+      price: "",    // Prevent uncontrolled input warning
       // 以“此刻”的纽约时间作为默认值
       date: new Date(),                 // 日期后续用 toNyCalendarDayString 解释为“纽约日”，安全
       time: toNyHmsString(new Date()),  // 纽约时区下的 HH:mm:ss
@@ -140,6 +176,74 @@ export function AddTransactionForm({ onSuccess, isEditing = false, defaultValues
     form.setValue('type', mapToType(), { shouldValidate: true });
   }, [assetType, side, openClose, form]);
 
+  // Effect to load existing transaction for editing
+  useEffect(() => {
+    if (!isEditing) return; // 新增模式不触发读取
+    if (editingId && user && firestore) {
+      const fetchTransaction = async () => {
+        const docRef = doc(firestore, "users", user.uid, "transactions", editingId);
+        const docSnap = await getDoc(docRef);
+
+        if (docSnap.exists()) {
+          const data = docSnap.data();
+          const transactionMillis = toMillisAny(data.transactionTimestamp);
+          // Map fetched data to form fields
+          form.reset({
+            symbol: data.symbol ?? '',
+            type: data.type,
+            quantity: data.quantity ?? '',
+            price: data.price ?? '',
+            date: transactionMillis ? new Date(transactionMillis) : new Date(),
+            time: transactionMillis ? toNyHmsString(transactionMillis) : "16:00:00",
+          });
+
+          // Set option-specific states if applicable
+          if (data.assetType === 'option') {
+            setAssetType('option');
+            setUnderlying(data.underlying);
+            setExpiry(new Date(data.expiry));
+            setStrike(data.strike);
+            setCp(data.cp);
+            setSide(data.side);
+            setOpenClose(data.openClose);
+          } else { // Stock
+            setAssetType('stock');
+            // Derive side and openClose for stocks
+            switch (data.type) {
+              case 'BUY':
+                setSide('buy');
+                setOpenClose('open');
+                break;
+              case 'SELL':
+                setSide('sell');
+                setOpenClose('open');
+                break;
+              case 'SHORT':
+                setSide('sell');
+                setOpenClose('open');
+                break;
+              case 'COVER':
+                setSide('buy');
+                setOpenClose('close');
+                break;
+              default:
+                setSide('buy'); // Default to buy
+                setOpenClose('open'); // Default to open
+            }
+          }
+        } else {
+          toast({
+            variant: "destructive",
+            title: "加载错误",
+            description: "未找到该交易记录或您没有权限访问。",
+          });
+          return;
+        }
+      };
+      fetchTransaction();
+    }
+  }, [isEditing, editingId, user, firestore, form, toast, router]);
+
   async function onSubmit(values: z.infer<typeof formSchema>) {
     // Failsafe for option data
     if (assetType === 'option') {
@@ -171,30 +275,35 @@ export function AddTransactionForm({ onSuccess, isEditing = false, defaultValues
       const transactionDate = new Date(transactionTimestamp).toISOString();
       const transactionDateNy = toNyCalendarDayString(transactionTimestamp);
 
-      const transactionData = {
+      const payload = {
         ...values,
-        id: defaultValues?.id || uuidv4(),
         userId: user.uid,
         transactionDate,       // 用从 UTC 毫秒反推的 ISO
         transactionDateNy,     // 由时间戳再求 NY 日期，避免边界误差
         transactionTimestamp,
         total: values.quantity * values.price,
+        assetType: assetType, // Save asset type
+        ...(assetType === 'option' && { underlying, expiry: expiry?.toISOString(), strike, cp, side, openClose }), // Save option details
       };
-      delete (transactionData as any).date;
-      delete (transactionData as any).time;
+      delete (payload as any).date;
+      delete (payload as any).time;
       
-      const transactionsRef = collection(
-        firestore,
-        "users",
-        user.uid,
-        "transactions"
-      );
-      
-      addDocumentNonBlocking(transactionsRef, transactionData);
+      if (editingId) {
+        const docRef = doc(firestore, "users", user.uid, "transactions", editingId);
+        await updateDoc(docRef, payload);
+      } else {
+        const transactionsRef = collection(
+          firestore,
+          "users",
+          user.uid,
+          "transactions"
+        );
+        await addDocumentNonBlocking(transactionsRef, { ...payload, id: uuidv4() });
+      }
 
       toast({
         title: "成功！",
-        description: `您的交易已成功${isEditing ? '更新' : '记录'}。`,
+        description: editingId ? "您的交易已更新。" : "您的交易已记录。",
       });
       
       onSuccess?.();
@@ -214,13 +323,7 @@ export function AddTransactionForm({ onSuccess, isEditing = false, defaultValues
 
   return (
     <Form {...form}>
-      <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
-        <div className="flex items-center justify-end gap-2 -mb-4 -mt-4">
-            <Button variant="ghost" size="icon" type="button" onClick={handleCopy} title="复制摘要">
-                <Copy className="h-4 w-4" />
-            </Button>
-            {copied && <span className="text-xs text-muted-foreground animate-pulse">已复制</span>}
-        </div>
+      <form onSubmit={form.handleSubmit(onSubmit)} className="relative space-y-6">
         <FormItem className="space-y-3">
           <FormLabel>资产类型</FormLabel>
           <FormControl>
@@ -322,16 +425,22 @@ export function AddTransactionForm({ onSuccess, isEditing = false, defaultValues
             <FormItem>
               <FormLabel>{assetType === 'stock' ? '股票代码' : '期权代码 (OCC, 自动生成)'}</FormLabel>
               <FormControl>
-                {assetType === 'stock' ? (
-                  <SymbolCombobox
-                    value={field.value ?? ''}
-                    onChange={(v) => field.onChange(v)}
-                    placeholder="输入代码/中文/英文查找"
-                    onSelected={() => qtyRef.current?.focus()}
-                  />
-                ) : (
-                  <Input readOnly {...field} placeholder="由上方期权要素自动生成" />
-                )}
+                <div className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2 md:gap-3">
+                  {assetType === 'stock' ? (
+                    <SymbolCombobox
+                      value={field.value ?? ''}
+                      onChange={(v) => field.onChange(v)}
+                      placeholder="输入代码/中文/英文查找"
+                      onSelected={() => qtyRef.current?.focus()}
+                    />
+                  ) : (
+                    <Input readOnly {...field} placeholder="由上方期权要素自动生成" />
+                  )}
+                  <Button variant="ghost" size="icon" type="button" onClick={handleCopy} title="复制下单摘要" className="shrink-0">
+                      <Copy className="h-4 w-4" />
+                  </Button>
+                  {copied && <span className="text-xs text-muted-foreground animate-pulse absolute -bottom-5 right-0">已复制</span>}
+                </div>
               </FormControl>
               <FormMessage />
             </FormItem>
@@ -432,7 +541,7 @@ export function AddTransactionForm({ onSuccess, isEditing = false, defaultValues
               <FormItem>
                 <FormLabel>{assetType === 'stock' ? '数量 (股)' : '数量 (合约)'}</FormLabel>
                 <FormControl>
-                  <Input type="number" placeholder="100" {...field} ref={qtyRef} />
+                  <Input type="number" placeholder="100" {...field} value={field.value ?? ''} ref={qtyRef} />
                 </FormControl>
                 <FormMessage />
               </FormItem>
@@ -445,72 +554,76 @@ export function AddTransactionForm({ onSuccess, isEditing = false, defaultValues
               <FormItem>
                 <FormLabel>价格 (每份)</FormLabel>
                 <FormControl>
-                  <Input type="number" placeholder="150.25" step="0.01" {...field} />
+                  <Input type="number" placeholder="150.25" step="0.01" {...field} value={field.value ?? ''} />
                 </FormControl>
                 <FormMessage />
               </FormItem>
             )}
           />
         </div>
-        <FormField
-          control={form.control}
-          name="date"
-          render={({ field }) => (
-            <FormItem className="flex flex-col">
-              <FormLabel>交易日期</FormLabel>
-              <Popover>
-                <PopoverTrigger asChild>
-                  <FormControl>
-                    <Button
-                      variant={"outline"}
-                      className={cn(
-                        "w-full pl-3 text-left font-normal",
-                        !field.value && "text-muted-foreground"
-                      )}
-                    >
-                      {field.value ? (
-                        toNyCalendarDayString(field.value)
-                      ) : (
-                        <span>选择一个日期</span>
-                      )}
-                      <CalendarIcon className="ml-auto h-4 w-4 opacity-50" />
-                    </Button>
-                  </FormControl>
-                </PopoverTrigger>
-                <PopoverContent className="w-auto p-0" align="start">
-                  <Calendar
-                    mode="single"
-                    selected={field.value}
-                    onSelect={field.onChange}
-                    disabled={(date) => {
-                      if (!date) return false;
-                      const dNy = toNyCalendarDayString(date);
-                      return dNy > nyTodayStr || date < minDateLocal;
-                    }}
-                    initialFocus
-                    locale={zhCN}
-                  />
-                </PopoverContent>
-              </Popover>
-              <FormMessage />
-            </FormItem>
-          )}
-        />
-        <FormField
-          control={form.control}
-          name="time"
-          render={({ field }) => (
-            <FormItem>
-              <FormLabel>时间</FormLabel>
-              <FormControl>
-                <Input placeholder="16:00:00" {...field} />
-              </FormControl>
-              <FormMessage />
-            </FormItem>
-          )}
-        />
+
+        {/* 3. Date and Time side-by-side */}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-end">
+          <FormField
+            control={form.control}
+            name="date"
+            render={({ field }) => (
+              <FormItem className="flex flex-col">
+                <FormLabel>交易日期</FormLabel>
+                <Popover>
+                  <PopoverTrigger asChild>
+                    <FormControl>
+                      <Button
+                        variant={"outline"}
+                        className={cn(
+                          "w-full pl-3 text-left font-normal",
+                          !field.value && "text-muted-foreground"
+                        )}
+                      >
+                        {field.value ? (
+                          toNyCalendarDayString(field.value)
+                        ) : (
+                          <span>选择一个日期</span>
+                        )}
+                        <CalendarIcon className="ml-auto h-4 w-4 opacity-50" />
+                      </Button>
+                    </FormControl>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-auto p-0" align="start">
+                    <Calendar
+                      mode="single"
+                      selected={field.value}
+                      onSelect={field.onChange}
+                      disabled={(date) => {
+                        if (!date) return false;
+                        const dNy = toNyCalendarDayString(date);
+                        return dNy > nyTodayStr || date < minDateLocal;
+                      }}
+                      initialFocus
+                      locale={zhCN}
+                    />
+                  </PopoverContent>
+                </Popover>
+                <FormMessage />
+              </FormItem>
+            )}
+          />
+          <FormField
+            control={form.control}
+            name="time"
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel>时间</FormLabel>
+                <FormControl>
+                  <Input placeholder="16:00:00" {...field} />
+                </FormControl>
+                <FormMessage />
+              </FormItem>
+            )}
+          />
+        </div>
         <Button type="submit" className="w-full" disabled={form.formState.isSubmitting}>
-          {form.formState.isSubmitting ? "正在保存..." : "保存交易"}
+          {form.formState.isSubmitting ? "正在保存..." : editingId ? "更新交易" : "保存交易"}
         </Button>
       </form>
     </Form>

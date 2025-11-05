@@ -57,9 +57,10 @@ import { Skeleton } from '../ui/skeleton';
 import { SymbolName } from './symbol-name';
 import { toNyCalendarDayString, toNyHmsString, nyWeekdayLabel } from '@/lib/ny-time';
 import dynamic from 'next/dynamic';
-import Link from 'next/link';
+import { useRouter, useSearchParams, usePathname } from "next/navigation";
 import { useIsMobile } from '@/hooks/use-is-mobile';
 import { useUserTransactions, type Tx, type OpKind } from '@/hooks/use-user-transactions';
+import { useToast } from '@/hooks/use-toast';
 
 const EditIcon = dynamic(() => import('@icon-park/react').then(m => m.Edit), {
   ssr: false,
@@ -129,6 +130,33 @@ export function TransactionHistory() {
   const [date, setDate] = useState<DateRange | undefined>(undefined);
   const isMobile = useIsMobile();
 
+  const router = useRouter();
+  const sp = useSearchParams();
+  const pathname = usePathname();
+
+  function replaceQuery(next: (qs: URLSearchParams) => void) {
+    const qs = new URLSearchParams(sp.toString());
+    next(qs);
+    const s = qs.toString();
+    router.replace(`${pathname}${s ? `?${s}` : ""}`, { scroll: false });
+  }
+
+  function openNewTx() {
+    replaceQuery(qs => {
+      qs.set("tx", "new");
+      qs.delete("id");
+    });
+  }
+
+  function openEditTx(id?: string) {
+    if (!id || id === "null" || id === "undefined" || id.trim() === "") return; // 守卫
+    replaceQuery(qs => {
+      qs.set("tx", "edit");
+      qs.set("id", id.trim());
+    });
+  }
+
+  const { toast } = useToast();
   const firestore = useFirestore();
   const { user } = useUser();
 
@@ -159,20 +187,28 @@ export function TransactionHistory() {
   // Delete logic
   async function handleDelete(tx: any) {
     try {
-      const ref = getTxDocRef(firestore, tx, user?.uid ?? null);
+      const owner = tx?.userId ?? user?.uid ?? null;
+      const ref = getTxDocRef(firestore, tx, owner);
       if (!ref) {
-        let msg = '删除失败：无法定位该交易的文档路径。';
-        if(tx.source === 'trades') {
-            msg = '历史导入的 `trades` 记录当前为只读状态，无法删除。'
-        }
-        console.warn('[delete] ' + msg, tx);
-        alert(msg);
+        toast({
+          variant: "destructive",
+          title: "删除失败",
+          description: "无法定位该交易的文档路径。",
+        });
         return;
       }
       await deleteDoc(ref);
+      toast({
+        title: "删除成功",
+        description: "交易记录已删除。",
+      });
     } catch (err: any) {
       console.error('[delete] 删除失败：', err);
-      alert(`删除失败：${err?.message || String(err)}`);
+      toast({
+        variant: "destructive",
+        title: "删除失败",
+        description: `无法删除交易记录：${err?.message || String(err)}`, 
+      });
     }
   }
 
@@ -185,11 +221,9 @@ export function TransactionHistory() {
             <CardDescription>所有过去交易的详细记录。</CardDescription>
           </div>
           <div className="flex items-center gap-2">
-            <Button asChild size="sm" className="h-8 gap-1">
-              <Link href="/transactions/editor">
-                <PlusCircle className="h-3.5 w-3.5" />
-                <span className="sr-only sm:not-sr-only sm:whitespace-nowrap">添加交易</span>
-              </Link>
+            <Button type="button" size="sm" className="h-8 gap-1" onClick={openNewTx}>
+              <PlusCircle className="h-3.5 w-3.5" />
+              <span className="sr-only sm:not-sr-only sm:whitespace-nowrap">添加交易</span>
             </Button>
             <Popover>
               <PopoverTrigger asChild>
@@ -313,16 +347,17 @@ export function TransactionHistory() {
                         </TableCell>
                         <TableCell className="text-center">
                           <div className="flex items-center justify-center">
-                            <Button
-                              asChild
-                              variant="ghost"
-                              size="icon"
-                              title="编辑"
-                              className="mr-1 h-7 w-7 transition-transform hover:scale-110"
-                              aria-label="编辑"
-                              disabled={tx.source === "trades"}
-                            >
-                              <Link href={`/transactions/editor?id=${tx.id}`}>
+                            {/* Edit Button */}
+                            {tx.source !== 'trades' && (
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="icon"
+                                title="编辑"
+                                className="mr-1 h-7 w-7 transition-transform hover:scale-110"
+                                aria-label="编辑"
+                                onClick={() => openEditTx(tx.id)}
+                              >
                                 <EditIcon
                                   theme="multi-color"
                                   size={18}
@@ -331,8 +366,26 @@ export function TransactionHistory() {
                                   strokeLinejoin="round"
                                   fill={["#34D399", "#FFFFFF", "#059669", "#065F46"]}
                                 />
-                              </Link>
-                            </Button>
+                              </Button>
+                            )}
+                            {/* Add Button for 'trades' source */}
+                            {tx.source === 'trades' && (
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="icon"
+                                title="新增 (基于此记录)"
+                                className="mr-1 h-7 w-7 transition-transform hover:scale-110"
+                                aria-label="新增"
+                                onClick={openNewTx}
+                              >
+                                <PlusCircle
+                                  size={18}
+                                  strokeWidth={2}
+                                  className="text-blue-500"
+                                />
+                              </Button>
+                            )}
                             <AlertDialog>
                               <AlertDialogTrigger asChild>
                                 <Button
@@ -388,6 +441,6 @@ export function TransactionHistory() {
 // Helper to get doc ref safely, returns null if params are missing
 function getTxDocRef(firestore: any, tx: { id: string; source: 'transactions' | 'trades' }, ownerUid: string | null) {
    if (!firestore || !ownerUid || !tx?.id) return null;
-   if (tx.source !== 'transactions') return null; // 'trades' 只读
-   return doc(firestore, 'users', ownerUid, 'transactions', tx.id);
+   const collectionName = tx.source === 'trades' ? 'trades' : 'transactions';
+   return doc(firestore, 'users', ownerUid, collectionName, tx.id);
 }

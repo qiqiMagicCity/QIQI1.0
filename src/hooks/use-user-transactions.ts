@@ -30,7 +30,8 @@ export interface FireTx {
 
 // Clean, normalized type for use in the app
 export interface Tx {
-  id: string;
+  id: string; // The Firestore document ID.
+  clientId?: string; // The original 'id' field from the document data, if it exists.
   symbol: string;
   assetType: AssetType;
   type: TxType;
@@ -347,13 +348,30 @@ export function useUserTransactions(uid?: string | null) {
       // No longer using orderBy in the query. Sorting is handled in updateState.
       return onSnapshot(ref,
         (snap) => {
-          snap.docs.forEach((d) => {
-            const raw = { id: d.id, ...d.data() } as FireTx;
-            const norm = normalizeFireTx(raw, col);
-            if (norm) {
-              combined.set(`${col}-${d.id}`, norm);
+          for (const change of snap.docChanges()) {
+            const d = change.doc;
+            const key = `${col}-${d.id}`;
+
+            if (change.type === 'removed') {
+              combined.delete(key);
+              continue;
             }
-          });
+
+            // For 'added' or 'modified'
+            const data = d.data();
+            const raw = { ...data, id: d.id } as FireTx;
+            const norm = normalizeFireTx(raw, col);
+
+            if (norm) {
+              if (data.id) {
+                (norm as any).clientId = data.id;
+              }
+              combined.set(key, norm);
+            } else {
+              // If normalization fails, ensure old data is not left behind.
+              combined.delete(key);
+            }
+          }
           lanes[col === 'transactions' ? 'transactions' : 'trades'].ok = true;
           lanes[col === 'transactions' ? 'transactions' : 'trades'].done = true;
           lanes[col === 'transactions' ? 'transactions' : 'trades'].count = snap.size;
