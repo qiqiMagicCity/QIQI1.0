@@ -1,21 +1,33 @@
 'use client';
 
+import { useHoldings } from '@/hooks/use-holdings';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { Button } from "@/components/ui/button";
+import { SymbolName } from "@/components/dashboard/symbol-name";
+import { AssetTypeIcon } from '@/components/common/asset-type-icon';
 import { Badge } from '@/components/ui/badge';
-import { useMemo } from 'react';
-import { useUser } from '@/firebase';
-import { useUserTransactions } from '@/hooks/use-user-transactions';
-import { buildHoldingsSnapshot, type Snapshot } from '@/lib/holdings/fifo';
+
+const formatCurrency = (value: number | null) => {
+  if (value === null) return '—';
+  // Format with sign for PnL
+  const sign = value > 0 ? '+' : '';
+  return sign + value.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+};
+
+const formatCurrencyNoSign = (value: number | null) => {
+  if (value === null) return '—';
+  return value.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+};
+
+const formatPercent = (value: number | null) => {
+  if (value === null) return '—';
+  const sign = value > 0 ? '+' : '';
+  return `${sign}${(value * 100).toFixed(2)}%`;
+};
 
 export function HoldingsOverview() {
-  const { user } = useUser();
-  const { data: transactions, loading, error } = useUserTransactions(user?.uid);
-
-  const snapshot: Snapshot = useMemo(() => {
-    const list = Array.isArray(transactions) ? transactions : [];
-    return buildHoldingsSnapshot(list);
-  }, [transactions]);
+  const { rows, loading } = useHoldings();
 
   return (
     <section id="holdings" className="scroll-mt-20">
@@ -26,53 +38,66 @@ export function HoldingsOverview() {
 
         <CardContent className="p-0">
           <div className="w-full overflow-x-auto">
-            <div className="min-w-[880px] sm:min-w-full">
+            <div className="min-w-[1280px] sm:min-w-full">
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead className="w-[120px]">代码</TableHead>
-                    <TableHead>最后交易日</TableHead>
-                    <TableHead>方向</TableHead>
-                    <TableHead className="text-right">数量</TableHead>
-                    <TableHead className="text-right">成本单价</TableHead>
-                    <TableHead className="text-right">持仓成本</TableHead>
-                    <TableHead className="text-right">现价</TableHead>
-                    <TableHead className="text-right">浮动盈亏</TableHead>
-                    <TableHead className="text-right">状态</TableHead>
+                    <TableHead>logo</TableHead>
+                    <TableHead>代码</TableHead>
+                    <TableHead>中文名</TableHead>
+                    <TableHead>类型</TableHead>
+                    <TableHead className="text-right">实时价格</TableHead>
+                    <TableHead className="text-right">目前持仓数量</TableHead>
+                    <TableHead className="text-right">持仓单价</TableHead>
+                    <TableHead className="text-right">持仓金额</TableHead>
+                    <TableHead className="text-right">盈亏平衡点</TableHead>
+                    <TableHead className="text-right">当日浮动盈亏</TableHead>
+                    <TableHead className="text-right">浮动百分</TableHead>
+                    <TableHead className="text-right">持仓盈亏</TableHead>
+                    <TableHead className="text-right">历史交易次数</TableHead>
+                    <TableHead className="text-right">详情</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {loading && (
-                    <TableRow><TableCell colSpan={9} className="h-24 text-center">加载中…</TableCell></TableRow>
-                  )}
-                  {error && !loading && (
-                    <TableRow><TableCell colSpan={9} className="h-24 text-center text-destructive">加载失败：{error.message}</TableCell></TableRow>
-                  )}
-                  {!loading && !error && snapshot.holdings.length === 0 && (
-                    <TableRow><TableCell colSpan={9} className="h-24 text-center">无持仓（请先录入交易）</TableCell></TableRow>
-                  )}
-                  {!loading && !error && snapshot.holdings.map((h, idx) => (
-                    <TableRow key={`${h.symbol}-${h.side}-${idx}`}>
-                      <TableCell className="font-mono">{h.symbol}</TableCell>
-                      {/* 注意：lastTxNy 已是 NY 日字符串，禁止任何再格式化 */}
-                      <TableCell className="font-mono">{h.lastTxNy}</TableCell>
-                      <TableCell>
-                        <Badge className={h.side === 'LONG' ? 'bg-ok text-white border-none' : 'bg-destructive text-white border-none'}>
-                          {h.side}
-                        </Badge>
-                      </TableCell>
-                      <TableCell className="text-right font-mono">
-                        {h.netQty}{h.multiplier !== 1 ? <span className="text-muted-foreground"> × {h.multiplier}</span> : null}
-                      </TableCell>
-                      <TableCell className="text-right font-mono">{h.costPerUnit.toFixed(2)}</TableCell>
-                      <TableCell className="text-right font-mono">
-                        {Number(h.costBasis).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                      </TableCell>
-                      <TableCell className="text-right font-mono">—</TableCell>
-                      <TableCell className="text-right font-mono">--</TableCell>
-                      <TableCell className="text-right font-mono">calc_pending</TableCell>
+                    <TableRow>
+                      <TableCell colSpan={14} className="h-24 text-center">加载中…</TableCell>
                     </TableRow>
-                  ))}
+                  )}
+                  {!loading && rows.length === 0 && (
+                    <TableRow>
+                      <TableCell colSpan={14} className="h-24 text-center">无持仓（请先录入交易）</TableCell>
+                    </TableRow>
+                  )}
+                  {!loading && rows.map((row) => {
+                    const costBasis = (row.avgCost != null) ? Math.abs(row.netQty) * (row.multiplier ?? 1) * row.avgCost : null;
+                    return (
+                      <TableRow key={`${row.symbol}-${row.assetType}-${row.multiplier ?? 1}`}>
+                        <TableCell><span className="text-yellow-500">建设中 ing</span></TableCell>
+                        <TableCell className="font-mono font-medium">{row.symbol}</TableCell>
+                        <TableCell><SymbolName symbol={row.symbol} /></TableCell>
+                        <TableCell>
+                          <Badge className={`border-none gap-1 ${row.assetType === 'option' ? 'bg-orange-600 text-white' : 'bg-slate-700 text-white'}`}>
+                            <AssetTypeIcon assetType={row.assetType as any} className="h-4 w-4" />
+                            <span>{row.assetType === 'option' ? '期权' : '股票'}</span>
+                          </Badge>
+                        </TableCell>
+                        <TableCell className="text-right">未接价格</TableCell>
+                        <TableCell className="text-right font-mono">
+                          {row.netQty}
+                          {row.assetType === 'option' && <span className="text-muted-foreground text-xs ml-1">×{row.multiplier}</span>}
+                        </TableCell>
+                        <TableCell className="text-right font-mono">{row.avgCost !== null ? row.avgCost.toFixed(4) : "—"}</TableCell>
+                        <TableCell className="text-right font-mono">{formatCurrencyNoSign(costBasis)}</TableCell>
+                        <TableCell className="text-right"><span className="text-yellow-500">建设中 ing</span></TableCell>
+                        <TableCell className="text-right"><span className="text-yellow-500">建设中 ing</span></TableCell>
+                        <TableCell className="text-right font-mono"><span className="text-yellow-500">建设中 ing</span></TableCell>
+                        <TableCell className="text-right font-mono"><span className="text-yellow-500">建设中 ing</span></TableCell>
+                        <TableCell className="text-right"><span className="text-yellow-500">建设中 ing</span></TableCell>
+                        <TableCell className="text-right"><Button variant="ghost" size="sm">详情</Button></TableCell>
+                      </TableRow>
+                    );
+                  })}
                 </TableBody>
               </Table>
             </div>
