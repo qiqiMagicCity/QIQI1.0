@@ -1,91 +1,84 @@
+// functions/src/index.ts
 import * as admin from "firebase-admin";
-import * as functions from "firebase-functions";
+import { onCall, HttpsError } from "firebase-functions/v2/https";
+import { defineSecret } from "firebase-functions/params";
+import { runCloseForSymbols } from "./lib/close/run";
+import { MAX_SYMBOLS_PER_CALL } from "./config/limits";
 
-try {
-  admin.app();
-} catch {
-  admin.initializeApp();
+try { admin.app(); } catch { admin.initializeApp(); }
+
+// Secrets（与 runCloseForSymbols 内部使用一致）
+const FMP_TOKEN = defineSecret("FMP_TOKEN");
+const MARKETSTACK_API_KEY = defineSecret("MARKETSTACK_API_KEY");
+const STOCKDATA_API_KEY = defineSecret("STOCKDATA_API_KEY");
+
+// —— 工具：纽约日校验
+const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+function nyTodayYmd(): string {
+  return new Intl.DateTimeFormat("en-CA", { timeZone: "America/New_York" }).format(new Date());
 }
 
-/**
- * Callable: setAdminClaim
- *
- * 功能：
- * 1) 首次自举：当系统尚未初始化（__meta/bootstrap.initialized != true），允许已登录的调用者把“自己”设为 admin，并写入初始化标记。
- * 2) 管理员管理：当调用者已是 admin 时，可为任意用户（通过 email 指定）开启/关闭 admin。
- *
- * 调用示例（客户端）：
- * const fn = httpsCallable(functions, "setAdminClaim");
- * await fn({ mode: "bootstrap" });
- * await fn({ mode: "set", email: "someone@example.com", enable: true });
- */
-export const setAdminClaim = functions.https.onCall(async (data, context) => {
-  if (!context.auth) {
-    throw new functions.https.HttpsError("unauthenticated", "需要先登录。");
-  }
+// —— 客户端符号归一化（与前端一致：trim → NFKC → 去内部空白 → 大写）
+function normalizeSymbolForServer(s: unknown): string {
+  return String(s ?? "")
+    .normalize("NFKC")
+    .trim()
+    .replace(/\s+/g, "")
+    .toUpperCase();
+}
 
-  const callerUid = context.auth.uid;
+export const getOfficialClose = onCall(
+  {
+    region: "us-central1",
+    timeoutSeconds: 120,
+    secrets: [FMP_TOKEN, MARKETSTACK_API_KEY, STOCKDATA_API_KEY],
+  },
+  async (request) => {
+    const date = (request?.data?.date ?? "") as string;
+    const rawSymbols = (request?.data?.symbols ?? []) as unknown[];
 
-  // 读取调用者记录，判断是否已是 admin
-  const callerRecord = await admin.auth().getUser(callerUid);
-  const callerIsAdmin = callerRecord.customClaims?.admin === true;
-
-  // 读取/创建引导标记
-  const bootstrapRef = admin.firestore().doc("__meta/bootstrap");
-  const snap = await bootstrapRef.get();
-  const initialized = snap.exists && (snap.get("initialized") === true);
-
-  const mode = String(data?.mode || "");
-  if (!mode) {
-    throw new functions.https.HttpsError("invalid-argument", "缺少参数 mode（bootstrap | set）。");
-  }
-
-  // --- 模式一：首次自举 ---
-  if (mode === "bootstrap") {
-    if (initialized) {
-      // 系统已初始化：不允许再通过自举通道设管理员
-      if (!callerIsAdmin) {
-        throw new functions.https.HttpsError("permission-denied", "系统已初始化，需管理员操作。");
-      }
-      return { ok: true, note: "系统已初始化；调用者已是管理员或应使用 mode=set 管理他人。", initialized: true };
+    // 1) 参数校验
+    if (!DATE_RE.test(date)) {
+      throw new HttpsError("invalid-argument", 'Date must be "YYYY-MM-DD".');
+    }
+    const todayNy = nyTodayYmd();
+    if (date > todayNy) {
+      throw new HttpsError(
+        "invalid-argument",
+        `Date ${date} is in the future (NY). Today is ${todayNy}.`
+      );
+    }
+    if (!Array.isArray(rawSymbols) || rawSymbols.length === 0) {
+      throw new HttpsError("invalid-argument", "Symbols must be a non-empty array.");
     }
 
-    // 未初始化：允许“当前登录者”把自己设为 admin
-    await admin.auth().setCustomUserClaims(callerUid, {
-      ...(callerRecord.customClaims || {}),
-      admin: true,
-    });
-
-    await bootstrapRef.set(
-      {
-        initialized: true,
-        firstAdmin: callerUid,
-        at: admin.firestore.FieldValue.serverTimestamp(),
-      },
-      { merge: true }
+    // 2) 归一化 + 去重 + 上限
+    const uniq = Array.from(
+      new Set(rawSymbols.map(normalizeSymbolForServer).filter(Boolean))
     );
-
-    return { ok: true, bootstrap: true, uid: callerUid, admin: true };
-  }
-
-  // --- 模式二：管理员设置他人 ---
-  if (mode === "set") {
-    if (!callerIsAdmin) {
-      throw new functions.https.HttpsError("permission-denied", "仅管理员可设置他人权限。");
+    if (uniq.length > MAX_SYMBOLS_PER_CALL) {
+      throw new HttpsError(
+        "resource-exhausted",
+        `Too many symbols. Max ${MAX_SYMBOLS_PER_CALL}. Please split your request.`
+      );
     }
-    const email = String(data?.email || "");
-    const enable = Boolean(data?.enable ?? true);
-    if (!email) {
-      throw new functions.https.HttpsError("invalid-argument", "缺少参数 email。");
-    }
-    const target = await admin.auth().getUserByEmail(email);
-    const nextClaims: Record<string, any> = { ...(target.customClaims || {}) };
-    if (enable) nextClaims.admin = true;
-    else delete nextClaims.admin;
 
-    await admin.auth().setCustomUserClaims(target.uid, nextClaims);
-    return { ok: true, uid: target.uid, email, admin: enable };
+    // 3) 取 db + 组织 secrets
+    const db = admin.firestore();
+    const secrets = {
+      FMP_TOKEN: FMP_TOKEN.value() || "",
+      MARKETSTACK_API_KEY: MARKETSTACK_API_KEY.value() || "",
+      STOCKDATA_API_KEY: STOCKDATA_API_KEY.value() || "",
+    };
+
+    // 4) 核心执行
+    const results = await runCloseForSymbols(db, date, uniq, secrets);
+    return results;
   }
+);
 
-  throw new functions.https.HttpsError("invalid-argument", "不支持的 mode。");
-});
+// 其他导出保持不变
+export { eodJob } from "./jobs/eod";
+export { setEodSymbols } from "./admin/set-eod-symbols";
+export { requestBackfillEod } from "./admin/request-backfill-eod";
+export { backfillWorker } from "./jobs/backfill-worker";

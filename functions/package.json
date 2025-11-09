@@ -1,16 +1,19 @@
 {
-  "name": "firebase-functions",
-  "private": true,
-  "main": "lib/index.js",
-  "engines": { "node": ">=20" },
-  "scripts": {
-    "build": "tsc -p tsconfig.json"
-  },
-  "dependencies": {
-    "firebase-admin": "^12.5.0",
-    "firebase-functions": "^5.1.1"
-  },
-  "devDependencies": {
-    "typescript": "^5.5.0"
-  }
+    "name": "firebase-functions",
+    "private": true,
+    "main": "lib/index.js",
+    "engines": {
+        "node": "22"
+    },
+    "scripts": {
+        "build": "tsc -p tsconfig.json"
+    },
+    "dependencies": {
+        "@google-cloud/pubsub": "^4",
+        "firebase-admin": "^13.6.0",
+        "firebase-functions": "^6.6.0"
+    },
+    "devDependencies": {
+        "typescript": "^5.9.3"
+    }
 }

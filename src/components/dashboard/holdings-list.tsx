@@ -1,3 +1,4 @@
+
 'use client';
 
 import { Button } from "@/components/ui/button";
@@ -13,6 +14,9 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { StatusBadge, type Status } from "@/components/ui/status-badge";
 import { useRequireAuth } from "@/components/auth/guards";
 import { Skeleton } from "@/components/ui/skeleton";
+import { useHoldings, type HoldingRow } from "@/hooks/use-holdings";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { cn } from "@/lib/utils";
 
 const TransactionHistory = dynamic(
   () => import('@/components/dashboard/transaction-history').then(mod => mod.TransactionHistory),
@@ -36,14 +40,63 @@ const TransactionHistory = dynamic(
   }
 );
 
-const portfolioStatus: Status = 'close'; 
+function HoldingsTable() {
+  const { rows, loading } = useHoldings();
+
+  if (loading) {
+    return (
+      <div className="space-y-2">
+        <Skeleton className="h-8 w-full" />
+        <Skeleton className="h-8 w-full" />
+        <Skeleton className="h-8 w-full" />
+      </div>
+    );
+  }
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>持仓列表</CardTitle>
+      </CardHeader>
+      <CardContent>
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead>代码</TableHead>
+              <TableHead className="text-right">数量</TableHead>
+              <TableHead className="text-right">当日盈亏</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {rows.map((holding) => (
+              <TableRow key={holding.symbol}>
+                <TableCell className="font-medium">{holding.symbol}</TableCell>
+                <TableCell className="text-right">{holding.netQty}</TableCell>
+                <TableCell className="text-right">
+                  {
+                    (holding.todayPlStatus === 'live' || holding.todayPlStatus === 'closed') && typeof holding.todayPl === 'number'
+                      ? <span className={cn(holding.todayPl > 0 ? 'text-success' : holding.todayPl < 0 ? 'text-destructive' : 'text-muted-foreground')}>
+                          {holding.todayPl.toFixed(2)}
+                        </span>
+                      : <StatusBadge status={holding.todayPlStatus} />
+                  }
+                </TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+      </CardContent>
+    </Card>
+  );
+}
+
+
+const portfolioStatus: Status = 'closed'; 
 
 export default function Home() {
   const { ready } = useRequireAuth();
   
   if (!ready) {
-    // 可以在这里返回一个加载中的骨架屏，但守卫会自动处理重定向
-    // 返回 null 或一个简单的加载指示器即可
     return (
       <div className="flex items-center justify-center min-h-screen">
         <p className="text-muted-foreground">正在验证身份...</p>
@@ -79,7 +132,7 @@ export default function Home() {
                       <CardHeader className="pb-4">
                         <div className="flex items-start justify-between">
                           <span className="metric-title">总资产</span>
-                          <StatusBadge status={'close'} />
+                          <StatusBadge status={'closed'} />
                         </div>
                       </CardHeader>
                       <CardContent>
@@ -93,7 +146,7 @@ export default function Home() {
                       <CardHeader className="pb-4">
                         <div className="flex items-start justify-between">
                           <span className="metric-title">持仓成本</span>
-                          <StatusBadge status={'close'} />
+                          <StatusBadge status={'closed'} />
                         </div>
                       </CardHeader>
                       <CardContent>
@@ -104,7 +157,7 @@ export default function Home() {
                       <CardHeader className="pb-4">
                         <div className="flex items-start justify-between">
                           <span className="metric-title">持仓浮盈</span>
-                          <StatusBadge status={'close'} />
+                          <StatusBadge status={'closed'} />
                         </div>
                       </CardHeader>
                       <CardContent>
@@ -123,7 +176,7 @@ export default function Home() {
                 </section>
 
                 <section>
-                  <HoldingsOverview />
+                  <HoldingsTable />
                 </section>
 
               </div>

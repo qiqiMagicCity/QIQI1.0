@@ -3,79 +3,48 @@
  *
  * Core Philosophy:
  * This ruleset enforces a strict user-ownership model for user profiles, calculation modules, holdings, and transactions.
- * Users can only access their own data. Stock details are publicly readable.
+ * Users can only access their own data. Stock details and official closes are publicly readable (read-only).
  *
  * Data Structure:
  * - /users/{userId}: Stores user profile information.
  * - /users/{userId}/calculationModules/{moduleId}: Stores user-specific calculation modules.
  * - /users/{userId}/holdings/{holdingId}: Stores user stock holdings.
  * - /users/{userId}/transactions/{transactionId}: Stores user transaction history.
- * - /stockDetails/{symbol}: Stores public stock details.
- *
- * Key Security Decisions:
- * - User listing is disabled.
- * - Ownership is enforced via path-based rules and denormalized `userId` fields.
- * - Stock details are publicly readable.
+ * - /users/{userId}/trades/{tradeId}: Stores user trade items.
+ * - /stockDetails/{symbol}: Stores public stock details (read-only).
+ * - /officialCloses/{closeId}: Stores official end-of-day closes (read-only).
  *
  * Denormalization for Authorization:
- * The `userId` field is included in the `CalculationModule`, `Holding`, and `Transaction` documents, enabling direct authorization checks without additional reads.
- * This is achieved by including a userId field in each subcollection document.
+ * The `userId` field is included in the `CalculationModule`, `Holding`, and `Transaction` documents.
  */
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
     /**
-     * @description Secure user profiles.  Users can only read and write their own profile.
-     * @path /users/{userId}
-     * @allow (create) User with ID 'user123' can create their profile.
-     *   - auth.uid: 'user123'
-     *   - request.resource.data.id: 'user123'
-     * @allow (get) User 'user123' can read their profile.
-     *   - auth.uid: 'user123'
-     * @deny (create) User 'user456' cannot create a profile with ID 'user123'.
-     *   - auth.uid: 'user456'
-     *   - request.resource.data.id: 'user123'
-     * @deny (get) User 'user456' cannot read user 'user123's profile.
-     *   - auth.uid: 'user456'
-     * @principle Enforces document ownership for writes, restricts read access to the owner, and validates relational integrity.
+     * Users collection (owner-only access)
      */
     match /users/{userId} {
-      // Helper function to check if the request is from the owner.
       function isOwner(userId) {
-        return request.auth.uid == userId;
+        return request.auth != null && request.auth.uid == userId;
       }
-
-      // Helper function to check if the user is signed in.
       function isSignedIn() {
         return request.auth != null;
       }
 
       allow get: if isOwner(userId);
-      allow list: if false; // User listing is disabled for privacy.
+      allow list: if false; // Do not allow listing /users
       allow create: if isSignedIn() && request.resource.data.id == request.auth.uid;
       allow update: if isOwner(userId) && resource.data.id == request.resource.data.id;
       allow delete: if isOwner(userId) && resource != null;
     }
 
     /**
-     * @description Secure calculation modules. Users can only access their own calculation modules.
-     * @path /users/{userId}/calculationModules/{moduleId}
-     * @allow (create) User 'user123' can create a calculation module under their profile.
-     *   - auth.uid: 'user123'
-     *   - request.resource.data.userId: 'user123'
-     * @allow (get) User 'user123' can read a calculation module under their profile.
-     *   - auth.uid: 'user123'
-     * @deny (create) User 'user456' cannot create a calculation module under user 'user123's profile.
-     *   - auth.uid: 'user456'
-     *   - request.resource.data.userId: 'user123'
-     * @deny (get) User 'user456' cannot read a calculation module under user 'user123's profile.
-     *   - auth.uid: 'user456'
-     * @principle Enforces document ownership for writes and restricts access to the owner.
+     * User calculation modules (owner-only)
      */
     match /users/{userId}/calculationModules/{moduleId} {
       function isOwner(userId) {
-        return request.auth.uid == userId;
+        return request.auth != null && request.auth.uid == userId;
       }
       allow get: if isOwner(userId);
       allow list: if isOwner(userId);
@@ -85,23 +54,11 @@ service cloud.firestore {
     }
 
     /**
-     * @description Secure holdings. Users can only access their own holdings.
-     * @path /users/{userId}/holdings/{holdingId}
-     * @allow (create) User 'user123' can create a holding under their profile.
-     *   - auth.uid: 'user123'
-     *   - request.resource.data.userId: 'user123'
-     * @allow (get) User 'user123' can read a holding under their profile.
-     *   - auth.uid: 'user123'
-     * @deny (create) User 'user456' cannot create a holding under user 'user123's profile.
-     *   - auth.uid: 'user456'
-     *   - request.resource.data.userId: 'user123'
-     * @deny (get) User 'user456' cannot read a holding under user 'user123's profile.
-     *   - auth.uid: 'user456'
-     * @principle Enforces document ownership for writes and restricts access to the owner.
+     * User holdings (owner-only)
      */
     match /users/{userId}/holdings/{holdingId} {
       function isOwner(userId) {
-        return request.auth.uid == userId;
+        return request.auth != null && request.auth.uid == userId;
       }
       allow get: if isOwner(userId);
       allow list: if isOwner(userId);
@@ -111,23 +68,11 @@ service cloud.firestore {
     }
 
     /**
-     * @description Secure transactions. Users can only access their own transactions.
-     * @path /users/{userId}/transactions/{transactionId}
-     * @allow (create) User 'user123' can create a transaction under their profile.
-     *   - auth.uid: 'user123'
-     *   - request.resource.data.userId: 'user123'
-     * @allow (get) User 'user123' can read a transaction under their profile.
-     *   - auth.uid: 'user123'
-     * @deny (create) User 'user456' cannot create a transaction under user 'user123's profile.
-     *   - auth.uid: 'user456'
-     *   - request.resource.data.userId: 'user123'
-     * @deny (get) User 'user456' cannot read a transaction under user 'user123's profile.
-     *   - auth.uid: 'user456'
-     * @principle Enforces document ownership for writes and restricts access to the owner.
+     * User transactions (owner-only)
      */
     match /users/{userId}/transactions/{transactionId} {
       function isOwner(userId) {
-        return request.auth.uid == userId;
+        return request.auth != null && request.auth.uid == userId;
       }
       allow get: if isOwner(userId);
       allow list: if isOwner(userId);
@@ -137,13 +82,11 @@ service cloud.firestore {
     }
 
     /**
-     * @description Secure trades. Users can only access their own trades.
-     * @path /users/{userId}/trades/{tradeId}
-     * @principle Enforces document ownership for writes and restricts access to the owner.
+     * User trades (owner-only)
      */
     match /users/{userId}/trades/{tradeId} {
       function isOwner(userId) {
-        return request.auth.uid == userId;
+        return request.auth != null && request.auth.uid == userId;
       }
       allow get: if isOwner(userId);
       allow list: if isOwner(userId);
@@ -153,18 +96,20 @@ service cloud.firestore {
     }
 
     /**
-     * @description Allow public read access to stock details.
-     * @path /stockDetails/{symbol}
-     * @allow (get) Any user can read stock details.
-     *   - auth.uid: 'user123' (or null for unauthenticated users)
-     * @principle Allows public read access to stock data.
+     * Public stock details (read-only)
      */
     match /stockDetails/{symbol} {
-      allow get: if true;
-      allow list: if true;
-      allow create: if false;
-      allow update: if false;
-      allow delete: if false;
+      allow read: if true;     // get + list
+      allow create, update, delete: if false;
+    }
+
+    /**
+     * Public official closes (read-only)
+     * Needed for front-end EOD queries using `where("__name__", "in", [...])`.
+     */
+    match /officialCloses/{closeId} {
+      allow read: if true;     // get + list
+      allow create, update, delete: if false;
     }
   }
 }
