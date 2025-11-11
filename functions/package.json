@@ -9,7 +9,7 @@
         "build": "tsc -p tsconfig.json"
     },
     "dependencies": {
-        "@google-cloud/pubsub": "^4",
+        "@google-cloud/pubsub": "^4.11.0",
         "firebase-admin": "^13.6.0",
         "firebase-functions": "^6.6.0"
     },

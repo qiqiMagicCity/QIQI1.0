@@ -1,168 +1,204 @@
-import { CloseProvider } from '../../providers/close/interface';
-import { coversDate } from './capabilities';
-import { tiingoProvider } from '../../providers/close/tiingo';
-import { fmpProvider } from '../../providers/close/fmp';
-import { polygonProvider } from '../../providers/close/polygon';
-import { alphaVantageProvider } from '../../providers/close/alphavantage';
+// functions/src/lib/close/priority.ts
+import { CloseProvider } from "../../providers/close/interface";
+import { coversDate } from "./capabilities";
+import { fmpProvider } from "../../providers/close/fmp";
 
+/** 调用尝试的记录（便于排障） */
 interface Attempt {
-  p: string;
-  s: 'ok' | 'skipped' | 'error';
-  error?: { message: string; code?: string };
+  p: string; // provider name (简写)
+  s: "ok" | "skipped" | "error";
   provider?: string;
+  symbol?: string;
+  error?: { message: string; code?: string };
+  code?: string | number;
+  httpStatus?: number;
+  endpoint?: string;
+  providerCode?: string | number;
+  hint?: string;
+  rateLimitReset?: string | number;
+  ts?: number;
 }
 
-// Inlined Marketstack Provider
+/* ---------------- Inlined Marketstack Provider ---------------- */
 const marketstackProvider: CloseProvider = {
   name: "marketstack",
   async getClose(symbol, dateYYYYMMDD, secrets) {
-    const apiKey = secrets['MARKETSTACK_API_KEY'];
+    const apiKey = (secrets as any)["MARKETSTACK_API_KEY"];
     if (!apiKey) {
-      throw new Error('MARKETSTACK_API_KEY secret not found');
+      throw new Error("MARKETSTACK_API_KEY secret not found");
     }
 
     const url = `http://api.marketstack.com/v1/eod?access_key=${apiKey}&symbols=${symbol}&date_from=${dateYYYYMMDD}&date_to=${dateYYYYMMDD}&limit=1`;
-    const startTime = Date.now();
 
-    let response: any; // Changed from Response | undefined
+    const startTime = Date.now();
+    let response: any;
+
+    // 轻量重试：处理 429/5xx
     for (let i = 0; i < 2; i++) {
       try {
         response = await fetch(url);
-        if (response.status !== 429 && response.status < 500) {
+        if (response?.status !== 429 && response?.status < 500) {
           break;
         }
       } catch (e) {
         if (i === 1) throw e;
       }
-      await new Promise(res => setTimeout(res, 200));
+      await new Promise((res) => setTimeout(res, 200));
     }
 
     if (!response || !response.ok) {
-      throw new Error(`Marketstack API request failed: ${response?.statusText} (status: ${response?.status})`);
+      const status = response?.status ?? -1;
+      const statusText = response?.statusText ?? "No Response";
+      throw new Error(
+        `Marketstack API 请求失败: ${statusText} (status: ${status})`
+      );
     }
 
     const data = await response.json();
     const latencyMs = Date.now() - startTime;
 
-    if (!data.data || !Array.isArray(data.data) || data.data.length === 0) {
-      throw new Error(`No data for ${dateYYYYMMDD} in Marketstack response`);
+    if (!data?.data || !Array.isArray(data.data) || data.data.length === 0) {
+      throw new Error(`Marketstack 返回 ${dateYYYYMMDD} 无数据`);
     }
 
     const priceData = data.data[0];
-    const extractedDate = (priceData.date || '').substring(0, 10);
-    if (typeof priceData.close !== 'number' || extractedDate !== dateYYYYMMDD) {
-      throw new Error(`Invalid close price or date from Marketstack. Expected ${dateYYYYMMDD}, got ${extractedDate}`);
+    const extractedDate = String(priceData?.date || "").slice(0, 10);
+
+    if (typeof priceData?.close !== "number" || extractedDate !== dateYYYYMMDD) {
+      throw new Error(
+        `Marketstack 返回无效数据：期望 ${dateYYYYMMDD}，实际 ${extractedDate}`
+      );
     }
 
     return {
       close: priceData.close,
-      date: dateYYYYMMDD, // Added date field
-      currency: 'USD',
-      provider: 'marketstack',
+      date: dateYYYYMMDD,
+      currency: "USD",
+      provider: "marketstack",
       latencyMs,
       meta: { exchange: priceData.exchange, volume: priceData.volume },
     };
   },
 };
 
-// Inlined StockData.org Provider
+/* ---------------- Inlined StockData.org Provider ---------------- */
 const stockdataProvider: CloseProvider = {
   name: "stockdata",
   async getClose(symbol, dateYYYYMMDD, secrets) {
-    const apiKey = secrets['STOCKDATA_API_KEY'];
+    const apiKey = (secrets as any)["STOCKDATA_API_KEY"];
     if (!apiKey) {
-      throw new Error('STOCKDATA_API_KEY secret not found');
+      throw new Error("STOCKDATA_API_KEY secret not found");
     }
 
     const startTime = Date.now();
-    let response: any;
-    let data: any;
 
-    // First attempt with `date` parameter
+    // 首选 date 参数
     const url1 = `https://api.stockdata.org/v1/data/eod?api_token=${apiKey}&symbols=${symbol}&date=${dateYYYYMMDD}&limit=1`;
-    response = await fetch(url1);
-
-    if (!response.ok) {
-      throw new Error(`StockData.org API request failed: ${response?.statusText} (status: ${response?.status})`);
+    let response: any = await fetch(url1);
+    if (!response?.ok) {
+      const status = response?.status ?? -1;
+      const statusText = response?.statusText ?? "No Response";
+      throw new Error(
+        `StockData.org API 请求失败: ${statusText} (status: ${status})`
+      );
     }
-    data = await response.json();
 
-    // If first attempt is empty, try fallback with `date_from` and `date_to`
-    if (!data.data || !Array.isArray(data.data) || data.data.length === 0) {
+    let data: any = await response.json();
+
+    // 兜底：改用 date_from/date_to
+    if (!data?.data || !Array.isArray(data.data) || data.data.length === 0) {
       const url2 = `https://api.stockdata.org/v1/data/eod?api_token=${apiKey}&symbols=${symbol}&date_from=${dateYYYYMMDD}&date_to=${dateYYYYMMDD}&limit=1`;
       response = await fetch(url2);
-
-      if (!response.ok) {
-        throw new Error(`StockData.org fallback API request failed: ${response?.statusText} (status: ${response?.status})`);
+      if (!response?.ok) {
+        const status = response?.status ?? -1;
+        const statusText = response?.statusText ?? "No Response";
+        throw new Error(
+          `StockData.org 兜底请求失败: ${statusText} (status: ${status})`
+        );
       }
       data = await response.json();
-
-      // If fallback is also empty, throw error
-      if (!data.data || !Array.isArray(data.data) || data.data.length === 0) {
-        throw new Error(`No data for ${dateYYYYMMDD} in StockData.org response (both date and date_from/date_to empty)`);
+      if (!data?.data || !Array.isArray(data.data) || data.data.length === 0) {
+        throw new Error(
+          `StockData.org 返回 ${dateYYYYMMDD} 无数据（date 与 date_from/date_to 均为空）`
+        );
       }
     }
-    
+
     const latencyMs = Date.now() - startTime;
     const priceData = data.data[0];
-    const extractedDate = (priceData.date || "").slice(0,10);
+    const extractedDate = String(priceData?.date || "").slice(0, 10);
 
-    if (typeof priceData.close !== "number" || extractedDate !== dateYYYYMMDD) {
-      throw new Error(`Invalid close price or date from StockData.org. Expected ${dateYYYYMMDD}, got ${extractedDate}`);
+    if (typeof priceData?.close !== "number" || extractedDate !== dateYYYYMMDD) {
+      throw new Error(
+        `StockData.org 返回无效数据：期望 ${dateYYYYMMDD}，实际 ${extractedDate}`
+      );
     }
 
     return {
       close: priceData.close,
       date: dateYYYYMMDD,
-      currency: 'USD',
-      provider: 'stockdata',
+      currency: "USD",
+      provider: "stockdata",
       latencyMs,
       meta: { volume: priceData.volume },
     };
   },
 };
 
+/**
+ * 构建“官方收盘价（EOD, End Of Day）”供应商优先级列表。
+ * 修正点：现在“默认”就包含 FMP（财务建模准备 FMP）、Marketstack、StockData.org，
+ * 这样 request-backfill-eod 的“覆盖校验”不会因为 providers 为空而恒为 false。
+ *
+ * 可通过 opts 开关选择性启用；如未指定 opts，默认三个都包含。
+ */
 export function buildDefaultCloseProviders(
   existing: CloseProvider[] = [],
   opts?: {
     enableMarketstack?: boolean;
     enableStockdata?: boolean;
-    targetYmd?: string;
-    nowNyYmd?: string;
-  },
+    targetYmd?: string; // 目标纽约日（用于可选的覆盖过滤）
+    nowNyYmd?: string;  // 当前纽约日（用于可选的覆盖过滤）
+  }
 ): CloseProvider[] {
-  const providers: CloseProvider[] = [...existing];
+  // 1) 基础顺序：FMP → Marketstack → StockData.org
+  const providers: CloseProvider[] = [
+    ...existing,
+    fmpProvider, // 始终先尝试 FMP
+  ];
 
-  // Dynamically add Marketstack if enabled via opts
-  if (opts?.enableMarketstack) {
-    providers.push(marketstackProvider);
-  }
+  // 未显式关闭则默认启用
+  const useMarketstack =
+    opts?.enableMarketstack === undefined ? true : !!opts.enableMarketstack;
+  const useStockdata =
+    opts?.enableStockdata === undefined ? true : !!opts.enableStockdata;
 
-  // Dynamically add StockData.org if enabled via opts
-  if (opts?.enableStockdata) {
-    providers.push(stockdataProvider);
-  }
+  if (useMarketstack) providers.push(marketstackProvider);
+  if (useStockdata) providers.push(stockdataProvider);
 
-  // Remove duplicates by name (preserving first occurrence order)
+  // 2) 去重（按 name 保留首次出现）
   const uniqueProvidersMap = new Map<string, CloseProvider>();
   for (const p of providers) {
     if (!uniqueProvidersMap.has(p.name)) {
       uniqueProvidersMap.set(p.name, p);
     }
   }
-
   let uniqueProviders = Array.from(uniqueProvidersMap.values());
 
-  // Filter by date coverage if date is provided
+  // 3) 覆盖期过滤（可选；仅当同时提供 targetYmd/nowNyYmd）
   if (opts?.targetYmd && opts?.nowNyYmd) {
     uniqueProviders = uniqueProviders.filter((p) =>
-      coversDate(p.name, opts.targetYmd!, opts.nowNyYmd!),
+      coversDate(p.name, opts.targetYmd!, opts.nowNyYmd!)
     );
   }
 
   return uniqueProviders;
 }
 
+/**
+ * 失败转移（failover）：按 providers 顺序依次尝试获取某日 EOD。
+ * 任一成功即返回，并携带 attempts（尝试记录）方便排障。
+ */
 export async function getCloseWithFailover(
   providers: CloseProvider[],
   symbol: string,
@@ -170,24 +206,27 @@ export async function getCloseWithFailover(
   secrets: Record<string, string>
 ) {
   const attempts: Attempt[] = [];
-  let result: Awaited<ReturnType<CloseProvider['getClose']>> | null = null;
+  let result:
+    | Awaited<ReturnType<CloseProvider["getClose"]>>
+    | null = null;
 
   for (const provider of providers) {
     if (result) {
-      attempts.push({ p: provider.name, s: 'skipped' });
+      // 已成功则后续标记为跳过
+      attempts.push({ p: provider.name, s: "skipped" });
       continue;
     }
     try {
       const closeData = await provider.getClose(symbol, date, secrets);
       result = closeData;
-      attempts.push({ p: provider.name, s: 'ok' });
+      attempts.push({ p: provider.name, s: "ok" });
     } catch (e: any) {
       attempts.push({
-        p: provider.name, // 旧字段（兼容）
-        provider: provider.name, // 新字段（可读性更强）
+        p: provider.name,
+        provider: provider.name,
         symbol,
-        s: 'error',
-        error: e?.message ?? String(e),
+        s: "error",
+        error: { message: e?.message ?? String(e), code: e?.code },
         code: e?.code,
         httpStatus: e?.httpStatus,
         endpoint: e?.endpoint,
@@ -202,6 +241,7 @@ export async function getCloseWithFailover(
   if (result) {
     return { ...result, attempts };
   }
-
-  throw new Error('All providers failed to get close price', { cause: attempts });
+  throw new Error("All providers failed to get close price", {
+    cause: attempts as any,
+  });
 }

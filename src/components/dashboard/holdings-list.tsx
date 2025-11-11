@@ -1,4 +1,3 @@
-
 'use client';
 
 import { Button } from "@/components/ui/button";
@@ -68,21 +67,40 @@ function HoldingsTable() {
             </TableRow>
           </TableHeader>
           <TableBody>
-            {rows.map((holding) => (
-              <TableRow key={holding.symbol}>
-                <TableCell className="font-medium">{holding.symbol}</TableCell>
-                <TableCell className="text-right">{holding.netQty}</TableCell>
-                <TableCell className="text-right">
-                  {
-                    (holding.todayPlStatus === 'live' || holding.todayPlStatus === 'closed') && typeof holding.todayPl === 'number'
-                      ? <span className={cn(holding.todayPl > 0 ? 'text-success' : holding.todayPl < 0 ? 'text-destructive' : 'text-muted-foreground')}>
-                          {holding.todayPl.toFixed(2)}
+            {rows.map((holding) => {
+              const hasTodayPlNumber =
+                typeof holding.todayPl === 'number' && Number.isFinite(holding.todayPl);
+
+              return (
+                <TableRow key={holding.symbol}>
+                  <TableCell className="font-medium">{holding.symbol}</TableCell>
+                  <TableCell className="text-right">{holding.netQty}</TableCell>
+                  <TableCell className="text-right">
+                    <div className="flex items-center justify-end gap-2">
+                      {hasTodayPlNumber ? (
+                        <span
+                          className={cn(
+                            holding.todayPl! > 0
+                              ? 'text-success'
+                              : holding.todayPl! < 0
+                              ? 'text-destructive'
+                              : 'text-muted-foreground'
+                          )}
+                        >
+                          {holding.todayPl!.toFixed(2)}
                         </span>
-                      : <StatusBadge status={holding.todayPlStatus} />
-                  }
-                </TableCell>
-              </TableRow>
-            ))}
+                      ) : (
+                        <span>—</span>
+                      )}
+
+                      {holding.todayPlStatus != null && (
+                        <StatusBadge status={holding.todayPlStatus} />
+                      )}
+                    </div>
+                  </TableCell>
+                </TableRow>
+              );
+            })}
           </TableBody>
         </Table>
       </CardContent>
@@ -90,12 +108,11 @@ function HoldingsTable() {
   );
 }
 
-
-const portfolioStatus: Status = 'closed'; 
+const portfolioStatus: Status = 'closed';
 
 export default function Home() {
   const { ready } = useRequireAuth();
-  
+
   if (!ready) {
     return (
       <div className="flex items-center justify-center min-h-screen">
@@ -109,7 +126,6 @@ export default function Home() {
       <DashboardHeader />
       <main className="flex flex-1 flex-col ">
         <div className="p-4 md:p-6 border-b border-border/20 bg-transparent">
-          
           <Tabs defaultValue="home">
             <TabsList>
               <TabsTrigger value="home">首页</TabsTrigger>
@@ -137,9 +153,7 @@ export default function Home() {
                       </CardHeader>
                       <CardContent>
                         <div className="metric-value">--</div>
-                        <p className="text-xs mt-2 text-muted-foreground">
-                          --
-                        </p>
+                        <p className="text-xs mt-2 text-muted-foreground">--</p>
                       </CardContent>
                     </Card>
                     <Card className="bg-background/50">
@@ -162,9 +176,7 @@ export default function Home() {
                       </CardHeader>
                       <CardContent>
                         <div className="metric-value">--</div>
-                        <p className="text-xs mt-2 text-muted-foreground">
-                          --
-                        </p>
+                        <p className="text-xs mt-2 text-muted-foreground">--</p>
                       </CardContent>
                     </Card>
                   </div>
@@ -178,20 +190,23 @@ export default function Home() {
                 <section>
                   <HoldingsTable />
                 </section>
-
               </div>
             </TabsContent>
             <TabsContent value="details" className="mt-6">
-                <StockDetails />
+              <StockDetails />
             </TabsContent>
             <TabsContent value="history" className="mt-6">
-                <TransactionHistory />
+              <TransactionHistory />
             </TabsContent>
           </Tabs>
         </div>
       </main>
 
-      <Button asChild className="fixed bottom-8 right-8 h-16 w-16 rounded-full shadow-lg" size="icon">
+      <Button
+        asChild
+        className="fixed bottom-8 right-8 h-16 w-16 rounded-full shadow-lg"
+        size="icon"
+      >
         <Link href="/transactions/editor">
           <Plus className="h-8 w-8" />
           <span className="sr-only">添加交易</span>

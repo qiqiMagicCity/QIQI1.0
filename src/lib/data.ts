@@ -1,4 +1,4 @@
-import { Coins, TrendingUp, Wallet, Zap, Gauge, Scale, Gem, Leaf, Factory, Activity, BarChart, LineChart, CandlestickChart, Percent, DollarSign, type LucideIcon } from 'lucide-react';
+import { Gauge, Scale, Gem, Leaf, Factory, type LucideIcon } from 'lucide-react';
 import type { Status } from '@/components/ui/status-badge';
 
 export type CalculationModule = {
@@ -29,10 +29,9 @@ export type CoreMetric = {
 
 export const coreMetrics: CoreMetric[] = [
   { id: 1, title: '总资产', value: '$108,230.89', change: '+$1,230.45 (+1.15%)', changeType: 'positive', status: 'live' },
-  { id: 2, title: '持仓成本', value: '$95,400.12', status: 'close' },
+  { id: 2, title: '持仓成本', value: '$95,400.12', status: 'closed' },
   { id: 3, title: '持仓浮盈', value: '+$12,830.77', change: '+13.45%', changeType: 'positive', status: 'live' },
 ];
-
 
 export type Holding = {
   symbol: string;

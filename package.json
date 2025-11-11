@@ -2,18 +2,23 @@
   "name": "nextn",
   "version": "0.1.0",
   "private": true,
+  "engines": {
+    "node": "20.x"
+  },
   "scripts": {
     "dev": "next dev --turbopack -p 9002",
     "genkit:dev": "genkit start -- tsx src/ai/dev.ts",
     "genkit:watch": "genkit start -- tsx --watch src/ai/dev.ts",
-    "build": "NODE_ENV=production next build",
+    "build": "next build",
     "start": "next start",
     "lint": "next lint",
     "typecheck": "tsc --noEmit",
     "guard:nytime": "node scripts/ny-time-guard.mjs",
     "prepare": "husky install",
     "test:nytime": "tsx scripts/tests/ny-time-dst.test.ts",
-    "test:holdings": "tsx scripts/tests/holdings-fifo.test.ts"
+    "test:holdings": "tsx scripts/tests/holdings-fifo.test.ts",
+    "ci:check": "node scripts/preflight-node.mjs && npm ci && npm run typecheck && npm run lint && npm run guard:nytime && npm run test:nytime",
+    "ci:build": "npm run ci:check && npm run build && node scripts/verify-artifacts.mjs"
   },
   "dependencies": {
     "@genkit-ai/google-genai": "^1.20.0",
@@ -69,6 +74,8 @@
     "@types/react": "^18",
     "@types/react-dom": "^18",
     "@types/uuid": "^10.0.0",
+    "eslint": "^8.57.0",
+    "eslint-config-next": "^15.3.3",
     "genkit-cli": "^1.20.0",
     "husky": "^9.0.0",
     "postcss": "^8",

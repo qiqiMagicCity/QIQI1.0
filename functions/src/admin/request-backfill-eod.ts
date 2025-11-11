@@ -2,48 +2,52 @@
 import * as admin from "firebase-admin";
 import { getFirestore } from "firebase-admin/firestore";
 import { HttpsError, onCall } from "firebase-functions/v2/https";
-import { logger } from "firebase-functions/v2";
-import { PubSub } from "@google-cloud/pubsub";
-
+import { logger } from "firebase-functions/v2"; // 结构化日志（Structured Logging）
+import { PubSub } from "@google-cloud/pubsub";  // Pub/Sub（发布/订阅）
 import { normalizeList } from "../lib/symbols/normalize";
-import { buildDefaultCloseProviders } from "../lib/close/priority";
-import { coversDate } from "../lib/close/capabilities";
 import { MAX_SYMBOLS_PER_BACKFILL_REQUEST } from "../config/limits";
 
-// 单例初始化（幂等）
+// —— Firebase Admin（管理端 SDK）幂等初始化
 if (!admin.apps.length) {
   admin.initializeApp();
 }
 
-const pubsub = new PubSub();
+// —— 懒加载 Pub/Sub（发布订阅）客户端
+let _pubsub: PubSub | null = null;
+function getPubSub(): PubSub {
+  return _pubsub ?? (_pubsub = new PubSub());
+}
 
-// YYYY-MM-DD 基础校验
+// —— YYYY-MM-DD 基础校验
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
-// 纽约口径“今天”（用于未来日校验与 provider 覆盖判断）
+// —— 纽约口径“今天”（用于禁止未来日）
 function nyTodayYmd(): string {
-  return new Intl.DateTimeFormat("en-CA", { timeZone: "America/New_York" }).format(new Date());
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: "America/New_York",
+  }).format(new Date());
 }
 
 export const requestBackfillEod = onCall(
   {
     region: "us-central1",
     maxInstances: 2,
-    // 如需开启 App Check 可加：enforceAppCheck: true
+    // 如需强制 App Check（应用校验 App Check），可启用：
+    // enforceAppCheck: true,
   },
   async (request) => {
     const { auth, data } = request;
-    const date = (data?.date ?? "") as string;
-    const symbols = (data?.symbols ?? []) as unknown[];
 
-    // 1) Admin 权限
-    const isAdmin = auth?.token?.admin === true;
-    if (!isAdmin) {
-      throw new HttpsError("permission-denied", "Caller is not an admin.");
+    // 1) 权限：要求已登录（Auth 认证）
+    if (!auth?.uid) {
+      throw new HttpsError("unauthenticated", "Sign-in required.");
     }
 
-    // 2) 输入校验（严格纽约日历，不允许请求未来日）
-    if (typeof date !== "string" || !DATE_RE.test(date)) {
+    // 2) 入参解析与校验（注意：onCall 的请求体外层必须是 data，JSON（杰森）格式）
+    const date = String(data?.date ?? "").trim();
+    const rawSymbols = (data?.symbols ?? []) as unknown[];
+
+    if (!DATE_RE.test(date)) {
       throw new HttpsError("invalid-argument", 'Date must be "YYYY-MM-DD".');
     }
     const todayNy = nyTodayYmd();
@@ -53,24 +57,20 @@ export const requestBackfillEod = onCall(
         `Date ${date} is in the future (NY). Today is ${todayNy}.`
       );
     }
-    if (!Array.isArray(symbols) || symbols.length === 0) {
+
+    const symbolsArr: string[] = Array.isArray(rawSymbols)
+      ? rawSymbols.map((s) => String(s))
+      : [];
+    if (symbolsArr.length === 0) {
       throw new HttpsError("invalid-argument", "Symbols must be a non-empty array.");
     }
 
-    // 3) 供应商覆盖校验（仍以 NY 当天为参照）
-    const providers = buildDefaultCloseProviders();
-    const isCovered = providers.some((p) => coversDate(p.name, date, todayNy));
-    if (!isCovered) {
-      throw new HttpsError(
-        "failed-precondition",
-        `No provider covers the requested date ${date}.`
-      );
-    }
-
-    // 4) 归一化 + 上限（与前端保持一致的上限）
+    // 3) 归一化 + 去重 + 上限（Limits）
     let normalized: ReturnType<typeof normalizeList>;
     try {
-      normalized = normalizeList(symbols, { maxSingle: MAX_SYMBOLS_PER_BACKFILL_REQUEST });
+      normalized = normalizeList(symbolsArr, {
+        maxSingle: MAX_SYMBOLS_PER_BACKFILL_REQUEST,
+      });
     } catch (e: any) {
       const msg = String(e?.message ?? e);
       if (msg.includes("exceeds the maximum size")) {
@@ -82,13 +82,13 @@ export const requestBackfillEod = onCall(
       throw new HttpsError("invalid-argument", msg);
     }
 
-    // 去重后再做一次硬截断，保证绝对不超限
     const uniqueSymbols = Array.from(new Set(normalized.valid)).slice(
       0,
       MAX_SYMBOLS_PER_BACKFILL_REQUEST
     );
 
     if (uniqueSymbols.length === 0) {
+      logger.info("[requestBackfillEod] nothing-to-queue", { date });
       return {
         queuedCount: 0,
         alreadyQueued: [],
@@ -104,17 +104,25 @@ export const requestBackfillEod = onCall(
     const alreadyQueued: string[] = [];
     const toQueue: string[] = [];
 
-    const backfillRequestsRef = db.collection("meta/backfillRequests");
+    // 4) 幂等检查（Idempotency）
+    // 固定路径：meta/backfill/requests
+    const backfillRequestsRef = db
+      .collection("meta")
+      .doc("backfill")
+      .collection("requests");
     const officialClosesRef = db.collection("officialCloses");
 
-    // 5) 幂等：如果已有 officialCloses 文档视为已完成；如已有 backfillRequests 视为已入队
     for (const symbol of uniqueSymbols) {
       const id = `${date}_${symbol}`;
+
+      // 已有官方收盘价 → 视为已完成
       const closeDoc = await officialClosesRef.doc(id).get();
       if (closeDoc.exists) {
         alreadyDone.push(id);
         continue;
       }
+
+      // 已在回填队列中 → 视为已排队
       const requestDoc = await backfillRequestsRef.doc(id).get();
       if (requestDoc.exists) {
         alreadyQueued.push(id);
@@ -123,10 +131,11 @@ export const requestBackfillEod = onCall(
       }
     }
 
-    // 6) 写入队列集合（batch）
+    // 5) 写入回填队列（Batch 批处理写入）
     if (toQueue.length > 0) {
       const writeBatch = db.batch();
       const now = admin.firestore.Timestamp.now();
+
       for (const symbol of toQueue) {
         const id = `${date}_${symbol}`;
         writeBatch.set(backfillRequestsRef.doc(id), {
@@ -139,35 +148,24 @@ export const requestBackfillEod = onCall(
       }
       await writeBatch.commit();
 
-      // 7) Pub/Sub 发布（重试 1 次）
-      let lastError: Error | undefined;
-      for (let i = 0; i < 2; i++) {
-        try {
-          await pubsub.topic("backfill-eod").publishMessage({
-            json: { date, symbols: toQueue },
-          });
-          lastError = undefined;
-          break;
-        } catch (e: any) {
-          lastError = e;
-          if (i === 0) {
-            await new Promise((r) => setTimeout(r, 300)); // backoff
-          }
-        }
-      }
+      // 6) 发布 Pub/Sub（发布/订阅）消息（采用 JSON 负载，供订阅端用 event.data.json 直接取）
+      const pubsub = getPubSub();
+      await pubsub.topic("backfill-eod").publishMessage({
+        json: { date, symbols: toQueue },
+      });
 
-      if (lastError) {
-        logger.warn("Failed to publish backfill-eod message after 2 attempts", {
-          date,
-          count: toQueue.length,
-          error: String(lastError?.message ?? lastError),
-        });
-        // 保持与原有行为一致：抛出错误由前端/调用方处理
-        throw new HttpsError("internal", "Pub/Sub publish failed");
-      }
+      logger.info("[requestBackfillEod] published", {
+        date,
+        size: toQueue.length,
+      });
+    } else {
+      logger.info("[requestBackfillEod] nothing-new-after-dedup", {
+        date,
+        accepted: uniqueSymbols.length,
+      });
     }
 
-    // 8) 返回摘要
+    // 7) 返回摘要（Summary）
     return {
       queuedCount: toQueue.length,
       alreadyQueued,

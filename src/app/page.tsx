@@ -12,7 +12,10 @@ import { useRequireAuth } from "@/components/auth/guards";
 import { Skeleton } from "@/components/ui/skeleton";
 
 const TransactionHistory = dynamic(
-  () => import('@/components/dashboard/transaction-history').then(mod => mod.TransactionHistory),
+  () =>
+    import("@/components/dashboard/transaction-history").then(
+      (mod) => mod.TransactionHistory
+    ),
   {
     ssr: false,
     loading: () => (
@@ -33,11 +36,12 @@ const TransactionHistory = dynamic(
   }
 );
 
-const portfolioStatus: Status = 'close'; 
+// ✅ 这里改成合法的枚举值 'closed'
+const portfolioStatus: Status = "closed";
 
 export default function Home() {
   const { ready } = useRequireAuth();
-  
+
   if (!ready) {
     // 可以在这里返回一个加载中的骨架屏，但守卫会自动处理重定向
     // 返回 null 或一个简单的加载指示器即可
@@ -53,7 +57,6 @@ export default function Home() {
       <DashboardHeader />
       <main className="flex flex-1 flex-col ">
         <div className="p-4 md:p-6 border-b border-border/20 bg-transparent">
-          
           <Tabs defaultValue="home">
             <TabsList>
               <TabsTrigger value="home">首页</TabsTrigger>
@@ -66,7 +69,9 @@ export default function Home() {
                   <div className="flex items-start justify-between mb-4">
                     <div>
                       <h1 className="text-xl md:text-2xl font-semibold">首页</h1>
-                      <p className="text-sm text-muted-foreground mt-1">组合概览与关键指标</p>
+                      <p className="text-sm text-muted-foreground mt-1">
+                        组合概览与关键指标
+                      </p>
                     </div>
                     <StatusBadge status={portfolioStatus} />
                   </div>
@@ -76,21 +81,21 @@ export default function Home() {
                       <CardHeader className="pb-4">
                         <div className="flex items-start justify-between">
                           <span className="metric-title">总资产</span>
-                          <StatusBadge status={'close'} />
+                          {/* ✅ 这里改成 'closed' */}
+                          <StatusBadge status={"closed"} />
                         </div>
                       </CardHeader>
                       <CardContent>
                         <div className="metric-value">--</div>
-                        <p className="text-xs mt-2 text-muted-foreground">
-                          --
-                        </p>
+                        <p className="text-xs mt-2 text-muted-foreground">--</p>
                       </CardContent>
                     </Card>
                     <Card className="bg-background/50">
                       <CardHeader className="pb-4">
                         <div className="flex items-start justify-between">
                           <span className="metric-title">持仓成本</span>
-                          <StatusBadge status={'close'} />
+                          {/* ✅ 这里改成 'closed' */}
+                          <StatusBadge status={"closed"} />
                         </div>
                       </CardHeader>
                       <CardContent>
@@ -101,14 +106,13 @@ export default function Home() {
                       <CardHeader className="pb-4">
                         <div className="flex items-start justify-between">
                           <span className="metric-title">持仓浮盈</span>
-                          <StatusBadge status={'close'} />
+                          {/* ✅ 这里改成 'closed' */}
+                          <StatusBadge status={"closed"} />
                         </div>
                       </CardHeader>
                       <CardContent>
                         <div className="metric-value">--</div>
-                        <p className="text-xs mt-2 text-muted-foreground">
-                          --
-                        </p>
+                        <p className="text-xs mt-2 text-muted-foreground">--</p>
                       </CardContent>
                     </Card>
                   </div>
@@ -120,19 +124,17 @@ export default function Home() {
                 </section>
 
                 <HoldingsOverview />
-
               </div>
             </TabsContent>
             <TabsContent value="details" className="mt-6">
-                <StockDetails />
+              <StockDetails />
             </TabsContent>
             <TabsContent value="history" className="mt-6">
-                <TransactionHistory />
+              <TransactionHistory />
             </TabsContent>
           </Tabs>
         </div>
       </main>
-
     </div>
   );
 }
