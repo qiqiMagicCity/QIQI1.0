@@ -1,18 +1,20 @@
 // functions/src/index.ts
+
 import * as admin from "firebase-admin";
 import { onCall, HttpsError } from "firebase-functions/v2/https";
 import { defineSecret } from "firebase-functions/params";
 import { runCloseForSymbols } from "./lib/close/run";
 import { MAX_SYMBOLS_PER_CALL } from "./config/limits";
 
+// ---- Firebase Admin 初始化（initialize，初始化）----
 try {
   admin.app();
 } catch {
   admin.initializeApp();
 }
 
-// Secrets（与 runCloseForSymbols 内部使用一致）
-const FMP_TOKEN = defineSecret("FMP_TOKEN");
+// Secrets（密钥，供外部 API 使用）
+const FMP_TOKEN = defineSecret("FMP_TOKEN");                 // Financial Modeling Prep（FMP，财经数据接口）实时价
 const MARKETSTACK_API_KEY = defineSecret("MARKETSTACK_API_KEY");
 const STOCKDATA_API_KEY = defineSecret("STOCKDATA_API_KEY");
 
@@ -27,7 +29,7 @@ function nyTodayYmd(): string {
   }).format(new Date());
 }
 
-// —— 服务器侧符号归一化：trim → NFKC → 去内部空白 → 大写
+// —— 服务器侧符号归一化（normalize，归一化）：trim → NFKC → 去内部空白 → 大写
 function normalizeSymbolForServer(s: unknown): string {
   return String(s ?? "")
     .normalize("NFKC")
@@ -36,12 +38,22 @@ function normalizeSymbolForServer(s: unknown): string {
     .toUpperCase();
 }
 
+// —— 小工具：带超时的 fetch（timeout，超时）
+// 当前仅供后续可能的扩展使用；即便暂时未被引用也保留，避免重复实现。
+async function fetchWithTimeout(input: string, ms: number): Promise<Response> {
+  const ctrl = new AbortController();
+  const id = setTimeout(() => ctrl.abort(), ms);
+  try {
+    return await fetch(input, { signal: ctrl.signal });
+  } finally {
+    clearTimeout(id);
+  }
+}
+
 /**
- * 按指定 date 批量获取/写入官方收盘价：
- * - 入参：{ date:"YYYY-MM-DD", symbols:string[] }
- * - 规则：date 不得晚于 NY 今日；symbols 去重、上限保护
- * - 行为：调用 runCloseForSymbols（内部按 provider 失败切换、落库 officialCloses）
- * - 返回：每个 symbol 的 { status:'ok'|'error', close? } 汇总
+ * getOfficialClose（官方收盘价批量写库）：
+ * 入参：{ date:"YYYY-MM-DD", symbols:string[] }
+ * 约束：date 不得晚于 NY 今日；symbols 上限保护；内部 runCloseForSymbols 落库 officialCloses
  */
 export const getOfficialClose = onCall(
   {
@@ -65,10 +77,7 @@ export const getOfficialClose = onCall(
       );
     }
     if (!Array.isArray(rawSymbols) || rawSymbols.length === 0) {
-      throw new HttpsError(
-        "invalid-argument",
-        "Symbols must be a non-empty array."
-      );
+      throw new HttpsError("invalid-argument", "Symbols must be a non-empty array.");
     }
 
     // 2) 归一化 + 去重 + 上限
@@ -82,7 +91,7 @@ export const getOfficialClose = onCall(
       );
     }
 
-    // 3) 取 db + 组织 secrets
+    // 3) 取 db + 组织 secrets（此处 secrets 只是传递给下游 provider）
     const db = admin.firestore();
     const secrets = {
       FMP_TOKEN: FMP_TOKEN.value() || "",
@@ -96,7 +105,11 @@ export const getOfficialClose = onCall(
   }
 );
 
-// —— 其他导出（保持不变/追加新能力）
+// —— 单独文件中实现的 HTTP/Callable 云函数在此汇总导出 ——
+// 实时价格云函数：从独立文件 functions/src/price/price-quote.ts 转发导出
+export { priceQuote } from "./price/price-quote";
+
+// —— 其他导出（保持不变/追加新能力）——
 export { eodJob } from "./jobs/eod";
 export { requestBackfillEod } from "./admin/request-backfill-eod";
 export { backfillWorker } from "./jobs/backfill-worker";

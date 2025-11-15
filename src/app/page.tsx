@@ -7,14 +7,16 @@ import { HoldingsOverview } from "@/components/dashboard/holdings-overview";
 import { StockDetails } from "@/components/dashboard/stock-details";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { StatusBadge, type Status } from "@/components/ui/status-badge";
+import { StatusBadge } from "@/components/ui/status-badge";
 import { useRequireAuth } from "@/components/auth/guards";
 import { Skeleton } from "@/components/ui/skeleton";
+import { useHoldings } from "@/hooks/use-holdings";
+import { DollarSign, Wallet, TrendingUp, TrendingDown } from "lucide-react";
 
 const TransactionHistory = dynamic(
   () =>
     import("@/components/dashboard/transaction-history").then(
-      (mod) => mod.TransactionHistory
+      (mod) => mod.TransactionHistory,
     ),
   {
     ssr: false,
@@ -33,24 +35,57 @@ const TransactionHistory = dynamic(
         </CardContent>
       </Card>
     ),
-  }
+  },
 );
 
-// ✅ 这里改成合法的枚举值 'closed'
-const portfolioStatus: Status = "closed";
+// 金额格式化（Currency 货币格式）
+function formatCurrency(value: number | null | undefined): string {
+  if (value == null || typeof value !== "number" || !Number.isFinite(value)) {
+    return "--";
+  }
+  return value.toLocaleString(undefined, {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  });
+}
+
+// 带正负号的格式化（用于盈亏 P&L）
+function formatSigned(value: number | null | undefined): string {
+  if (value == null || typeof value !== "number" || !Number.isFinite(value)) {
+    return "--";
+  }
+  const sign = value > 0 ? "+" : "";
+  return sign + value.toFixed(2);
+}
 
 export default function Home() {
   const { ready } = useRequireAuth();
+  const { summary, loading } = useHoldings();
 
   if (!ready) {
-    // 可以在这里返回一个加载中的骨架屏，但守卫会自动处理重定向
-    // 返回 null 或一个简单的加载指示器即可
+    // 守卫处理中：简单显示加载提示
     return (
       <div className="flex items-center justify-center min-h-screen">
         <p className="text-muted-foreground">正在验证身份...</p>
       </div>
     );
   }
+
+  const gmvDisplay = loading ? "--" : formatCurrency(summary.totalGrossMv);
+  const nciDisplay = loading ? "--" : formatCurrency(summary.totalNci);
+  const pnlDisplay = loading ? "--" : formatSigned(summary.totalPnl);
+
+  const pnlIsPositive =
+    !loading &&
+    typeof summary.totalPnl === "number" &&
+    Number.isFinite(summary.totalPnl) &&
+    summary.totalPnl > 0;
+
+  const pnlIsNegative =
+    !loading &&
+    typeof summary.totalPnl === "number" &&
+    Number.isFinite(summary.totalPnl) &&
+    summary.totalPnl < 0;
 
   return (
     <div className="flex min-h-screen w-full flex-col">
@@ -63,8 +98,10 @@ export default function Home() {
               <TabsTrigger value="details">股票详情</TabsTrigger>
               <TabsTrigger value="history">交易历史</TabsTrigger>
             </TabsList>
+
             <TabsContent value="home" className="mt-6">
               <div className="app-surface space-y-6">
+                {/* 首页大框 */}
                 <section className="card p-4 md:p-6">
                   <div className="flex items-start justify-between mb-4">
                     <div>
@@ -73,62 +110,102 @@ export default function Home() {
                         组合概览与关键指标
                       </p>
                     </div>
-                    <StatusBadge status={portfolioStatus} />
+                    {/* 顶部整体组合徽章已按要求移除 */}
                   </div>
 
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                    <Card className="bg-background/50">
-                      <CardHeader className="pb-4">
-                        <div className="flex items-start justify-between">
-                          <span className="metric-title">总资产</span>
-                          {/* ✅ 这里改成 'closed' */}
-                          <StatusBadge status={"closed"} />
+                  <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 md:grid-cols-3">
+                    {/* 1）总持仓市值 GMV */}
+                    <Card className="transition-all hover:shadow-lg hover:-translate-y-1 bg-background/100">
+                      <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                        <div className="flex items-center gap-2">
+                          <CardTitle className="text-sm font-medium text-muted-foreground">
+                            总持仓市值（Gross Market Value，GMV）
+                          </CardTitle>
                         </div>
+                        {/* GMV 专属徽章：用 gmvStatus */}
+                        <StatusBadge status={summary?.gmvStatus ?? "degraded"} />
                       </CardHeader>
                       <CardContent>
-                        <div className="metric-value">--</div>
-                        <p className="text-xs mt-2 text-muted-foreground">--</p>
+                        <div className="flex items-baseline gap-2">
+                          <DollarSign className="h-5 w-5 text-muted-foreground" />
+                          {/* 数字放大 + 绿色 */}
+                          <div className="text-3xl font-bold text-emerald-600">
+                            {gmvDisplay}
+                          </div>
+                        </div>
+                        <p className="text-xs mt-2 text-muted-foreground">
+                          绝对值口径：多空持仓一律按 |数量| × 实时价格 × 合约乘数 汇总。
+                        </p>
                       </CardContent>
                     </Card>
-                    <Card className="bg-background/50">
-                      <CardHeader className="pb-4">
-                        <div className="flex items-start justify-between">
-                          <span className="metric-title">持仓成本</span>
-                          {/* ✅ 这里改成 'closed' */}
-                          <StatusBadge status={"closed"} />
-                        </div>
+
+                    {/* 2）净现金投入 NCI */}
+                    <Card className="transition-all hover:shadow-lg hover:-translate-y-1 bg-background/100">
+                      <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                        <CardTitle className="text-sm font-medium text-muted-foreground">
+                          净现金投入（Net Cash Invested，NCI）
+                        </CardTitle>
+                        {/* NCI 专属徽章：用 nciStatus，只看成本完整度 + 时间窗口 */}
+                        <StatusBadge status={summary?.nciStatus ?? "degraded"} />
                       </CardHeader>
                       <CardContent>
-                        <div className="metric-value">--</div>
+                        <div className="flex items-baseline gap-2">
+                          <Wallet className="h-5 w-5 text-muted-foreground" />
+                          {/* 数字放大 + 绿色 */}
+                          <div className="text-3xl font-bold text-emerald-600">
+                            {nciDisplay}
+                          </div>
+                        </div>
+                        <p className="text-xs mt-2 text-muted-foreground">
+                          绝对值口径：|数量| × 成本价格 × 合约乘数，用于刻画当前持仓对应的本金规模。
+                        </p>
                       </CardContent>
                     </Card>
-                    <Card className="bg-background/50">
-                      <CardHeader className="pb-4">
-                        <div className="flex items-start justify-between">
-                          <span className="metric-title">持仓浮盈</span>
-                          {/* ✅ 这里改成 'closed' */}
-                          <StatusBadge status={"closed"} />
-                        </div>
+
+                    {/* 3）按市价计价利润（Mark-to-Market Profit）（总 P&L） */}
+                    <Card className="transition-all hover:shadow-lg hover:-translate-y-1 bg-background/100">
+                      <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                        <CardTitle className="text-sm font-medium text-muted-foreground">
+                          按市价计价利润（Mark-to-Market Profit）
+                        </CardTitle>
+                        {/* 按市价计价利润（Mark-to-Market Profit）专属徽章：同时依赖 GMV + NCI 覆盖度 */}
+                        <StatusBadge status={summary?.pnlStatus ?? "degraded"} />
                       </CardHeader>
                       <CardContent>
-                        <div className="metric-value">--</div>
-                        <p className="text-xs mt-2 text-muted-foreground">--</p>
+                        <div className="flex items-baseline gap-2">
+                          {pnlIsNegative ? (
+                            <TrendingDown className="h-5 w-5 text-muted-foreground" />
+                          ) : (
+                            <TrendingUp className="h-5 w-5 text-muted-foreground" />
+                          )}
+                          {/* 数字放大 + 统一绿色，不再区分正负颜色 */}
+                          <div className="text-3xl font-bold text-emerald-600">
+                            {pnlDisplay}
+                          </div>
+                        </div>
+                        <p className="text-xs mt-2 text-muted-foreground">
+                          基于实时价格（Real-time Price）计算的总持仓浮动盈亏，仅用于展示，不做托底。
+                        </p>
                       </CardContent>
                     </Card>
                   </div>
                 </section>
 
+                {/* 分析仪表盘 */}
                 <section className="card p-4 md:p-6">
                   <h2 className="text-base font-medium mb-3">分析仪表盘</h2>
                   <CalculationGrid />
                 </section>
 
+                {/* 持仓概览表 */}
                 <HoldingsOverview />
               </div>
             </TabsContent>
+
             <TabsContent value="details" className="mt-6">
               <StockDetails />
             </TabsContent>
+
             <TabsContent value="history" className="mt-6">
               <TransactionHistory />
             </TabsContent>

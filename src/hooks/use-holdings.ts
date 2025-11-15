@@ -1,21 +1,22 @@
 'use client';
 
-import { useEffect, useMemo, useState, useRef } from 'react';
-import { doc, onSnapshot, type Unsubscribe } from 'firebase/firestore';
-import { getFunctions, httpsCallable } from 'firebase/functions';
-import { useFirestore, useUser } from '@/firebase';
+import { useEffect, useMemo, useState } from 'react';
+import { useUser } from '@/firebase';
 import { useUserTransactions, type Tx } from './use-user-transactions';
 import { buildHoldingsSnapshot } from '@/lib/holdings/fifo';
-
 import {
   nowNyCalendarDayString,
   toNyCalendarDayString,
   nyWeekdayIndex,
   toNyHmsString,
 } from '@/lib/ny-time';
-import { getMany as getOfficialCloses, type OfficialCloseResult } from '@/lib/data/official-close-repo';
+import {
+  getMany as getOfficialCloses,
+  type OfficialCloseResult,
+} from '@/lib/data/official-close-repo';
+import { useRealTimePrices } from '@/price/useRealTimePrices';
 
-// —— 统一状态枚举（避免交叉引用接口导致的类型顺序问题）
+// —— 日内盈亏状态枚举（Day PnL Status，日盈亏状态标记）
 type DayPlStatus =
   | 'live'
   | 'closed'
@@ -36,17 +37,38 @@ type AggTodayStatus =
   | 'pending-eod-fetch'
   | 'degraded';
 
+// 实时报价状态（RtStatus，Real-time Status，实时价格状态）
+type RtStatus = 'live' | 'stale' | 'closed' | 'pending' | 'error';
+
 const US_MARKET_HOLIDAYS = new Set<string>([
   // 2025
-  '2025-01-01','2025-01-20','2025-02-17','2025-04-18','2025-05-26','2025-06-19','2025-07-04','2025-09-01','2025-11-27','2025-12-25',
+  '2025-01-01',
+  '2025-01-20',
+  '2025-02-17',
+  '2025-04-18',
+  '2025-05-26',
+  '2025-06-19',
+  '2025-07-04',
+  '2025-09-01',
+  '2025-11-27',
+  '2025-12-25',
   // 2026
-  '2026-01-01','2026-01-19','2026-02-16','2026-04-03','2026-05-25','2026-06-19','2026-07-03','2026-09-07','2026-11-26','2026-12-25',
+  '2026-01-01',
+  '2026-01-19',
+  '2026-02-16',
+  '2026-04-03',
+  '2026-05-25',
+  '2026-06-19',
+  '2026-07-03',
+  '2026-09-07',
+  '2026-11-26',
+  '2026-12-25',
 ]);
-// 仅用于“是否开盘”判断；半日市先不处理（对盘中无影响）。
 
-const FRESHNESS_MS = 15000; // 15s 新鲜度阈值（盘中实时价）
+// 盘中实时价“新鲜度”阈值（Freshness 毫秒）
+const FRESHNESS_MS = 15_000;
 
-// —— 客户端股票代码归一化（本地实现，统一入口）
+// —— 客户端股票代码归一化（Symbol Normalize，股票代码标准化）
 const normalizeSymbolForClient = (s: string): string =>
   (s ?? '')
     .normalize('NFKC')
@@ -54,43 +76,42 @@ const normalizeSymbolForClient = (s: string): string =>
     .replace(/\s+/g, '')
     .toUpperCase();
 
-// 兼容别名：老代码若调用 normalizeSymbolClient，不再报错
+// 兼容别名
 const normalizeSymbolClient = normalizeSymbolForClient;
 
-// 用数值化方式判断常规时段是否开盘（NY 时区）
+// 用数值化方式判断常规时段是否开盘（NY 纽交所时区）
 function isNyRegularSessionOpen(now: Date): boolean {
-  // 0=Sun..6=Sat
   const wd = nyWeekdayIndex(now);
   if (wd === 0 || wd === 6) return false;
 
-  // 交易日屏蔽：全天休市表
   const nyD = toNyCalendarDayString(now) ?? nowNyCalendarDayString();
   if (US_MARKET_HOLIDAYS.has(nyD)) return false;
 
-  // HH:mm:ss → 数字秒
   const hms = toNyHmsString(now);
-  const [hh, mm, ss] = hms.split(':').map(n => parseInt(n, 10));
+  const [hh, mm, ss] = hms.split(':').map((n) => parseInt(n, 10));
   const t = hh * 3600 + mm * 60 + ss;
 
-  const OPEN = 9 * 3600 + 30 * 60;   // 09:30:00
-  const CLOSE = 16 * 3600;           // 16:00:00
+  const OPEN = 9 * 3600 + 30 * 60;
+  const CLOSE = 16 * 3600;
 
   return t >= OPEN && t < CLOSE;
 }
 
-function getNyMarketSessionLocal(now: Date): 'pre-market' | 'open' | 'post-market' | 'closed' {
-  // 周末或节假日：直接 closed
+function getNyMarketSessionLocal(
+  now: Date,
+): 'pre-market' | 'open' | 'post-market' | 'closed' {
   const wd = nyWeekdayIndex(now);
   const nyD = toNyCalendarDayString(now);
+
   if (wd === 0 || wd === 6 || US_MARKET_HOLIDAYS.has(nyD)) return 'closed';
 
-  const [hh, mm, ss] = toNyHmsString(now).split(':').map(n => parseInt(n, 10));
+  const [hh, mm, ss] = toNyHmsString(now).split(':').map((n) => parseInt(n, 10));
   const t = hh * 3600 + mm * 60 + ss;
 
-  const PRE_OPEN = 4 * 3600;          // 04:00:00
-  const OPEN = 9 * 3600 + 30 * 60;    // 09:30:00
-  const CLOSE = 16 * 3600;            // 16:00:00
-  const POST_END = 20 * 3600;         // 20:00:00
+  const PRE_OPEN = 4 * 3600;
+  const OPEN = 9 * 3600 + 30 * 60;
+  const CLOSE = 16 * 3600;
+  const POST_END = 20 * 3600;
 
   if (t >= OPEN && t < CLOSE) return 'open';
   if (t >= PRE_OPEN && t < OPEN) return 'pre-market';
@@ -99,19 +120,15 @@ function getNyMarketSessionLocal(now: Date): 'pre-market' | 'open' | 'post-marke
 }
 
 function prevNyTradingDayString(base: string): string {
-  // Assumes base is 'YYYY-MM-DD' in NY timezone
-  // Use UTC to avoid local timezone issues when manipulating dates
+  // base 是 NY 交易日 'YYYY-MM-DD'
   let [year, month, day] = base.split('-').map(Number);
-  let ts = Date.UTC(year, month - 1, day, 12, 0, 0); // Noon UTC to be safe
+  let ts = Date.UTC(year, month - 1, day, 12, 0, 0);
+  ts -= 24 * 60 * 60 * 1000;
 
-  ts -= 24 * 60 * 60 * 1000; // Subtract one day
-
-  // 回退直到遇到工作日且不在假日表
   for (;;) {
     const candidateDate = new Date(ts);
     const candidateStr = toNyCalendarDayString(candidateDate);
     const wd = nyWeekdayIndex(candidateDate);
-
     if (wd > 0 && wd < 6 && !US_MARKET_HOLIDAYS.has(candidateStr)) {
       return candidateStr;
     }
@@ -119,22 +136,24 @@ function prevNyTradingDayString(base: string): string {
   }
 }
 
+// —— 单标的“当日盈亏”计算（Day PnL，单标的日内盈亏）
 function computeDayPnLSymbol(
   holding: { netQty: number; multiplier: number },
   marketSession: 'pre-market' | 'open' | 'post-market' | 'closed',
-  isTradingDay: boolean, // 目前未用，保留占位
+  isTradingDay: boolean,
   lastPriceData: { price: number | null; ts: number } | undefined,
   refEod: OfficialCloseResult | undefined,
   todayEod: OfficialCloseResult | undefined,
   todaysTrades: Tx[],
 ): { todayPl: number | null; todayPlStatus: DayPlStatus } {
-  // 1) 不可计算的会话
-  if (marketSession === 'pre-market') return { todayPl: null, todayPlStatus: 'session-pre' };
-  if (marketSession === 'post-market') return { todayPl: null, todayPlStatus: 'session-post' };
+  if (marketSession === 'pre-market')
+    return { todayPl: null, todayPlStatus: 'session-pre' };
+  if (marketSession === 'post-market')
+    return { todayPl: null, todayPlStatus: 'session-post' };
 
-  // 2) 昨收价（refDay 收盘）
   const prevClose =
     refEod?.status === 'ok' && refEod?.close != null ? refEod.close : undefined;
+
   if (prevClose === undefined) {
     if (refEod?.status === 'pending') {
       return { todayPl: null, todayPlStatus: 'pending-eod-fetch' };
@@ -142,9 +161,8 @@ function computeDayPnLSymbol(
     return { todayPl: null, todayPlStatus: 'missing-ref-eod' };
   }
 
-  // 3) 参考价 refPrice
   let refPrice: number | undefined;
-  let status: DayPlStatus = 'live'; // open 的默认状态
+  let status: DayPlStatus = 'live';
 
   if (marketSession === 'open') {
     if (lastPriceData?.price != null) {
@@ -154,13 +172,10 @@ function computeDayPnLSymbol(
       refPrice = lastPriceData.price;
       status = 'live';
     } else {
-      // 严禁托底：盘中没有实时价，直接降级，不产出伪数值
       return { todayPl: null, todayPlStatus: 'degraded' };
     }
   } else {
-    // closed：一律用 todayEod（其中周末/节假日的 todayEod 已承载 baseDay 的收盘价）
     status = 'closed';
-
     if (todayEod?.status === 'ok' && todayEod?.close != null) {
       refPrice = todayEod.close;
     } else {
@@ -171,17 +186,12 @@ function computeDayPnLSymbol(
     }
   }
 
-  // 4) 计算日内 PnL
-  // raw = 净持仓 * (参考价 - 昨收) - Σ (成交价 - 昨收) * 成交数量
   const { netQty, multiplier } = holding;
-
   const sumTradesEffect = todaysTrades.reduce((sum, tx) => {
     return sum + (tx.price - prevClose) * tx.qty;
   }, 0);
 
   const rawPnl = netQty * (refPrice - prevClose) - sumTradesEffect;
-
-  // 5) 乘合约倍数，保留两位
   const todayPl = Math.round(rawPnl * multiplier * 100) / 100;
 
   return { todayPl, todayPlStatus: status };
@@ -192,19 +202,21 @@ export interface HoldingRow {
   assetType: 'stock' | 'option';
   netQty: number;
   avgCost: number | null;
-  multiplier: number;           // 股票=1；期权=合约乘数（通常100）
-  last: number | null;          // 最新价（优先 last，其次 close）
-  mv: number | null;            // 市值
-  pnl: number | null;           // 浮盈
-  pnlPct: number | null;        // 盈亏率
-  todayPl: number | null;       // 当日盈亏
-  todayPlPct: number | null;    // 当日盈亏率（占位，后续版本实现）
+  multiplier: number;
+  last: number | null;
+  mv: number | null;
+  pnl: number | null;
+  pnlPct: number | null;
+  todayPl: number | null;
+  todayPlPct: number | null;
   todayPlStatus: DayPlStatus;
-  dayChange: number | null;     // 当日变动（v1 暂停计算）
-  dayChangePct: number | null;  // 当日变动率（v1 暂停计算）
-  dayChangeStatus?: 'under-construction'; // v1：建设中标记
+  dayChange: number | null;
+  dayChangePct: number | null;
+  dayChangeStatus?: 'under-construction';
   dayQtyDelta?: number;
   dayNotional?: number;
+  // 实时报价状态：直接来自价格中心的 RtStatus（实时价格状态）
+  priceStatus?: RtStatus;
 }
 
 export interface HoldingsSummary {
@@ -212,14 +224,24 @@ export interface HoldingsSummary {
   totalPnl: number | null;
   totalTodayPl: number | null;
   aggTodayPlStatus: AggTodayStatus;
+
+  // 总持仓市值 GMV（Gross Market Value，总持仓市值，绝对值口径）
+  totalGrossMv: number | null;
+
+  // 净现金投入 NCI（Net Cash Invested，净现金投入，绝对值口径）
+  totalNci: number | null;
+
+  // 首页三个计算格子的专属状态
+  gmvStatus: AggTodayStatus;
+  nciStatus: AggTodayStatus;
+  pnlStatus: AggTodayStatus;
 }
 
 export function useHoldings() {
   const { user } = useUser();
-  const firestore = useFirestore();
   const { data: transactions, loading: txLoading } = useUserTransactions(user?.uid);
 
-  // 1) 从交易记录派生“基础持仓层”
+  // 1) 基础持仓层（Base Holdings，基础持仓快照）
   const baseHoldings = useMemo(() => {
     const list = Array.isArray(transactions) ? (transactions as Tx[]) : [];
     if (list.length === 0) return [];
@@ -227,14 +249,13 @@ export function useHoldings() {
     return snap.holdings ?? [];
   }, [transactions]);
 
-  // 2) 聚合当日交易量和交易额（以 baseDay 为“今天”）
+  // 2) 当日成交聚合（用于 Day PnL，按 NY 交易日聚合）
   const dailyTxAggregates = useMemo(() => {
     const aggregates = new Map<
       string,
       { dayQtyDelta: number; dayNotional: number; trades: Tx[] }
     >();
 
-    // 与 EOD 同口径：基准交易日 = 交易日为今天；周末/假日回退到上一个交易日
     const todayNy = nowNyCalendarDayString();
     const now = new Date();
     const wd = nyWeekdayIndex(now);
@@ -243,16 +264,12 @@ export function useHoldings() {
 
     if (Array.isArray(transactions)) {
       for (const tx of transactions) {
-        const ts = tx.transactionTimestamp; // 用标准化过的时间戳
-
+        const ts = tx.transactionTimestamp;
         if (typeof ts !== 'number' || !Number.isFinite(ts) || ts <= 0) {
           continue;
         }
-
         const txDay = toNyCalendarDayString(ts);
-        if (txDay !== baseDay) {
-          continue;
-        }
+        if (txDay !== baseDay) continue;
 
         const symbol = normalizeSymbolClient(tx.symbol);
         const qty = tx.qty;
@@ -268,108 +285,26 @@ export function useHoldings() {
         entry.trades.push(tx);
       }
     }
+
     return aggregates;
   }, [transactions]);
 
-  // 3) 为持仓中的 symbols 订阅/拉取价格
-  const [prices, setPrices] = useState<Record<string, number | null>>({});
-  const [priceLoading, setPriceLoading] = useState(false);
-  const priceCache =
-    useRef<Map<string, { price: number | null; ts: number }>>(new Map()).current;
-  const CONCURRENT_LIMIT = 3;
-  const CACHE_TTL_MS = 60 * 1000;
-
+  // 3) 统一需要实时价的 symbol 列表 + 接入价格中心
   const uniqueSymbols = useMemo(
-    () => Array.from(new Set(baseHoldings.map(h => h.symbol))).filter(Boolean),
+    () =>
+      Array.from(
+        new Set(
+          baseHoldings
+            .map((h: any) => normalizeSymbolClient(h.symbol))
+            .filter(Boolean),
+        ),
+      ),
     [baseHoldings],
   );
 
-  useEffect(() => {
-    if (!firestore || uniqueSymbols.length === 0) {
-      setPrices({});
-      setPriceLoading(false);
-      return;
-    }
+  const { get: getPriceRecord } = useRealTimePrices(uniqueSymbols);
 
-    setPriceLoading(true);
-
-    const unsubs: Unsubscribe[] = uniqueSymbols.map(symbol => {
-      const ref = doc(firestore, 'stockDetails', symbol);
-      return onSnapshot(ref, snap => {
-        if (snap.exists()) {
-          const data: any = snap.data();
-          const price = (data?.last ?? data?.close ?? null) as number | null;
-          setPrices(prev => ({ ...prev, [symbol]: price }));
-          if (price !== null) {
-            priceCache.set(symbol, { price, ts: Date.now() });
-          }
-        }
-      });
-    });
-
-    const fetchMissingPrices = async () => {
-      const functions = getFunctions(undefined, 'us-central1');
-      const priceQuote = httpsCallable(functions, 'priceQuote');
-      const symbolsToFetch: string[] = [];
-
-      for (const symbol of uniqueSymbols) {
-        const cached = priceCache.get(symbol);
-        if (!cached || Date.now() - cached.ts > CACHE_TTL_MS) {
-          symbolsToFetch.push(symbol);
-        }
-      }
-
-      if (symbolsToFetch.length === 0) {
-        setPriceLoading(false);
-        return;
-      }
-
-      let activeRequests = 0;
-      const executing = new Set<string>();
-
-      const processQueue = async () => {
-        while (activeRequests < CONCURRENT_LIMIT && symbolsToFetch.length > 0) {
-          const symbol = symbolsToFetch.shift();
-          if (symbol && !executing.has(symbol)) {
-            activeRequests++;
-            executing.add(symbol);
-
-            priceQuote({ symbol })
-              .then(result => {
-                const price = (result?.data as any)?.price as number | null;
-                if (price !== null && typeof price === 'number') {
-                  setPrices(prev => ({ ...prev, [symbol]: price }));
-                  priceCache.set(symbol, { price, ts: Date.now() });
-                }
-              })
-              .catch(err => {
-                console.error(`Failed to fetch price for ${symbol}`, err);
-                priceCache.set(symbol, { price: null, ts: Date.now() });
-              })
-              .finally(() => {
-                activeRequests--;
-                executing.delete(symbol);
-                processQueue();
-              });
-          }
-        }
-
-        if (executing.size === 0 && symbolsToFetch.length === 0) {
-          setPriceLoading(false);
-        }
-      };
-
-      processQueue();
-    };
-
-    fetchMissingPrices();
-
-    return () => {
-      unsubs.forEach(u => u());
-    };
-  }, [firestore, uniqueSymbols, priceCache]);
-
-  // 4) 获取 EOD 价格作为日盈亏基线
+  // 4) 获取 EOD（日终收盘价，End of Day）作为 Day PnL 基线
   const [refEodMap, setRefEodMap] = useState<Record<string, OfficialCloseResult>>({});
   const [todayEodMap, setTodayEodMap] = useState<Record<string, OfficialCloseResult>>({});
   const [eodLoading, setEodLoading] = useState(false);
@@ -386,7 +321,6 @@ export function useHoldings() {
       setEodLoading(true);
       const todayNy = nowNyCalendarDayString();
 
-      // 基准交易日：交易日=今天；周末/节假日=回退到上一个交易日
       const now = new Date();
       const wd = nyWeekdayIndex(now);
       const isTradingDay = wd > 0 && wd < 6 && !US_MARKET_HOLIDAYS.has(todayNy);
@@ -399,7 +333,6 @@ export function useHoldings() {
           getOfficialCloses(refDay, symbolsNorm, { shouldAutoRequestBackfill: true }),
           getOfficialCloses(baseDay, symbolsNorm, { shouldAutoRequestBackfill: true }),
         ]);
-
         setRefEodMap(refCloses);
         setTodayEodMap(todayCloses);
       } catch (error) {
@@ -414,125 +347,242 @@ export function useHoldings() {
     fetchEod();
   }, [uniqueSymbols]);
 
-  // 5) 组装最终行（含 MV / PnL / Day PnL）
-  const { rows, summary } = useMemo((): { rows: HoldingRow[]; summary: HoldingsSummary } => {
-    let totalMv = 0;
-    let totalPnl = 0;
-    let totalTodayPl = 0;
-    const allStatuses: DayPlStatus[] = [];
+  // 5) 组装最终行 + 汇总（含 GMV / NCI / Day PnL）
+  const { rows, summary } = useMemo(
+    (): { rows: HoldingRow[]; summary: HoldingsSummary } => {
+      let totalMv = 0;
+      let totalPnl = 0;
+      let totalTodayPl = 0;
 
-    const now = new Date();
-    const marketSession = getNyMarketSessionLocal(now);
-    const currentNyDay = toNyCalendarDayString(now);
-    const isTradingDay =
-      !US_MARKET_HOLIDAYS.has(currentNyDay) &&
-      nyWeekdayIndex(now) > 0 &&
-      nyWeekdayIndex(now) < 6;
+      let totalGrossMv = 0;
+      let hasGrossMv = false;
 
-    const rows = baseHoldings.map((h: any): HoldingRow => {
-      const symbol: string = h.symbol;
-      const normalizedSymbol = normalizeSymbolForClient(symbol);
-      const netQty: number = h.netQty ?? 0;
-      const avgCost: number | null = h.costPerUnit ?? null;
-      const multiplier: number = h.multiplier ?? 1;
-      const assetType: 'stock' | 'option' =
-        h.assetType ?? (multiplier !== 1 ? 'option' : 'stock');
+      let totalNci = 0;
+      let hasNci = false;
 
-      const last = prices[symbol] ?? null;
-      const lastPriceData = priceCache.get(symbol);
+      const allStatuses: DayPlStatus[] = [];
 
-      const mv = last !== null ? netQty * multiplier * last : null;
-      const costBasis = avgCost !== null ? netQty * multiplier * avgCost : null;
-      const pnl = mv !== null && costBasis !== null ? mv - costBasis : null;
-      const pnlPct =
-        pnl !== null && costBasis !== null && costBasis !== 0
-          ? pnl / Math.abs(costBasis)
-          : null;
+      // 覆盖率标记：只要有持仓但缺必要参数，就标记为缺失
+      let gmvMissing = false;
+      let nciMissing = false;
+      let pnlMissing = false;
 
-      const dailyAgg = dailyTxAggregates.get(normalizedSymbol);
-      const todaysTrades = dailyAgg?.trades ?? [];
+      const now = new Date();
+      const marketSession = getNyMarketSessionLocal(now);
 
-      const { todayPl, todayPlStatus } = computeDayPnLSymbol(
-        { netQty, multiplier },
-        marketSession,
-        isTradingDay,
-        lastPriceData,
-        refEodMap[normalizedSymbol],
-        todayEodMap[normalizedSymbol],
-        todaysTrades,
-      );
-      allStatuses.push(todayPlStatus);
+      const currentNyDay = toNyCalendarDayString(now);
+      const isTradingDay =
+        !US_MARKET_HOLIDAYS.has(currentNyDay) &&
+        nyWeekdayIndex(now) > 0 &&
+        nyWeekdayIndex(now) < 6;
 
-      // v1：当日变动 / 当日变动% 暂停，标记建设中
-      const todayPlPct: number | null = null;
-      const dayChange: number | null = null;
-      const dayChangePct: number | null = null;
-      const dayChangeStatus: 'under-construction' = 'under-construction';
+      const rows = baseHoldings.map((h: any): HoldingRow => {
+        const symbol: string = h.symbol;
+        const normalizedSymbol = normalizeSymbolForClient(symbol);
 
-      if (mv !== null) totalMv += mv;
-      if (pnl !== null) totalPnl += pnl;
-      if (todayPl !== null) totalTodayPl += todayPl;
+        const netQty: number = h.netQty ?? 0;
+        const avgCost: number | null = h.costPerUnit ?? null;
+        const multiplier: number = h.multiplier ?? 1;
+
+        const assetType: 'stock' | 'option' =
+          h.assetType ?? (multiplier !== 1 ? 'option' : 'stock');
+
+        const priceRecord = getPriceRecord(normalizedSymbol);
+
+        const last =
+          priceRecord &&
+          typeof priceRecord.price === 'number' &&
+          Number.isFinite(priceRecord.price)
+            ? priceRecord.price
+            : null;
+
+        const lastPriceData =
+          priceRecord != null
+            ? { price: priceRecord.price, ts: priceRecord.ts }
+            : undefined;
+
+        // 透传价格状态给 HoldingRow，用于前台“实时价格”徽章
+        const priceStatus: RtStatus | undefined =
+          priceRecord && typeof priceRecord.status === 'string'
+            ? (priceRecord.status as RtStatus)
+            : undefined;
+
+        const mv = last !== null ? netQty * multiplier * last : null;
+        const costBasis =
+          avgCost !== null ? netQty * multiplier * avgCost : null;
+        const pnl = mv !== null && costBasis !== null ? mv - costBasis : null;
+        const pnlPct =
+          pnl !== null && costBasis !== null && costBasis !== 0
+            ? pnl / Math.abs(costBasis)
+            : null;
+
+        // —— GMV：总持仓市值（绝对值口径）覆盖率 + 汇总
+        if (netQty !== 0) {
+          if (last === null) {
+            gmvMissing = true;
+          } else {
+            const grossMv = Math.abs(netQty) * multiplier * last;
+            totalGrossMv += grossMv;
+            hasGrossMv = true;
+          }
+        }
+
+        // —— NCI：净现金投入（绝对值口径）覆盖率 + 汇总
+        if (netQty !== 0) {
+          if (avgCost === null) {
+            nciMissing = true;
+          } else {
+            const absQty = Math.abs(netQty);
+            const nciSingle = absQty * multiplier * avgCost;
+            totalNci += nciSingle;
+            hasNci = true;
+          }
+        }
+
+        // —— 持仓浮盈：只要有持仓但 mv 或 costBasis 缺，就视为覆盖不完整
+        if (netQty !== 0 && (mv === null || costBasis === null)) {
+          pnlMissing = true;
+        }
+
+        const dailyAgg = dailyTxAggregates.get(normalizedSymbol);
+        const todaysTrades = dailyAgg?.trades ?? [];
+
+        const { todayPl, todayPlStatus } = computeDayPnLSymbol(
+          { netQty, multiplier },
+          marketSession,
+          isTradingDay,
+          lastPriceData,
+          refEodMap[normalizedSymbol],
+          todayEodMap[normalizedSymbol],
+          todaysTrades,
+        );
+
+        allStatuses.push(todayPlStatus);
+
+        const todayPlPct: number | null = null;
+        const dayChange: number | null = null;
+        const dayChangePct: number | null = null;
+        const dayChangeStatus: 'under-construction' = 'under-construction';
+
+        if (mv !== null) totalMv += mv;
+        if (pnl !== null) totalPnl += pnl;
+        if (todayPl !== null) totalTodayPl += todayPl;
+
+        return {
+          symbol,
+          assetType,
+          netQty,
+          avgCost,
+          multiplier,
+          last,
+          mv,
+          pnl,
+          pnlPct,
+          todayPl,
+          todayPlPct,
+          todayPlStatus,
+          dayChange,
+          dayChangePct,
+          dayChangeStatus,
+          dayQtyDelta: dailyAgg?.dayQtyDelta ?? 0,
+          dayNotional: dailyAgg?.dayNotional ?? 0,
+          priceStatus,
+        };
+      });
+
+      // —— Day PnL 汇总状态（沿用原逻辑）
+      const statusSet = new Set(allStatuses);
+      let aggTodayPlStatus: AggTodayStatus;
+
+      if ([...statusSet].every((s) => s === 'live' || s === 'closed')) {
+        aggTodayPlStatus = marketSession === 'open' ? 'live' : 'closed';
+      } else if (
+        statusSet.size === 1 &&
+        (statusSet.has('session-pre') ||
+          statusSet.has('session-post') ||
+          statusSet.has('stale-last'))
+      ) {
+        aggTodayPlStatus = [...statusSet][0] as AggTodayStatus;
+      } else if ([...statusSet].some((s) => (s as string).startsWith('missing-'))) {
+        aggTodayPlStatus = 'degraded';
+      } else if (statusSet.has('pending-eod-fetch')) {
+        aggTodayPlStatus = 'pending-eod-fetch';
+      } else {
+        aggTodayPlStatus = 'degraded';
+      }
+
+      const finalTotalMv = rows.every((r) => r.mv === null) ? null : totalMv;
+      const finalTotalPnl = rows.every((r) => r.pnl === null) ? null : totalPnl;
+      const finalTotalTodayPl =
+        rows.every((r) => r.todayPl === null) ? null : totalTodayPl;
+      const finalTotalGrossMv = hasGrossMv ? totalGrossMv : null;
+      const finalTotalNci = hasNci ? totalNci : null;
+
+      // —— 会话基线状态（Session Status，只负责“盘中 / 待开盘 / 已收盘”）
+      let baseSessionStatus: AggTodayStatus;
+      if (marketSession === 'open') {
+        baseSessionStatus = 'live';
+      } else if (marketSession === 'pre-market') {
+        baseSessionStatus = 'session-pre';
+      } else if (marketSession === 'post-market') {
+        baseSessionStatus = 'session-post';
+      } else {
+        baseSessionStatus = 'closed';
+      }
+
+      // —— GMV 状态：参数驱动（修正后版本，收盘后不再强制 stale-last）
+      let gmvStatus: AggTodayStatus;
+      if (!hasGrossMv) {
+        // 没有任何可计算 GMV 的持仓（例如全空仓）
+        gmvStatus = 'degraded';
+      } else if (gmvMissing) {
+        // 有持仓但缺实时价 → “待更新”
+        gmvStatus = 'stale-last';
+      } else {
+        // 数据完整 → 严格跟随会话状态
+        // open         → live（盘中）
+        // pre-market   → session-pre（待开盘）
+        // post-market  → session-post（已收盘口径）
+        // closed       → closed（休市/周末）
+        gmvStatus = baseSessionStatus;
+      }
+
+      // —— NCI 状态：只看成本完整 + 时间窗口（不依赖实时价/EOD）
+      let nciStatus: AggTodayStatus;
+      if (!hasNci || nciMissing) {
+        // 成本不完整 → 直接降级为 degraded（降级/待补充）
+        nciStatus = 'degraded';
+      } else {
+        // 成本完整 → 跟随会话状态
+        nciStatus = baseSessionStatus;
+      }
+
+      // —— 持仓浮盈状态：同时依赖 GMV + NCI 的完整度
+      let pnlStatus: AggTodayStatus;
+      if (!hasGrossMv || !hasNci || pnlMissing) {
+        pnlStatus = 'degraded';
+      } else {
+        pnlStatus = baseSessionStatus;
+      }
 
       return {
-        symbol,
-        assetType,
-        netQty,
-        avgCost,
-        multiplier,
-        last,
-        mv,
-        pnl,
-        pnlPct,
-        todayPl,
-        todayPlPct,
-        todayPlStatus,
-        dayChange,
-        dayChangePct,
-        dayChangeStatus,
-        dayQtyDelta: dailyAgg?.dayQtyDelta ?? 0,
-        dayNotional: dailyAgg?.dayNotional ?? 0,
+        rows,
+        summary: {
+          totalMv: finalTotalMv,
+          totalPnl: finalTotalPnl,
+          totalTodayPl: finalTotalTodayPl,
+          aggTodayPlStatus,
+          totalGrossMv: finalTotalGrossMv,
+          totalNci: finalTotalNci,
+          gmvStatus,
+          nciStatus,
+          pnlStatus,
+        },
       };
-    });
+    },
+    [baseHoldings, dailyTxAggregates, refEodMap, todayEodMap, getPriceRecord],
+  );
 
-    // —— 汇总状态：与行级保持一致的白名单与降级策略
-    const statusSet = new Set(allStatuses);
-
-    let aggTodayPlStatus: AggTodayStatus;
-
-    if ([...statusSet].every(s => s === 'live' || s === 'closed')) {
-      aggTodayPlStatus = marketSession === 'open' ? 'live' : 'closed';
-    } else if (
-      statusSet.size === 1 &&
-      (statusSet.has('session-pre') ||
-        statusSet.has('session-post') ||
-        statusSet.has('stale-last'))
-    ) {
-      // 单一会话型状态 → 原样抬到汇总
-      aggTodayPlStatus = [...statusSet][0] as AggTodayStatus;
-    } else if ([...statusSet].some(s => (s as string).startsWith('missing-'))) {
-      aggTodayPlStatus = 'degraded';
-    } else if (statusSet.has('pending-eod-fetch')) {
-      aggTodayPlStatus = 'pending-eod-fetch';
-    } else {
-      aggTodayPlStatus = 'degraded';
-    }
-
-    const finalTotalMv = rows.every(r => r.mv === null) ? null : totalMv;
-    const finalTotalPnl = rows.every(r => r.pnl === null) ? null : totalPnl;
-    const finalTotalTodayPl = rows.every(r => r.todayPl === null) ? null : totalTodayPl;
-
-    return {
-      rows,
-      summary: {
-        totalMv: finalTotalMv,
-        totalPnl: finalTotalPnl,
-        totalTodayPl: finalTotalTodayPl,
-        aggTodayPlStatus,
-      },
-    };
-  }, [baseHoldings, prices, refEodMap, todayEodMap, dailyTxAggregates, priceCache]);
-
-  const loading = txLoading || priceLoading || eodLoading;
-
+  const loading = txLoading || eodLoading;
   return { rows, summary, loading };
 }

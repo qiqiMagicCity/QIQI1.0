@@ -4,20 +4,32 @@ import { useEffect, useId, useMemo } from 'react';
 import { usePriceCenterContext } from './RealTimePricesProvider';
 import type { PriceRecord } from './RealTimePricesProvider';
 
-/** 让调用方声明“我这块会用到哪些 symbols”，由 Provider 合并订阅统一分发 */
+/**
+ * useRealTimePrices（实时价格 Hook）：
+ * - 调用方声明“我会用到哪些 symbols”，由 Provider 合并订阅统一分发；
+ * - 通过 get(symbol) 随时读取当前最新价格；
+ * - snapshot 仅用于调试/批量，不主动触发渲染。
+ */
 export function useRealTimePrices(symbols: string[]) {
   const id = useId();
   const center = usePriceCenterContext();
 
+  const { register, unregister, get: getFromCenter, map } = center;
+
+  // 注册 / 取消注册：只跟函数本身和 symbols 变化有关，不跟价格变化绑定
   useEffect(() => {
-    center.register(id, symbols);
-    return () => { center.unregister(id); };
-  }, [center, id, symbols.join(',')]);
+    register(id, symbols);
+    return () => {
+      unregister(id);
+    };
+    // 注意：依赖 register/unregister 自身（它们是稳定引用），避免因为 Context value 换引用而反复重注册
+  }, [register, unregister, id, symbols.join(',')]);
 
-  const get = (symbol: string): PriceRecord | undefined => center.get(symbol);
+  // 读取某个 symbol 的当前 PriceRecord（价格记录）
+  const get = (symbol: string): PriceRecord | undefined => getFromCenter(symbol);
 
-  /** 提供一个只读的快照（注意：不触发渲染，主要用于调试/批量） */
-  const snapshot = useMemo(() => center.map, [center]);
+  /** 提供一个只读的快照（注意：不触发渲染，主要用于调试/批量查看） */
+  const snapshot = useMemo(() => map, [map]);
 
   return { get, snapshot };
 }
