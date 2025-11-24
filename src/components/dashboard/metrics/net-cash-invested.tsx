@@ -23,7 +23,7 @@ export function NetCashInvested() {
     );
   }
 
-  const value = summary.totalCost;
+  const value = summary.totalNci;
 
   return (
     <Card className="transition-all hover:shadow-lg hover:-translate-y-1 bg-background">

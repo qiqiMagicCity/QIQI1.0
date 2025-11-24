@@ -5,6 +5,7 @@ import { createPortal } from 'react-dom';
 import { Plus, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { AddTransactionForm } from '@/components/dashboard/add-transaction-form';
+import { BulkAddTransactionForm } from '@/components/dashboard/bulk-add-transaction-form';
 import { useSearchParams, useRouter } from "next/navigation";
 
 function CenterFloat({
@@ -52,7 +53,7 @@ export default function GlobalAddTransactionFab() {
   const isValidId = id && id !== "null" && id !== "undefined" && id.trim() !== "";
 
   useEffect(() => {
-    const shouldOpen = tx === "new" || (tx === "edit" && isValidId);
+    const shouldOpen = tx === "new" || tx === "bulk" || (tx === "edit" && isValidId);
     const nextOpen = !!shouldOpen;
     if (open !== nextOpen) setOpen(nextOpen);
   }, [tx, isValidId]);
@@ -87,7 +88,14 @@ export default function GlobalAddTransactionFab() {
 
       {open && (
         <CenterFloat onClose={closeAndCleanUrl}>
-          <AddTransactionForm onSuccess={closeAndCleanUrl} />
+          {tx === 'bulk' ? (
+            <div className="space-y-4">
+              <h2 className="text-lg font-semibold">批量添加交易</h2>
+              <BulkAddTransactionForm onSuccess={closeAndCleanUrl} />
+            </div>
+          ) : (
+            <AddTransactionForm onSuccess={closeAndCleanUrl} />
+          )}
         </CenterFloat>
       )}
     </>

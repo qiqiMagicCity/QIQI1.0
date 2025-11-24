@@ -111,5 +111,13 @@ service cloud.firestore {
       allow read: if true;     // get + list
       allow create, update, delete: if false;
     }
+
+    /**
+     * Meta collection (read-only for auth users)
+     * For debugging and system status
+     */
+    match /meta/{docId} {
+      allow read: if request.auth != null;
+    }
   }
 }

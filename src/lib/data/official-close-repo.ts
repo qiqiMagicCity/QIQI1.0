@@ -1,306 +1,153 @@
 // src/lib/data/official-close-repo.ts
-import { getApp, getApps } from "firebase/app";
 import {
   getFirestore,
+  getDocs,
   collection,
   query,
   where,
-  getDocs,
-} from "firebase/firestore";
-import { getFunctions, httpsCallable } from "firebase/functions";
+  documentId
+} from 'firebase/firestore';
+import { getFunctions, httpsCallable } from 'firebase/functions';
+import { initializeFirebase } from '@/firebase'; // 确保这个路径指向 src/firebase/index.ts
+import { toNyCalendarDayString } from '@/lib/ny-time';
 
-export type OfficialCloseResult = {
-  status: "ok" | "missing" | "pending" | "error";
+// --- 类型定义 ---
+export interface OfficialCloseResult {
+  status: 'ok' | 'error' | 'missing' | 'pending' | 'stale';
   close?: number;
-  currency?: string;
+  tradingDate?: string;
   provider?: string;
-  tz?: string;
-  retrievedAt?: string; // ISO string if present
-  hint?: string;
-};
-
-const MAX_BACKFILL_PER_CALL = 50;
-// Firestore `in` 查询一次最多 10 个 id
-const ID_CHUNK_LIMIT = 10;
-
-// ===== 内存缓存（安全版，不会挂起）=====
-type CacheVal = { value: OfficialCloseResult; ts: number };
-const CACHE_TTL_MS = 5 * 60 * 1000; // 5 分钟 TTL
-// key = `${date}_${symbol}`
-const EOD_CACHE = new Map<string, CacheVal>();
-
-// ---- lazy getters（禁止在模块顶层拿 app/db/fns）----
-function ensureApp() {
-  if (getApps().length === 0) {
-    // 统一由 client-provider 初始化；这里仅做防卫
-    throw new Error(
-      "[official-close-repo] Firebase app not initialized. Call initializeApp() in client-provider before using getMany()."
-    );
-  }
-  return getApp();
 }
 
-function getDb() {
-  const app = ensureApp();
-  return getFirestore(app);
-}
+// --- 全局状态：在途请求去重集合 (9.3.1 规则) ---
+// 作用：防止手抖或页面刷新时，重复发送一模一样的补齐请求
+const pendingBackfills = new Set<string>();
 
-function getRequestBackfillEod() {
-  const app = ensureApp();
-  // 显式 region，避免默认区域不一致
-  const fns = getFunctions(app, "us-central1");
-  return httpsCallable<{ date: string; symbols: string[] }, unknown>(
-    fns,
-    "requestBackfillEod"
-  );
-}
-
-// ---- utils ----
-function chunk<T>(arr: T[], size: number): T[][] {
-  const out: T[][] = [];
-  for (let i = 0; i < arr.length; i += size) out.push(arr.slice(i, i + size));
-  return out;
-}
-
-function isFiniteNumber(v: any): v is number {
-  return typeof v === "number" && Number.isFinite(v);
-}
-
-function toIso(ts: any): string | undefined {
-  // Firestore Timestamp
-  if (ts && typeof ts === "object" && typeof ts.toDate === "function") {
-    try {
-      return ts.toDate().toISOString();
-    } catch {
-      /* noop */
-    }
-  }
-  if (typeof ts === "string") return ts;
-  return undefined;
-}
-
-type NormalizedDoc =
-  | (OfficialCloseResult & { status: "ok"; close: number })
-  | OfficialCloseResult
-  | undefined;
+// --- 辅助：获取 NY 今日 ---
+const getNyToday = () => toNyCalendarDayString(Date.now());
 
 /**
- * 顶层优先；若顶层缺失/不合规，则从 attempts 里挑“最后一个有效尝试”
- * （status==='ok' 且 close 为有限数值）扁平化返回。
- * 仅当能得到有效 close 时才返回 {status:'ok', close,...}；
- * 否则返回 undefined 交由上层标记 error/missing。
+ * 批量获取 EOD 数据
+ * 功能：
+ * 1. 先查缓存/数据库有没有现成的。
+ * 2. 如果没有，且开启了自动补齐，就去呼叫后端。
+ * 3. 包含多重保护：不补今天的数据、不重复发请求。
  */
-function normalizeEodDoc(raw: any): NormalizedDoc {
-  if (!raw || typeof raw !== "object") return undefined;
-
-  const topStatus = typeof raw.status === "string" ? (raw.status as string) : undefined;
-  const topClose = isFiniteNumber(raw.close) ? (raw.close as number) : undefined;
-
-  // 顶层：若有数值 close，且（status 为 'ok' 或未提供但可视为 ok）
-  if (topClose != null && (topStatus === "ok" || topStatus == null)) {
-    return {
-      status: "ok",
-      close: topClose,
-      currency: raw.currency,
-      provider: raw.provider,
-      tz: raw.tz,
-      retrievedAt: toIso(raw.retrievedAt),
-    };
-  }
-
-  // 尝试从 attempts 兜底
-  const attempts = raw.attempts;
-  const pickFromAttempt = (a: any): NormalizedDoc => {
-    if (!a || typeof a !== "object") return undefined;
-    const st = typeof a.status === "string" ? (a.status as string) : undefined;
-    const cl = isFiniteNumber(a.close) ? (a.close as number) : undefined;
-    if (st === "ok" && cl != null) {
-      return {
-        status: "ok",
-        close: cl,
-        currency: a.currency ?? raw.currency,
-        provider: a.provider ?? raw.provider,
-        tz: a.tz ?? raw.tz,
-        retrievedAt: toIso(a.retrievedAt) ?? toIso(raw.retrievedAt),
-      };
-    }
-    return undefined;
-  };
-
-  if (Array.isArray(attempts) && attempts.length > 0) {
-    // 从后往前挑最后一个有效 'ok'
-    for (let i = attempts.length - 1; i >= 0; i--) {
-      const picked = pickFromAttempt(attempts[i]);
-      if (picked) return picked;
-    }
-  } else if (attempts && typeof attempts === "object") {
-    const picked = pickFromAttempt(attempts);
-    if (picked) return picked;
-  }
-
-  // 顶层若声明了 error/pending 之类，这里不强行改写
-  if (topStatus && topStatus !== "ok") {
-    return {
-      status: "error",
-      hint: `top_level_status_${topStatus}`,
-    };
-  }
-
-  return undefined;
-}
-
-function cacheGet(id: string): OfficialCloseResult | undefined {
-  const hit = EOD_CACHE.get(id);
-  if (!hit) return undefined;
-  if (Date.now() - hit.ts > CACHE_TTL_MS) {
-    EOD_CACHE.delete(id);
-    return undefined;
-  }
-  return hit.value;
-}
-
-function cacheSet(id: string, value: OfficialCloseResult) {
-  EOD_CACHE.set(id, { value, ts: Date.now() });
-}
-
-// ---- main API ----
-export async function getMany(
-  date: string,
+export async function getOfficialCloses(
+  tradingDate: string,
   symbols: string[],
-  opts?: { shouldAutoRequestBackfill?: boolean }
+  options?: { shouldAutoRequestBackfill?: boolean }
 ): Promise<Record<string, OfficialCloseResult>> {
+
+  if (!symbols || symbols.length === 0) return {};
+
+  const { firestore, firebaseApp } = initializeFirebase();
+
+  // --- 修正点：这里改成了正确的函数名 'requestBackfillEod' ---
+  // 这里的 'us-central1' 是 Google Cloud 的服务器位置，通常不用改，除非你部署在别处
+  const functions = getFunctions(firebaseApp, 'us-central1');
+  const requestBackfillFn = httpsCallable(functions, 'requestBackfillEod');
+  // ---------------------------------------------------------
+
+  // 1. 构建查询 ID 列表
+  const docIds = symbols.map(s => `${tradingDate}_${s}`);
   const results: Record<string, OfficialCloseResult> = {};
-  const uniqSymbols = Array.from(new Set((symbols ?? []).filter(Boolean)));
-  if (uniqSymbols.length === 0) return results;
 
-  const shouldAutoRequestBackfill = opts?.shouldAutoRequestBackfill ?? true;
+  // 先把结果都默认设为 "missing" (缺失)
+  symbols.forEach(s => {
+    results[s] = { status: 'missing' };
+  });
 
-  // 0) 命中缓存的先返回
-  const toFetch: string[] = [];
-  for (const s of uniqSymbols) {
-    const id = `${date}_${s}`;
-    const cached = cacheGet(id);
-    if (cached) {
-      results[s] = cached;
-    } else {
-      toFetch.push(s);
-    }
-  }
-  if (toFetch.length === 0) return results;
-
-  // 1) Firestore 命中（按 10 一批，避免 in 限制）
+  // 2. 查库 (Firestore)
   try {
-    const db = getDb();
-    const ids = toFetch.map((s) => `${date}_${s}`);
+    const colRef = collection(firestore, 'officialCloses');
+    // 这里一次性查询所有需要的 ID
+    const q = query(colRef, where(documentId(), 'in', docIds));
+    const snap = await getDocs(q);
 
-    // 先把“可能缺失”的都准备成 missing（防止任何情况下悬挂）
-    // 注意：等会儿读到文档就会覆写成 ok/error
-    for (const s of toFetch) {
-      if (!results[s]) {
-        results[s] = { status: "missing", hint: "Data not found in cache." };
+    snap.forEach(d => {
+      const data = d.data();
+
+      // 兼容 date / tradingDate
+      const rawTradingDate = data.tradingDate;
+      const rawDate = data.date;
+      const effectiveTradingDate =
+        typeof rawTradingDate === "string" && rawTradingDate
+          ? rawTradingDate
+          : typeof rawDate === "string" && rawDate
+            ? rawDate
+            : undefined;
+
+      if (data.symbol) {
+        results[data.symbol] = {
+          status: data.status === 'ok' ? 'ok' : 'error',
+          close: data.close,
+          tradingDate: effectiveTradingDate,
+          provider: data.provider
+        };
       }
+    });
+  } catch (e) {
+    console.error("[Repo] Failed to fetch officialCloses", e);
+    // 如果查库失败，保持 missing 状态，避免崩页面
+  }
+
+  // 3. 检查哪些还没查到 & 是否需要触发回填
+  const missingSymbols = symbols.filter(s => results[s].status === 'missing');
+
+  if (missingSymbols.length > 0 && options?.shouldAutoRequestBackfill) {
+
+    // 3.1 时间锁 (Time Guard)：绝对禁止补“今天”或“未来”
+    // 因为今天的数据要等收盘实时定格，不能靠补齐。
+    const today = getNyToday();
+    if (tradingDate >= today) {
+      console.debug(`[Repo] Skip backfill for today/future: ${tradingDate}`);
+      // 将今天的缺失状态改为 'stale' (待更新)，UI 会显示“待更新”而不是“缺失”
+      missingSymbols.forEach(s => {
+        results[s].status = 'stale';
+      });
+      return results;
     }
 
-    for (const idChunk of chunk(ids, ID_CHUNK_LIMIT)) {
-      const q = query(collection(db, "officialCloses"), where("__name__", "in", idChunk));
-      const snapshot = await getDocs(q);
+    // 3.2 内存去重 (In-flight Deduplication)：防止重复请求
+    const realCandidates = missingSymbols.filter(s => {
+      const key = `${tradingDate}_${s}`;
+      if (pendingBackfills.has(key)) return false; // 已经在路上了，跳过
+      return true;
+    });
 
-      // 标记本批次中实际命中的 id
-      const hitIds = new Set<string>();
+    if (realCandidates.length > 0) {
+      // 标记为“正在请求中”
+      realCandidates.forEach(s => pendingBackfills.add(`${tradingDate}_${s}`));
 
-      snapshot.forEach((d) => {
-        hitIds.add(d.id);
-
-        const sep = d.id.indexOf("_");
-        const symbol = sep >= 0 ? d.id.slice(sep + 1) : d.id;
-
-        const raw: any = d.data() ?? {};
-        const normalized = normalizeEodDoc(raw);
-
-        if (normalized && normalized.status === "ok" && isFiniteNumber(normalized.close)) {
-          results[symbol] = normalized;
-          cacheSet(`${date}_${symbol}`, normalized);
-        } else if (raw && typeof raw === "object") {
-          const val: OfficialCloseResult = { status: "error", hint: "invalid_eod_doc" };
-          results[symbol] = val;
-          cacheSet(`${date}_${symbol}`, val);
-        }
+      // 临时将结果标记为 pending，让 UI 显示转圈圈
+      realCandidates.forEach(s => {
+        results[s].status = 'pending';
       });
 
-      // 这批里没命中的 id → 确认 missing（并入缓存，防止重复查）
-      for (const id of idChunk) {
-        if (!hitIds.has(id)) {
-          const sep = id.indexOf("_");
-          const symbol = sep >= 0 ? id.slice(sep + 1) : id;
-          const val: OfficialCloseResult = { status: "missing", hint: "Data not found in cache." };
-          results[symbol] = val;
-          cacheSet(id, val);
-        }
-      }
-    }
-  } catch (err: any) {
-    // 读取出错：将尚未有结果的符号标为 error（避免崩溃/悬挂），并入缓存
-    for (const s of toFetch) {
-      if (!results[s] || results[s].status === "missing") {
-        const val: OfficialCloseResult = {
-          status: "error",
-          hint:
-            (err?.code === "permission-denied" && "firestore_permission_denied") ||
-            "firestore_read_error",
-        };
-        results[s] = val;
-        cacheSet(`${date}_${s}`, val);
-      }
-    }
-  }
+      // 发起请求 (后端去干活，我们不傻等结果)
+      console.log(`[Repo] Triggering backfill for ${realCandidates.length} symbols on ${tradingDate}`);
 
-  // 2)（可选）同步逐批触发回填（仅针对 missing 符号）
-  if (shouldAutoRequestBackfill) {
-    const missingSymbols: string[] = [];
-    for (const s of uniqSymbols) {
-      if (results[s]?.status === "missing") missingSymbols.push(s);
-    }
+      requestBackfillFn({ date: tradingDate, symbols: realCandidates })
+        .then(() => {
+          // 成功后，过5秒再释放锁，允许重试 (给后端一点写入时间)
+          setTimeout(() => {
+            realCandidates.forEach(s => pendingBackfills.delete(`${tradingDate}_${s}`));
+          }, 5000);
+        })
+        .catch(err => {
+          console.error("[Repo] Backfill request failed", err);
+          // 失败了立即释放锁，允许用户刷新重试
+          realCandidates.forEach(s => pendingBackfills.delete(`${tradingDate}_${s}`));
+        });
 
-    if (missingSymbols.length > 0) {
-      const call = getRequestBackfillEod();
-      for (const batch of chunk(missingSymbols, MAX_BACKFILL_PER_CALL)) {
-        let success = false;
-        let lastError: unknown = null;
-
-        for (let i = 0; i < 2; i++) {
-          try {
-            await call({ date, symbols: batch });
-            success = true;
-            break;
-          } catch (e) {
-            lastError = e;
-            if (i === 0) await new Promise((r) => setTimeout(r, 300));
-          }
-        }
-
-        if (success) {
-          batch.forEach((s) => {
-            const val: OfficialCloseResult = {
-              ...(results[s] ?? {}),
-              status: "pending",
-              hint: "Backfill request initiated.",
-            };
-            results[s] = val;
-            cacheSet(`${date}_${s}`, val);
-          });
-        } else {
-          console.warn("[official-close-repo] Failed to queue backfill batch", {
-            date,
-            batchSize: batch.length,
-            error: (lastError as any)?.message ?? lastError,
-          });
-          batch.forEach((s) => {
-            const val: OfficialCloseResult = { status: "error", hint: "backfill_request_failed" };
-            results[s] = val;
-            cacheSet(`${date}_${s}`, val);
-          });
-        }
-      }
+      // 兜底保险：30秒后无论如何强制释放锁，防止死锁
+      setTimeout(() => {
+        realCandidates.forEach(s => pendingBackfills.delete(`${tradingDate}_${s}`));
+      }, 30000);
+    } else {
+      // 虽然缺失，但已经在请求路上了，所以也标记为 pending
+      missingSymbols.forEach(s => results[s].status = 'pending');
     }
   }
 

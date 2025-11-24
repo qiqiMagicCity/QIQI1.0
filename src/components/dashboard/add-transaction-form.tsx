@@ -96,6 +96,7 @@ export function AddTransactionForm({ onSuccess, defaultValues }: AddTransactionF
   const firestore = useFirestore();
   const { user } = useUser();
   const qtyRef = useRef<HTMLInputElement>(null);
+  const priceRef = useRef<HTMLInputElement>(null);
   const [assetType, setAssetType] = useState<'stock' | 'option'>('stock');
 
   // Option-specific state
@@ -118,10 +119,10 @@ export function AddTransactionForm({ onSuccess, defaultValues }: AddTransactionF
       const sideStr = side === 'buy' ? '买' : '卖';
       const openCloseStr = openClose === 'open' ? '开' : '平';
       const cpStr = cp;
-      
+
       summary = `${symbol || ''} ${openCloseStr}${sideStr} ${quantity || ''} ${expiryStr} ${strike || ''}${cpStr} @ ${price || ''}`.trim();
     }
-    
+
     await copy(summary);
   };
 
@@ -287,7 +288,7 @@ export function AddTransactionForm({ onSuccess, defaultValues }: AddTransactionF
       };
       delete (payload as any).date;
       delete (payload as any).time;
-      
+
       if (editingId) {
         const docRef = doc(firestore, "users", user.uid, "transactions", editingId);
         await updateDoc(docRef, payload);
@@ -305,7 +306,7 @@ export function AddTransactionForm({ onSuccess, defaultValues }: AddTransactionF
         title: "成功！",
         description: editingId ? "您的交易已更新。" : "您的交易已记录。",
       });
-      
+
       onSuccess?.();
 
     } catch (error) {
@@ -361,34 +362,34 @@ export function AddTransactionForm({ onSuccess, defaultValues }: AddTransactionF
         {assetType === 'option' && (
           <div className="space-y-6 p-4 border rounded-md bg-emerald-100/30 border-emerald-200 dark:bg-emerald-900/20 dark:border-emerald-800">
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                <FormItem className="md:col-span-1">
-                  <FormLabel>标的</FormLabel>
-                  <FormControl>
-                    <Input placeholder="AAPL" value={underlying} onChange={e => setUnderlying(e.target.value.toUpperCase())} />
-                  </FormControl>
-                </FormItem>
-                <FormItem className="md:col-span-1">
-                  <FormLabel>到期日</FormLabel>
-                  <Popover>
-                    <PopoverTrigger asChild>
-                      <FormControl>
-                        <Button variant={"outline"} className={cn("w-full pl-3 text-left font-normal", !expiry && "text-muted-foreground")}>
-                          {expiry ? toNyCalendarDayString(expiry) : <span>选择日期</span>}
-                          <CalendarIcon className="ml-auto h-4 w-4 opacity-50" />
-                        </Button>
-                      </FormControl>
-                    </PopoverTrigger>
-                    <PopoverContent className="w-auto p-0" align="start">
-                      <Calendar mode="single" selected={expiry} onSelect={setExpiry} initialFocus locale={zhCN} />
-                    </PopoverContent>
-                  </Popover>
-                </FormItem>
-                <FormItem className="md:col-span-1">
-                  <FormLabel>行权价</FormLabel>
-                  <FormControl>
-                    <Input type="number" placeholder="200" value={strike} onChange={e => setStrike(e.target.value)} />
-                  </FormControl>
-                </FormItem>
+              <FormItem className="md:col-span-1">
+                <FormLabel>标的</FormLabel>
+                <FormControl>
+                  <Input placeholder="AAPL" value={underlying} onChange={e => setUnderlying(e.target.value.toUpperCase())} />
+                </FormControl>
+              </FormItem>
+              <FormItem className="md:col-span-1">
+                <FormLabel>到期日</FormLabel>
+                <Popover>
+                  <PopoverTrigger asChild>
+                    <FormControl>
+                      <Button variant={"outline"} className={cn("w-full pl-3 text-left font-normal", !expiry && "text-muted-foreground")}>
+                        {expiry ? toNyCalendarDayString(expiry) : <span>选择日期</span>}
+                        <CalendarIcon className="ml-auto h-4 w-4 opacity-50" />
+                      </Button>
+                    </FormControl>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-auto p-0" align="start">
+                    <Calendar mode="single" selected={expiry} onSelect={setExpiry} initialFocus locale={zhCN} />
+                  </PopoverContent>
+                </Popover>
+              </FormItem>
+              <FormItem className="md:col-span-1">
+                <FormLabel>行权价</FormLabel>
+                <FormControl>
+                  <Input type="number" placeholder="200" value={strike} onChange={e => setStrike(e.target.value)} />
+                </FormControl>
+              </FormItem>
             </div>
             <FormItem className="space-y-3">
               <FormLabel>类型</FormLabel>
@@ -431,13 +432,13 @@ export function AddTransactionForm({ onSuccess, defaultValues }: AddTransactionF
                       value={field.value ?? ''}
                       onChange={(v) => field.onChange(v)}
                       placeholder="输入代码/中文/英文查找"
-                      onSelected={() => qtyRef.current?.focus()}
+                      onSelected={() => priceRef.current?.focus()}
                     />
                   ) : (
                     <Input readOnly {...field} placeholder="由上方期权要素自动生成" />
                   )}
                   <Button variant="ghost" size="icon" type="button" onClick={handleCopy} title="复制下单摘要" className="shrink-0">
-                      <Copy className="h-4 w-4" />
+                    <Copy className="h-4 w-4" />
                   </Button>
                   {copied && <span className="text-xs text-muted-foreground animate-pulse absolute -bottom-5 right-0">已复制</span>}
                 </div>
@@ -536,12 +537,12 @@ export function AddTransactionForm({ onSuccess, defaultValues }: AddTransactionF
         <div className="grid grid-cols-2 gap-4">
           <FormField
             control={form.control}
-            name="quantity"
+            name="price"
             render={({ field }) => (
               <FormItem>
-                <FormLabel>{assetType === 'stock' ? '数量 (股)' : '数量 (合约)'}</FormLabel>
+                <FormLabel>价格 (每份)</FormLabel>
                 <FormControl>
-                  <Input type="number" placeholder="100" {...field} value={field.value ?? ''} ref={qtyRef} />
+                  <Input type="number" placeholder="150.25" step="0.01" {...field} value={field.value ?? ''} ref={priceRef} />
                 </FormControl>
                 <FormMessage />
               </FormItem>
@@ -549,12 +550,12 @@ export function AddTransactionForm({ onSuccess, defaultValues }: AddTransactionF
           />
           <FormField
             control={form.control}
-            name="price"
+            name="quantity"
             render={({ field }) => (
               <FormItem>
-                <FormLabel>价格 (每份)</FormLabel>
+                <FormLabel>{assetType === 'stock' ? '数量 (股)' : '数量 (合约)'}</FormLabel>
                 <FormControl>
-                  <Input type="number" placeholder="150.25" step="0.01" {...field} value={field.value ?? ''} />
+                  <Input type="number" placeholder="100" {...field} value={field.value ?? ''} ref={qtyRef} />
                 </FormControl>
                 <FormMessage />
               </FormItem>
@@ -630,4 +631,4 @@ export function AddTransactionForm({ onSuccess, defaultValues }: AddTransactionF
   );
 }
 
-    
+

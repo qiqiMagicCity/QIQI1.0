@@ -1,9 +1,8 @@
-
 import { toNyCalendarDayString } from '@/lib/ny-time';
 
 // #region: Type Definitions
 export type AssetType = 'stock' | 'option';
-export type SideTx = 'BUY' | 'SELL';
+export type SideTx = 'BUY' | 'SELL' | 'NOTE';
 
 export interface Tx {
   symbol: string;
@@ -12,7 +11,11 @@ export interface Tx {
   qty: number;
   price: number;
   multiplier?: number;
-  transactionTimestamp: number; // UTC milliseconds
+  transactionTimestamp: number; // UTC milliseconds（协调世界时毫秒时间戳）
+  // —— 可选：来自 use-user-transactions 的扩展字段 —— 
+  contractKey?: string; // 标的去空格 + 到期日 + 行权价 + C/P（期权合约标识）
+  isOption?: boolean;   // 是否期权，优先使用 assetType==='option'
+  opKind?: string;      // 操作类型 (BUY, SELL, SPLIT, etc.)
 }
 
 export interface Holding {
@@ -22,6 +25,7 @@ export interface Holding {
   multiplier: number;
   costBasis: number;
   costPerUnit: number;
+  realizedPnl: number;
   side: 'LONG' | 'SHORT';
   lastTxNy: string;
   nowPrice: null;
@@ -48,13 +52,16 @@ interface FifoLayer {
   ts: number;
 }
 
+import { getCumulativeSplitFactor } from './stock-splits';
+
 /**
  * Derives a holdings snapshot from a list of transactions using FIFO logic.
  * This is a pure function with no side effects or I/O.
  * @param transactions An array of raw transaction objects.
+ * @param targetDate Optional. If set, only apply splits effective on or before this date.
  * @returns A snapshot of current holdings.
  */
-export function buildHoldingsSnapshot(transactions: Tx[]): Snapshot {
+export function buildHoldingsSnapshot(transactions: Tx[], targetDate?: string): Snapshot {
   const audit = {
     txRead: transactions.length,
     txUsed: 0,
@@ -65,40 +72,67 @@ export function buildHoldingsSnapshot(transactions: Tx[]): Snapshot {
 
   const anomalies: Map<string, string[]> = new Map();
   const recordAnomaly = (key: string, message: string) => {
-    if (!anomalies.has(key)) anomalies.set(key, []);
-    anomalies.get(key)!.push(message);
+    const k = (key || '').toUpperCase();
+    if (!anomalies.has(k)) anomalies.set(k, []);
+    anomalies.get(k)!.push(message);
     audit.anomalyCount++;
   };
 
   // 1. Normalize and filter transactions
   const validTxs = transactions
     .map((tx, i) => {
-      const key = tx.symbol || `tx_${i}`;
-      if (!tx.symbol || typeof tx.qty !== 'number' || typeof tx.price !== 'number' || typeof tx.transactionTimestamp !== 'number') {
+      const key = (tx.symbol || `tx_${i}`).toUpperCase();
+      if (
+        !tx.symbol ||
+        typeof tx.qty !== 'number' ||
+        typeof tx.price !== 'number' ||
+        typeof tx.transactionTimestamp !== 'number'
+      ) {
         recordAnomaly(key, `Missing required field (symbol/qty/price/ts)`);
         return null;
       }
-      
+
       const assetType: AssetType = tx.assetType || 'stock';
-      if (!tx.assetType) recordAnomaly(key, "assumed:stock");
+      if (!tx.assetType) recordAnomaly(key, 'assumed:stock');
+
+      // [FIX] Ignore explicit SPLIT transactions
+      if (tx.opKind === 'SPLIT') return null;
 
       const side: SideTx = tx.side || (tx.qty > 0 ? 'BUY' : 'SELL');
-      if (!tx.side) recordAnomaly(key, "side_inferred_from_qty");
+      if (!tx.side) recordAnomaly(key, 'side_inferred_from_qty');
 
       let qty = tx.qty;
       if ((side === 'BUY' && qty < 0) || (side === 'SELL' && qty > 0)) {
-        recordAnomaly(key, `qty_sign_mismatch: side=${side}, qty=${qty}. Normalizing SELL to negative.`);
+        recordAnomaly(
+          key,
+          `qty_sign_mismatch: side=${side}, qty=${qty}. Normalizing SELL to negative.`,
+        );
         if (side === 'SELL') qty = -Math.abs(qty);
       }
-      
+
       const multiplier = tx.multiplier ?? (assetType === 'option' ? 100 : 1);
+
+      // —— 在进入 FIFO 之前按“股票拆分事件”统一口径（Split-Adjusted Quantity/Price，拆分统一后的数量/价格）——
+      let adjQty = qty;
+      let adjPrice = tx.price;
+      const splitFactor = getCumulativeSplitFactor(tx.symbol, tx.transactionTimestamp, targetDate);
+
+      if (splitFactor !== 1) {
+        adjQty = qty * splitFactor;
+        adjPrice = tx.price / splitFactor;
+        recordAnomaly(
+          key,
+          `split_adjusted:factor=${splitFactor}, orig_qty=${qty}, orig_price=${tx.price}`,
+        );
+      }
 
       return {
         ...tx,
         symbol: tx.symbol.toUpperCase(),
         assetType,
         side,
-        qty,
+        qty: adjQty,
+        price: adjPrice,
         multiplier,
       };
     })
@@ -106,10 +140,23 @@ export function buildHoldingsSnapshot(transactions: Tx[]): Snapshot {
 
   audit.txUsed = validTxs.length;
 
-  // 2. Group by (symbol, assetType)
+  // 2. Group by 合约身份（期权用 contractKey，其它用规范化 symbol）
   const groups = new Map<string, typeof validTxs>();
   for (const tx of validTxs) {
-    const key = `${tx.symbol}|${tx.assetType}`;
+    const assetType = tx.assetType;
+    const isOption = assetType === 'option' || tx.isOption === true;
+
+    const normalizedSymbol = tx.symbol.toUpperCase(); // normalizeSymbolForGrouping removed, use simple upper case or import if needed. 
+    // Wait, normalizeSymbolForGrouping was used for grouping. I should probably keep it or import it if I want exact same behavior.
+    // But normalizeSymbolForClient in other files does similar things.
+    // Let's just use tx.symbol which is already normalized in step 1.
+    const groupKeyBase =
+      isOption && tx.contractKey
+        ? tx.contractKey
+        : normalizedSymbol;
+
+    // key 结构：groupKey|原始显示 symbol|assetType
+    const key = `${groupKeyBase}|${tx.symbol}|${assetType}`;
     if (!groups.has(key)) groups.set(key, []);
     groups.get(key)!.push(tx);
   }
@@ -118,63 +165,86 @@ export function buildHoldingsSnapshot(transactions: Tx[]): Snapshot {
 
   // 3. Process each group with FIFO logic
   for (const [key, txsInGroup] of groups.entries()) {
+    const [, symbol, assetTypeStr] = key.split('|');
+    const assetType = assetTypeStr as AssetType;
+
     txsInGroup.sort((a, b) => a.transactionTimestamp - b.transactionTimestamp);
 
     const longLayers: FifoLayer[] = [];
     const shortLayers: FifoLayer[] = [];
+    let realizedPnl = 0; // 累计已实现盈亏
 
     for (const tx of txsInGroup) {
       if (tx.side === 'BUY') {
         let buyQty = tx.qty;
-        // First, cover any short positions
+        // 先平掉空头
         while (buyQty > 0 && shortLayers.length > 0) {
           const shortLayer = shortLayers[0];
           const coverQty = Math.min(buyQty, Math.abs(shortLayer.qty));
+
+          // 平空头盈亏 = (开仓价 - 平仓价) * 数量 * multiplier
+          const pnl = (shortLayer.price - tx.price) * coverQty * (tx.multiplier ?? 1);
+          realizedPnl += pnl;
+
           shortLayer.qty += coverQty;
           buyQty -= coverQty;
           if (shortLayer.qty === 0) shortLayers.shift();
         }
-        // Any remaining buy quantity opens a new long position
+        // 剩余部分开多头
         if (buyQty > 0) {
-          longLayers.push({ qty: buyQty, price: tx.price, ts: tx.transactionTimestamp });
+          longLayers.push({
+            qty: buyQty,
+            price: tx.price,
+            ts: tx.transactionTimestamp,
+          });
         }
-      } else { // SELL
+      } else {
+        // SELL（卖出）
         let sellQty = Math.abs(tx.qty);
-        // First, close any long positions
+        // 先平多头
         while (sellQty > 0 && longLayers.length > 0) {
           const longLayer = longLayers[0];
           const closeQty = Math.min(sellQty, longLayer.qty);
+
+          // 平多头盈亏 = (卖出价 - 持仓价) * 数量 * multiplier
+          const pnl = (tx.price - longLayer.price) * closeQty * (tx.multiplier ?? 1);
+          realizedPnl += pnl;
+
           longLayer.qty -= closeQty;
           sellQty -= closeQty;
           if (longLayer.qty === 0) longLayers.shift();
         }
-        // Any remaining sell quantity opens a new short position
+        // 剩余部分开空头
         if (sellQty > 0) {
-          shortLayers.push({ qty: -sellQty, price: tx.price, ts: tx.transactionTimestamp });
+          shortLayers.push({
+            qty: -sellQty,
+            price: tx.price,
+            ts: tx.transactionTimestamp,
+          });
         }
       }
     }
 
-    const netQty = longLayers.reduce((sum, l) => sum + l.qty, 0) + shortLayers.reduce((sum, s) => sum + s.qty, 0);
+    const netQty =
+      longLayers.reduce((sum, l) => sum + l.qty, 0) +
+      shortLayers.reduce((sum, s) => sum + s.qty, 0);
 
     if (netQty === 0) {
       audit.positionsZeroNetDropped++;
       continue;
     }
-    
-    const [symbol, assetTypeStr] = key.split('|');
-    const assetType = assetTypeStr as AssetType;
+
     const isLong = netQty > 0;
     const relevantLayers = isLong ? longLayers : shortLayers;
     const multiplier = txsInGroup[0].multiplier;
 
     const costBasis = relevantLayers.reduce((sum, layer) => {
-        return sum + Math.abs(layer.qty) * layer.price * multiplier;
+      return sum + Math.abs(layer.qty) * layer.price * multiplier;
     }, 0);
 
     const costPerUnit = costBasis / (Math.abs(netQty) * multiplier);
-    
-    const lastTxTs = Math.max(...relevantLayers.map(l => l.ts));
+
+    const lastTxTs = Math.max(...relevantLayers.map((l) => l.ts));
 
     holdings.push({
       symbol,
@@ -183,12 +253,13 @@ export function buildHoldingsSnapshot(transactions: Tx[]): Snapshot {
       multiplier,
       costBasis,
       costPerUnit,
+      realizedPnl, // 新增字段
       side: isLong ? 'LONG' : 'SHORT',
       lastTxNy: toNyCalendarDayString(new Date(lastTxTs)),
       nowPrice: null,
-      plFloating: "--",
+      plFloating: '--',
       status: 'calc_pending',
-      anomalies: anomalies.get(symbol) || [],
+      anomalies: anomalies.get(symbol.toUpperCase()) || [],
     });
     audit.positionsProduced++;
   }

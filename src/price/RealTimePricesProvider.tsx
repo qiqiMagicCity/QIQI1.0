@@ -1,5 +1,4 @@
 'use client';
-
 import React, {
   createContext,
   useCallback,
@@ -35,15 +34,15 @@ type PriceCenterCtx = {
 
 const PriceCenterContext = createContext<PriceCenterCtx | null>(null);
 
-const FRESHNESS_MS = 15_000;   // 实时价新鲜阈值 15s（毫秒）
+const FRESHNESS_MS = 60_000;   // 实时价新鲜阈值 60s（毫秒）
 const QUEUE_GAP_MS = 7_000;    // 队列间隔 ≥7s（遵守全局规则）
-const TIMEOUT_MS   = 6_000;    // 拉价超时（HTTP 超时）
+const TIMEOUT_MS = 6_000;    // 拉价超时（HTTP 超时）
 const CACHE_TTL_MS = 60_000;   // 主动拉价缓存有效期 60s
 
 // 2025/2026 交易日假期表（与 use-holdings 对齐）
 const US_MARKET_HOLIDAYS = new Set<string>([
-  '2025-01-01','2025-01-20','2025-02-17','2025-04-18','2025-05-26','2025-06-19','2025-07-04','2025-09-01','2025-11-27','2025-12-25',
-  '2026-01-01','2026-01-19','2026-02-16','2026-04-03','2026-05-25','2026-06-19','2026-07-03','2026-09-07','2026-11-26','2026-12-25',
+  '2025-01-01', '2025-01-20', '2025-02-17', '2025-04-18', '2025-05-26', '2025-06-19', '2025-07-04', '2025-09-01', '2025-11-27', '2025-12-25',
+  '2026-01-01', '2026-01-19', '2026-02-16', '2026-04-03', '2026-05-25', '2026-06-19', '2026-07-03', '2026-09-07', '2026-11-26', '2026-12-25',
 ]);
 
 // 根据当前纽约时间判断市场会话（pre/open/post/closed）
@@ -56,8 +55,8 @@ function getMarketSession(now: Date): 'pre' | 'open' | 'post' | 'closed' {
   const t = hh * 3600 + mm * 60 + ss;
 
   const PRE_OPEN = 4 * 3600;
-  const OPEN     = 9 * 3600 + 30 * 60;
-  const CLOSE    = 16 * 3600;
+  const OPEN = 9 * 3600 + 30 * 60;
+  const CLOSE = 16 * 3600;
   const POST_END = 20 * 3600;
 
   if (t >= OPEN && t < CLOSE) return 'open';
@@ -69,7 +68,6 @@ function getMarketSession(now: Date): 'pre' | 'open' | 'post' | 'closed' {
 export const RealTimePricesProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { user, isUserLoading } = useUser();
   const firestore = useFirestore();
-
   const functions = useMemo(() => getFunctions(undefined, 'us-central1'), []);
   const priceQuote = useMemo(() => httpsCallable(functions, 'priceQuote'), [functions]);
 
@@ -80,8 +78,7 @@ export const RealTimePricesProvider: React.FC<{ children: React.ReactNode }> = (
 
   // === 消费者订阅集合：合并成全局观测符号集 ===
   const consumers = useRef<Map<string, Set<string>>>(new Map());
-  const observed  = useRef<Set<string>>(new Set());
-
+  const observed = useRef<Set<string>>(new Set());
   // 观察集合版本号（用于触发订阅 effect 重新执行）
   const [observedVer, setObservedVer] = useState(0);
 
@@ -121,15 +118,21 @@ export const RealTimePricesProvider: React.FC<{ children: React.ReactNode }> = (
       seen.add(symbol);
 
       const ref = doc(firestore, 'stockDetails', symbol);
-
       const u = onSnapshot(ref, snap => {
         if (!snap.exists()) return;
 
         const data: any = snap.data();
-        const price = (data?.last ?? data?.close ?? null) as number | null;
-        if (price === undefined) return;
+        const last = data?.last;
 
+        // 只接受合法的数值型 last（常规盘最后一笔成交价），不再用 close 等字段兜底
+        if (typeof last !== 'number' || !Number.isFinite(last)) {
+          // 没有合法 last：保持现有价格记录不变，宁可不更新，也不乱写
+          return;
+        }
+
+        const price = last as number;
         const nowTs = Date.now();
+
         const rec: PriceRecord = {
           price,
           ts: nowTs,
@@ -192,21 +195,39 @@ export const RealTimePricesProvider: React.FC<{ children: React.ReactNode }> = (
           priceQuote({ symbol: s }) as Promise<any>,
           TIMEOUT_MS,
         );
+
         const price = (result?.data as any)?.price as number | null;
         const nowTs = Date.now();
 
-        const eff = price ?? existing?.price ?? null; // 失败时回退到上次有效价
-        const rec: PriceRecord = {
-          price: eff,
-          ts: nowTs,
-          status: deriveStatus(eff, nowTs),
-        };
+        if (price != null) {
+          // 成功拿到新价格：更新价格 + 时间戳 + 状态
+          const rec: PriceRecord = {
+            price: price,
+            ts: nowTs,
+            status: deriveStatus(price, nowTs),
+          };
 
-        setMapState(prev => {
-          const next = new Map(prev);
-          next.set(s, rec);
-          return next;
-        });
+          setMapState(prev => {
+            const next = new Map(prev);
+            next.set(s, rec);
+            return next;
+          });
+        } else {
+          // API 返回 null (失败/无数据)：保持原有价格，但标记为 stale (或者保持原有状态)
+          // 绝对不能更新 ts 为 nowTs，否则会掩盖数据陈旧的事实！
+          const prev = mapRef.current.get(s);
+          const rec: PriceRecord = {
+            price: prev?.price ?? null,
+            ts: prev?.ts ?? Date.now(), // 保持原有时间戳
+            status: prev?.price != null ? 'stale' : 'error',
+          };
+
+          setMapState(prevMap => {
+            const next = new Map(prevMap);
+            next.set(s, rec);
+            return next;
+          });
+        }
       } catch (_err) {
         // 超时/失败：使用上次有效价 + stale（待刷新）
         const prev = mapRef.current.get(s);

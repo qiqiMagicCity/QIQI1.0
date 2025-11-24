@@ -11,7 +11,7 @@ import { StatusBadge } from "@/components/ui/status-badge";
 import { useRequireAuth } from "@/components/auth/guards";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useHoldings } from "@/hooks/use-holdings";
-import { DollarSign, Wallet, TrendingUp, TrendingDown } from "lucide-react";
+import { DollarSign, Wallet, TrendingUp } from "lucide-react";
 
 const TransactionHistory = dynamic(
   () =>
@@ -75,22 +75,10 @@ export default function Home() {
   const nciDisplay = loading ? "--" : formatCurrency(summary.totalNci);
   const pnlDisplay = loading ? "--" : formatSigned(summary.totalPnl);
 
-  const pnlIsPositive =
-    !loading &&
-    typeof summary.totalPnl === "number" &&
-    Number.isFinite(summary.totalPnl) &&
-    summary.totalPnl > 0;
-
-  const pnlIsNegative =
-    !loading &&
-    typeof summary.totalPnl === "number" &&
-    Number.isFinite(summary.totalPnl) &&
-    summary.totalPnl < 0;
-
   return (
     <div className="flex min-h-screen w-full flex-col">
       <DashboardHeader />
-      <main className="flex flex-1 flex-col ">
+      <main className="flex flex-1 flex-col">
         <div className="p-4 md:p-6 border-b border-border/20 bg-transparent">
           <Tabs defaultValue="home">
             <TabsList>
@@ -110,7 +98,6 @@ export default function Home() {
                         组合概览与关键指标
                       </p>
                     </div>
-                    {/* 顶部整体组合徽章已按要求移除 */}
                   </div>
 
                   <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 md:grid-cols-3">
@@ -118,17 +105,15 @@ export default function Home() {
                     <Card className="transition-all hover:shadow-lg hover:-translate-y-1 bg-background/100">
                       <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
                         <div className="flex items-center gap-2">
-                          <CardTitle className="text-sm font-medium text-muted-foreground">
+                          <CardTitle className="text-base font-bold">
                             总持仓市值（Gross Market Value，GMV）
                           </CardTitle>
                         </div>
-                        {/* GMV 专属徽章：用 gmvStatus */}
                         <StatusBadge status={summary?.gmvStatus ?? "degraded"} />
                       </CardHeader>
                       <CardContent>
                         <div className="flex items-baseline gap-2">
                           <DollarSign className="h-5 w-5 text-muted-foreground" />
-                          {/* 数字放大 + 绿色 */}
                           <div className="text-3xl font-bold text-emerald-600">
                             {gmvDisplay}
                           </div>
@@ -142,16 +127,14 @@ export default function Home() {
                     {/* 2）净现金投入 NCI */}
                     <Card className="transition-all hover:shadow-lg hover:-translate-y-1 bg-background/100">
                       <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                        <CardTitle className="text-sm font-medium text-muted-foreground">
+                        <CardTitle className="text-base font-bold">
                           净现金投入（Net Cash Invested，NCI）
                         </CardTitle>
-                        {/* NCI 专属徽章：用 nciStatus，只看成本完整度 + 时间窗口 */}
                         <StatusBadge status={summary?.nciStatus ?? "degraded"} />
                       </CardHeader>
                       <CardContent>
                         <div className="flex items-baseline gap-2">
                           <Wallet className="h-5 w-5 text-muted-foreground" />
-                          {/* 数字放大 + 绿色 */}
                           <div className="text-3xl font-bold text-emerald-600">
                             {nciDisplay}
                           </div>
@@ -165,20 +148,14 @@ export default function Home() {
                     {/* 3）按市价计价利润（Mark-to-Market Profit）（总 P&L） */}
                     <Card className="transition-all hover:shadow-lg hover:-translate-y-1 bg-background/100">
                       <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                        <CardTitle className="text-sm font-medium text-muted-foreground">
+                        <CardTitle className="text-base font-bold">
                           按市价计价利润（Mark-to-Market Profit）
                         </CardTitle>
-                        {/* 按市价计价利润（Mark-to-Market Profit）专属徽章：同时依赖 GMV + NCI 覆盖度 */}
                         <StatusBadge status={summary?.pnlStatus ?? "degraded"} />
                       </CardHeader>
                       <CardContent>
                         <div className="flex items-baseline gap-2">
-                          {pnlIsNegative ? (
-                            <TrendingDown className="h-5 w-5 text-muted-foreground" />
-                          ) : (
-                            <TrendingUp className="h-5 w-5 text-muted-foreground" />
-                          )}
-                          {/* 数字放大 + 统一绿色，不再区分正负颜色 */}
+                          <TrendingUp className="h-5 w-5 text-muted-foreground" />
                           <div className="text-3xl font-bold text-emerald-600">
                             {pnlDisplay}
                           </div>

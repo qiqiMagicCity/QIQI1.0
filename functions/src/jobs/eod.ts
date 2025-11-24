@@ -68,14 +68,19 @@ export const eodJob = onSchedule(
     // 非交易日保护（周末/节假日直接跳过）
     const tradable = await isNyTradingDay(db, date);
     if (!tradable) {
-      await db.doc(`meta/dailyJobs/eod-${date}`).set(
-        {
-          status: "skipped-non-trading-day",
-          date,
-          finishedAt: admin.firestore.FieldValue.serverTimestamp(),
-        },
-        { merge: true }
-      );
+      await db
+        .collection("meta")
+        .doc("dailyJobs")
+        .collection("eod")
+        .doc(date)
+        .set(
+          {
+            status: "skipped-non-trading-day",
+            date,
+            finishedAt: admin.firestore.FieldValue.serverTimestamp(),
+          },
+          { merge: true }
+        );
       return;
     }
 
@@ -99,15 +104,20 @@ export const eodJob = onSchedule(
         );
       }
 
-      await db.doc(`meta/dailyJobs/eod-${date}`).set(
-        {
-          status: "skipped-no-symbols",
-          date,
-          reason,
-          finishedAt: admin.firestore.FieldValue.serverTimestamp(),
-        },
-        { merge: true }
-      );
+      await db
+        .collection("meta")
+        .doc("dailyJobs")
+        .collection("eod")
+        .doc(date)
+        .set(
+          {
+            status: "skipped-no-symbols",
+            date,
+            reason,
+            finishedAt: admin.firestore.FieldValue.serverTimestamp(),
+          },
+          { merge: true }
+        );
 
       return;
     }
@@ -132,42 +142,57 @@ export const eodJob = onSchedule(
       ).length;
       const errCount = list.length - okCount;
 
-      await db.doc(`meta/dailyJobs/eod-${date}`).set(
-        {
-          status: errCount > 0 ? "error" : "success",
-          date,
-          counts: { ok: okCount, error: errCount },
-          results,
-          finishedAt: admin.firestore.FieldValue.serverTimestamp(),
-        },
-        { merge: true }
-      );
+      await db
+        .collection("meta")
+        .doc("dailyJobs")
+        .collection("eod")
+        .doc(date)
+        .set(
+          {
+            status: errCount > 0 ? "error" : "success",
+            date,
+            counts: { ok: okCount, error: errCount },
+            results,
+            finishedAt: admin.firestore.FieldValue.serverTimestamp(),
+          },
+          { merge: true }
+        );
     } catch (e: any) {
       if (
         e?.code === "failed-precondition" &&
         e?.details?.reason === "no_provider_covers_date"
       ) {
-        await db.doc(`meta/dailyJobs/eod-${date}`).set(
-          {
-            status: "skipped-out-of-coverage",
-            date,
-            reason: e.message,
-            details: e.details,
-            finishedAt: admin.firestore.FieldValue.serverTimestamp(),
-          },
-          { merge: true }
-        );
+        await db
+          .collection("meta")
+          .doc("dailyJobs")
+          .collection("eod")
+          .doc(date)
+          .set(
+            {
+              status: "skipped-out-of-coverage",
+              date,
+              reason: e.message,
+              details: e.details,
+              finishedAt: admin.firestore.FieldValue.serverTimestamp(),
+            },
+            { merge: true }
+          );
       } else {
-        await db.doc(`meta/dailyJobs/eod-${date}`).set(
-          {
-            status: "error",
-            date,
-            reason: e?.message,
-            details: e?.details,
-            finishedAt: admin.firestore.FieldValue.serverTimestamp(),
-          },
-          { merge: true }
-        );
+        await db
+          .collection("meta")
+          .doc("dailyJobs")
+          .collection("eod")
+          .doc(date)
+          .set(
+            {
+              status: "error",
+              date,
+              reason: e?.message,
+              details: e?.details,
+              finishedAt: admin.firestore.FieldValue.serverTimestamp(),
+            },
+            { merge: true }
+          );
         throw e;
       }
     }

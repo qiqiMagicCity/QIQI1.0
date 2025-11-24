@@ -25,7 +25,10 @@ import {
   Undo2,
   Tag,
   Sparkles,
+  Search,
+  X,
 } from 'lucide-react';
+import { Input } from '@/components/ui/input';
 import {
   Popover,
   PopoverContent,
@@ -71,6 +74,7 @@ const DeleteFiveIcon = dynamic(() => import('@icon-park/react').then(m => m.Dele
 
 
 const fmtNum = (n: number) => Number(n).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const fmtPrice = (n: number) => Number(n).toLocaleString(undefined, { minimumFractionDigits: 4, maximumFractionDigits: 4 });
 const fmtInt = (n: number) => Number(n).toLocaleString(undefined, { maximumFractionDigits: 0 });
 
 function AssetBadge({ assetType }: { assetType: Tx['assetType'] }) {
@@ -88,46 +92,27 @@ function AssetBadge({ assetType }: { assetType: Tx['assetType'] }) {
   );
 }
 
-// 让“操作”列对【股票与期权】使用同一套标签与色板（买入/卖出/卖空/补回）
-function ActionBadge({ opKind }: { opKind: OpKind }) {
-  const PALETTE = {
-    BUY:  'bg-emerald-600',
-    SELL: 'bg-red-600',
-    SHORT:'bg-violet-600',
-    COVER:'bg-blue-600',
-    // 期权动作映射到同色板（保持一致）
-    BTO:  'bg-emerald-600',
-    STC:  'bg-red-600',
-    STO:  'bg-violet-600',
-    BTC:  'bg-blue-600',
-  } as const;
+// ... (ActionBadge function remains the same)
 
-  const Icon =
-    opKind === 'SHORT' || opKind === 'STO' ? TrendingDown
-    : opKind === 'COVER' || opKind === 'BTC' ? Undo2
-    : opKind === 'SELL'  || opKind === 'STC' ? ArrowDownLeft
-    : ArrowUpRight;
+// ... (TransactionHistory component)
 
-  const text =
-    opKind === 'BTO'   ? '买入' :
-    opKind === 'STO'   ? '卖空' :
-    opKind === 'STC'   ? '卖出' :
-    opKind === 'BTC'   ? '补回' :
-    opKind === 'SELL'  ? '卖出' :
-    opKind === 'SHORT' ? '卖空' :
-    opKind === 'COVER' ? '补回' : '买入';
 
-  return (
-    <span className={cn('inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-white', PALETTE[opKind])}>
-      <Icon className="w-3.5 h-3.5" />
-      <span>{text}</span>
-    </span>
-  );
-}
 
+import { ActionBadge } from '@/components/common/action-badge';
+
+
+import { addMonths, subMonths, format, startOfMonth, endOfMonth } from 'date-fns';
+import { ChevronLeft, ChevronRight } from 'lucide-react';
+
+// ... (keep existing imports)
 
 export function TransactionHistory() {
-  const [date, setDate] = useState<DateRange | undefined>(undefined);
+  // 默认显示当前月
+  const [currentMonth, setCurrentMonth] = useState<Date>(new Date());
+  // 搜索状态
+  const [searchSymbol, setSearchSymbol] = useState('');
+  const [searchDate, setSearchDate] = useState<Date | undefined>(undefined);
+
   const isMobile = useIsMobile();
 
   const router = useRouter();
@@ -148,6 +133,13 @@ export function TransactionHistory() {
     });
   }
 
+  function openBulkTx() {
+    replaceQuery(qs => {
+      qs.set("tx", "bulk");
+      qs.delete("id");
+    });
+  }
+
   function openEditTx(id?: string) {
     if (!id || id === "null" || id === "undefined" || id.trim() === "") return; // 守卫
     replaceQuery(qs => {
@@ -161,28 +153,58 @@ export function TransactionHistory() {
   const { user } = useUser();
 
   const { data, loading, error, warnings } = useUserTransactions(user?.uid);
-  
-  const startNy = date?.from ? toNyCalendarDayString(date.from) : null;
-  const endNy   = date?.to   ? toNyCalendarDayString(date.to)   : startNy;
+
+  // 计算当前月的起止日期（纽约时间字符串）
+  const startNy = toNyCalendarDayString(startOfMonth(currentMonth));
+  const endNy = toNyCalendarDayString(endOfMonth(currentMonth));
 
   const rows = useMemo(() => {
     if (!data?.length) return [];
-  
-    const filtered = (!startNy || !endNy) ? data : data.filter(tx => {
-      if (!tx.transactionTimestamp) return false;
-      const d = toNyCalendarDayString(tx.transactionTimestamp);
-      const s = startNy <= endNy ? startNy : endNy;
-      const e = startNy <= endNy ? endNy : startNy;
-      return d >= s && d <= e;
+
+    // 搜索模式：如果有搜索条件，则忽略月份筛选
+    const isSearching = !!searchSymbol || !!searchDate;
+
+    const filtered = data.filter(tx => {
+      // 1. 标的搜索 (精确匹配)
+      if (searchSymbol) {
+        const sym = tx.symbol.toUpperCase();
+        const q = searchSymbol.toUpperCase().trim();
+        if (sym !== q) return false;
+      }
+
+      // 2. 日期搜索 (精确匹配纽约日期)
+      if (searchDate) {
+        if (!tx.transactionTimestamp) return false;
+        const txDate = toNyCalendarDayString(tx.transactionTimestamp);
+        const targetDate = toNyCalendarDayString(searchDate);
+        if (txDate !== targetDate) return false;
+      }
+
+      // 3. 如果没有搜索条件，则应用月份筛选
+      if (!isSearching) {
+        if (!tx.transactionTimestamp) return false;
+        const d = toNyCalendarDayString(tx.transactionTimestamp);
+        if (d < startNy || d > endNy) return false;
+      }
+
+      return true;
     });
 
     return filtered.map(tx => {
-        const absQty = Math.abs(tx.qty);
-        const amount = tx.qty * tx.price * tx.multiplier;
-        return { ...tx, absQty, amount };
+      const absQty = Math.abs(tx.qty);
+      const amount = tx.qty * tx.price * tx.multiplier;
+      return { ...tx, absQty, amount };
     });
 
-  }, [data, startNy, endNy]);
+  }, [data, startNy, endNy, searchSymbol, searchDate]);
+
+  const handlePrevMonth = () => setCurrentMonth(prev => subMonths(prev, 1));
+  const handleNextMonth = () => setCurrentMonth(prev => addMonths(prev, 1));
+
+  const clearSearch = () => {
+    setSearchSymbol('');
+    setSearchDate(undefined);
+  };
 
   // Delete logic
   async function handleDelete(tx: any) {
@@ -207,7 +229,7 @@ export function TransactionHistory() {
       toast({
         variant: "destructive",
         title: "删除失败",
-        description: `无法删除交易记录：${err?.message || String(err)}`, 
+        description: `无法删除交易记录：${err?.message || String(err)}`,
       });
     }
   }
@@ -215,75 +237,102 @@ export function TransactionHistory() {
   return (
     <section id="history" className="scroll-mt-20">
       <Card>
-        <CardHeader className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
-          <div>
-            <CardTitle>交易历史</CardTitle>
-            <CardDescription>所有过去交易的详细记录。</CardDescription>
+        <CardHeader className="flex flex-col gap-4">
+          <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+            <div>
+              <CardTitle>交易历史</CardTitle>
+              <CardDescription>所有过去交易的详细记录。</CardDescription>
+            </div>
+            <div className="flex items-center gap-2">
+              <Button type="button" variant="outline" size="sm" className="h-8 gap-1" onClick={openBulkTx}>
+                <PlusCircle className="h-3.5 w-3.5" />
+                <span className="sr-only sm:not-sr-only sm:whitespace-nowrap">批量添加</span>
+              </Button>
+              <Button type="button" size="sm" className="h-8 gap-1" onClick={openNewTx}>
+                <PlusCircle className="h-3.5 w-3.5" />
+                <span className="sr-only sm:not-sr-only sm:whitespace-nowrap">添加交易</span>
+              </Button>
+            </div>
           </div>
-          <div className="flex items-center gap-2">
-            <Button type="button" size="sm" className="h-8 gap-1" onClick={openNewTx}>
-              <PlusCircle className="h-3.5 w-3.5" />
-              <span className="sr-only sm:not-sr-only sm:whitespace-nowrap">添加交易</span>
-            </Button>
+
+          {/* 搜索工具栏 */}
+          <div className="flex flex-wrap items-center gap-2 bg-muted/30 p-2 rounded-md border">
+            <div className="relative w-full sm:w-48">
+              <Search className="absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
+              <Input
+                placeholder="搜索标的..."
+                value={searchSymbol}
+                onChange={(e) => setSearchSymbol(e.target.value)}
+                className="pl-8 h-9"
+              />
+            </div>
+
             <Popover>
               <PopoverTrigger asChild>
                 <Button
-                  id="date"
-                  variant={'outline'}
-                  size="sm"
+                  variant={"outline"}
                   className={cn(
-                    'h-8 w-full md:w-[240px] justify-start text-left font-normal',
-                    !date && 'text-muted-foreground'
+                    "w-full sm:w-[180px] justify-start text-left font-normal h-9",
+                    !searchDate && "text-muted-foreground"
                   )}
                 >
-                  <CalendarIcon className="mr-2 h-3.5 w-3.5" />
-                  {date?.from ? (
-                    date.to ? (
-                      <>
-                        {toNyCalendarDayString(date.from)} - {toNyCalendarDayString(date.to)}
-                      </>
-                    ) : (
-                      toNyCalendarDayString(date.from)
-                    )
-                  ) : (
-                    <span>选择一个日期</span>
-                  )}
+                  <CalendarIcon className="mr-2 h-4 w-4" />
+                  {searchDate ? format(searchDate, "yyyy-MM-dd") : <span>选择日期</span>}
                 </Button>
               </PopoverTrigger>
-              <PopoverContent className="w-auto p-0" align="end">
+              <PopoverContent className="w-auto p-0" align="start">
                 <Calendar
+                  mode="single"
+                  selected={searchDate}
+                  onSelect={setSearchDate}
                   initialFocus
-                  mode="range"
-                  defaultMonth={date?.from}
-                  selected={date}
-                  onSelect={setDate}
-                  numberOfMonths={isMobile ? 1 : 2}
-                  locale={zhCN}
                 />
               </PopoverContent>
             </Popover>
+
+            {(searchSymbol || searchDate) && (
+              <Button variant="ghost" size="sm" onClick={clearSearch} className="h-9 px-2 lg:px-3">
+                <X className="mr-2 h-4 w-4" />
+                重置
+              </Button>
+            )}
+
+            {/* Month Navigation (Only show when NOT searching) */}
+            {(!searchSymbol && !searchDate) && (
+              <div className="flex items-center border rounded-md bg-background ml-auto">
+                <Button variant="ghost" size="icon" className="h-8 w-8" onClick={handlePrevMonth}>
+                  <ChevronLeft className="h-4 w-4" />
+                </Button>
+                <div className="px-2 text-sm font-medium min-w-[90px] text-center">
+                  {format(currentMonth, 'yyyy年 MM月', { locale: zhCN })}
+                </div>
+                <Button variant="ghost" size="icon" className="h-8 w-8" onClick={handleNextMonth}>
+                  <ChevronRight className="h-4 w-4" />
+                </Button>
+              </div>
+            )}
           </div>
         </CardHeader>
         {warnings && warnings.length > 0 && (
           <div className="px-6 pb-2 -mt-4 text-xs text-amber-600 dark:text-amber-500">
-             ⚠ 部分数据源加载失败或存在格式问题: {warnings.join('; ')}
+            ⚠ 部分数据源加载失败或存在格式问题: {warnings.join('; ')}
           </div>
         )}
         <CardContent className="p-0">
           <div className="w-full overflow-x-auto">
-            <div className="min-w-[800px] sm:min-w-full">
+            <div className="min-w-[800px]">
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead className="min-w-[160px]">日期</TableHead>
-                    <TableHead>标的代码</TableHead>
-                    <TableHead className="hidden sm:table-cell">标的中文名</TableHead>
-                    <TableHead>类型</TableHead>
-                    <TableHead>操作</TableHead>
-                    <TableHead className="text-right">价格</TableHead>
-                    <TableHead className="text-right">数量</TableHead>
-                    <TableHead className="text-right">总计金额</TableHead>
-                    <TableHead className="text-center">管理</TableHead>
+                    <TableHead className="w-[160px]">日期</TableHead>
+                    <TableHead className="w-[100px]">标的代码</TableHead>
+                    <TableHead className="hidden sm:table-cell w-[200px]">标的中文名</TableHead>
+                    <TableHead className="w-[80px]">类型</TableHead>
+                    <TableHead className="w-[80px]">操作</TableHead>
+                    <TableHead className="text-right w-[100px]">价格</TableHead>
+                    <TableHead className="text-right w-[100px]">数量</TableHead>
+                    <TableHead className="text-right w-[120px]">总计金额</TableHead>
+                    <TableHead className="text-center w-[100px]">管理</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -336,11 +385,11 @@ export function TransactionHistory() {
                         <TableCell><AssetBadge assetType={tx.assetType} /></TableCell>
                         <TableCell><ActionBadge opKind={tx.opKind} /></TableCell>
                         <TableCell className="text-right font-mono">
-                           {fmtNum(tx.price)}
+                          {fmtPrice(tx.price)}
                         </TableCell>
                         <TableCell className="text-right font-mono">
-                           {fmtInt(tx.absQty)}
-                           {tx.multiplier !== 1 ? <span className="text-muted-foreground text-xs"> ×{fmtInt(tx.multiplier)}</span> : null}
+                          {fmtInt(tx.absQty)}
+                          {tx.multiplier !== 1 ? <span className="text-muted-foreground text-xs"> ×{fmtInt(tx.multiplier)}</span> : null}
                         </TableCell>
                         <TableCell className={cn('text-right font-mono', tx.amount < 0 ? 'text-red-600' : 'text-emerald-600')}>
                           {fmtNum(tx.amount)}
@@ -440,7 +489,7 @@ export function TransactionHistory() {
 
 // Helper to get doc ref safely, returns null if params are missing
 function getTxDocRef(firestore: any, tx: { id: string; source: 'transactions' | 'trades' }, ownerUid: string | null) {
-   if (!firestore || !ownerUid || !tx?.id) return null;
-   const collectionName = tx.source === 'trades' ? 'trades' : 'transactions';
-   return doc(firestore, 'users', ownerUid, collectionName, tx.id);
+  if (!firestore || !ownerUid || !tx?.id) return null;
+  const collectionName = tx.source === 'trades' ? 'trades' : 'transactions';
+  return doc(firestore, 'users', ownerUid, collectionName, tx.id);
 }

@@ -14,6 +14,9 @@ import { useToast } from '@/hooks/use-toast';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import Link from 'next/link';
 import { ArrowLeft } from 'lucide-react';
+import { EodCheck } from '@/components/settings/eod-check';
+import { DebugM9Breakdown } from '@/components/dashboard/debug-m9-breakdown';
+import { DebugM6Breakdown } from '@/components/dashboard/debug-m6-breakdown';
 
 export default function SettingsPage() {
   const { ready, user } = useRequireAuth();
@@ -43,7 +46,7 @@ export default function SettingsPage() {
       setIsSaving(false);
     }
   };
-  
+
   if (!ready) {
     return (
       <div className="flex items-center justify-center min-h-screen">
@@ -58,24 +61,26 @@ export default function SettingsPage() {
       <main className="flex-1 p-4 md:p-6 lg:p-8">
         <div className="mx-auto max-w-4xl space-y-6">
           <div className="flex items-center gap-4">
-             <Link href="/">
+            <Link href="/">
               <Button variant="outline" size="icon" className="h-8 w-8">
                 <ArrowLeft className="h-4 w-4" />
                 <span className="sr-only">返回首页</span>
               </Button>
             </Link>
             <div>
-                <h1 className="text-2xl font-bold tracking-tight">设置</h1>
-                <p className="text-muted-foreground">管理您的账户设置和网站偏好。</p>
+              <h1 className="text-2xl font-bold tracking-tight">设置</h1>
+              <p className="text-muted-foreground">管理您的账户设置和网站偏好。</p>
             </div>
           </div>
           <Separator />
 
           <Tabs defaultValue="account">
-            <TabsList className="grid w-full grid-cols-2">
+            <TabsList className="grid w-full grid-cols-3">
               <TabsTrigger value="account">账户</TabsTrigger>
               <TabsTrigger value="appearance">外观</TabsTrigger>
+              <TabsTrigger value="data-check">数据自检</TabsTrigger>
             </TabsList>
+
             <TabsContent value="account">
               <Card>
                 <CardHeader>
@@ -105,6 +110,7 @@ export default function SettingsPage() {
                 </CardContent>
               </Card>
             </TabsContent>
+
             <TabsContent value="appearance">
               <Card>
                 <CardHeader>
@@ -115,6 +121,33 @@ export default function SettingsPage() {
                   <div className="text-sm text-muted-foreground">
                     主题切换功能正在开发中，敬请期待！
                   </div>
+                </CardContent>
+              </Card>
+            </TabsContent>
+
+            <TabsContent value="data-check">
+              <Card>
+                <CardHeader>
+                  <CardTitle>数据自检与修复</CardTitle>
+                  <CardDescription>检查数据完整性并验证计算结果。</CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <Tabs defaultValue="eod">
+                    <TabsList className="grid w-full grid-cols-3">
+                      <TabsTrigger value="eod">EOD 数据检查</TabsTrigger>
+                      <TabsTrigger value="m6">M6 当日盈亏</TabsTrigger>
+                      <TabsTrigger value="m9">M9 累计盈亏</TabsTrigger>
+                    </TabsList>
+                    <TabsContent value="eod" className="mt-4">
+                      <EodCheck />
+                    </TabsContent>
+                    <TabsContent value="m6" className="mt-4">
+                      <DebugM6Breakdown />
+                    </TabsContent>
+                    <TabsContent value="m9" className="mt-4">
+                      <DebugM9Breakdown />
+                    </TabsContent>
+                  </Tabs>
                 </CardContent>
               </Card>
             </TabsContent>

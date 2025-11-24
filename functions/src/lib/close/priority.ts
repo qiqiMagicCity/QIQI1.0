@@ -19,6 +19,33 @@ interface Attempt {
   ts?: number;
 }
 
+/**
+ * 清理 Attempt 里的 undefined 字段，避免 Firestore 拒绝写入
+ * - 所有值为 undefined 的字段都不写入
+ * - error 对象内部同样做一次清理
+ */
+function sanitizeAttempt(input: Attempt): Attempt {
+  const out: any = {};
+
+  for (const [key, value] of Object.entries(input)) {
+    if (value === undefined) continue;
+
+    if (key === "error" && value && typeof value === "object") {
+      const errOut: any = {};
+      for (const [ek, ev] of Object.entries(value as any)) {
+        if (ev !== undefined) {
+          errOut[ek] = ev;
+        }
+      }
+      out.error = errOut;
+    } else {
+      out[key] = value;
+    }
+  }
+
+  return out as Attempt;
+}
+
 /* ---------------- Inlined Marketstack Provider ---------------- */
 const marketstackProvider: CloseProvider = {
   name: "marketstack",
@@ -29,7 +56,6 @@ const marketstackProvider: CloseProvider = {
     }
 
     const url = `http://api.marketstack.com/v1/eod?access_key=${apiKey}&symbols=${symbol}&date_from=${dateYYYYMMDD}&date_to=${dateYYYYMMDD}&limit=1`;
-
     const startTime = Date.now();
     let response: any;
 
@@ -95,6 +121,7 @@ const stockdataProvider: CloseProvider = {
     // 首选 date 参数
     const url1 = `https://api.stockdata.org/v1/data/eod?api_token=${apiKey}&symbols=${symbol}&date=${dateYYYYMMDD}&limit=1`;
     let response: any = await fetch(url1);
+
     if (!response?.ok) {
       const status = response?.status ?? -1;
       const statusText = response?.statusText ?? "No Response";
@@ -109,6 +136,7 @@ const stockdataProvider: CloseProvider = {
     if (!data?.data || !Array.isArray(data.data) || data.data.length === 0) {
       const url2 = `https://api.stockdata.org/v1/data/eod?api_token=${apiKey}&symbols=${symbol}&date_from=${dateYYYYMMDD}&date_to=${dateYYYYMMDD}&limit=1`;
       response = await fetch(url2);
+
       if (!response?.ok) {
         const status = response?.status ?? -1;
         const statusText = response?.statusText ?? "No Response";
@@ -116,7 +144,9 @@ const stockdataProvider: CloseProvider = {
           `StockData.org 兜底请求失败: ${statusText} (status: ${status})`
         );
       }
+
       data = await response.json();
+
       if (!data?.data || !Array.isArray(data.data) || data.data.length === 0) {
         throw new Error(
           `StockData.org 返回 ${dateYYYYMMDD} 无数据（date 与 date_from/date_to 均为空）`
@@ -147,7 +177,7 @@ const stockdataProvider: CloseProvider = {
 
 /**
  * 构建“官方收盘价（EOD, End Of Day）”供应商优先级列表。
- * 修正点：现在“默认”就包含 FMP（财务建模准备 FMP）、Marketstack、StockData.org，
+ * 修正点：现在“默认”就包含 FMP、Marketstack、StockData.org，
  * 这样 request-backfill-eod 的“覆盖校验”不会因为 providers 为空而恒为 false。
  *
  * 可通过 opts 开关选择性启用；如未指定 opts，默认三个都包含。
@@ -157,8 +187,8 @@ export function buildDefaultCloseProviders(
   opts?: {
     enableMarketstack?: boolean;
     enableStockdata?: boolean;
-    targetYmd?: string; // 目标纽约日（用于可选的覆盖过滤）
-    nowNyYmd?: string;  // 当前纽约日（用于可选的覆盖过滤）
+    targetYmd?: string; // 目标纽约日
+    nowNyYmd?: string; // 当前纽约日
   }
 ): CloseProvider[] {
   // 1) 基础顺序：FMP → Marketstack → StockData.org
@@ -198,30 +228,33 @@ export function buildDefaultCloseProviders(
 /**
  * 失败转移（failover）：按 providers 顺序依次尝试获取某日 EOD。
  * 任一成功即返回，并携带 attempts（尝试记录）方便排障。
+ *
+ * 从当前版本开始，额外支持 ctx（上下文），用于把 db 等对象传给 provider：
+ * - ctx 结构不做强约束，由调用方约定。
  */
 export async function getCloseWithFailover(
   providers: CloseProvider[],
   symbol: string,
   date: string,
-  secrets: Record<string, string>
+  secrets: Record<string, string>,
+  ctx?: any
 ) {
   const attempts: Attempt[] = [];
-  let result:
-    | Awaited<ReturnType<CloseProvider["getClose"]>>
-    | null = null;
+  let result: Awaited<ReturnType<CloseProvider["getClose"]>> | null = null;
 
   for (const provider of providers) {
     if (result) {
       // 已成功则后续标记为跳过
-      attempts.push({ p: provider.name, s: "skipped" });
+      attempts.push(sanitizeAttempt({ p: provider.name, s: "skipped" }));
       continue;
     }
+
     try {
-      const closeData = await provider.getClose(symbol, date, secrets);
+      const closeData = await provider.getClose(symbol, date, secrets, ctx);
       result = closeData;
-      attempts.push({ p: provider.name, s: "ok" });
+      attempts.push(sanitizeAttempt({ p: provider.name, s: "ok" }));
     } catch (e: any) {
-      attempts.push({
+      const rawAttempt: Attempt = {
         p: provider.name,
         provider: provider.name,
         symbol,
@@ -234,13 +267,15 @@ export async function getCloseWithFailover(
         hint: e?.hint,
         rateLimitReset: e?.rateLimitReset,
         ts: e?.ts ?? Date.now(),
-      });
+      };
+      attempts.push(sanitizeAttempt(rawAttempt));
     }
   }
 
   if (result) {
     return { ...result, attempts };
   }
+
   throw new Error("All providers failed to get close price", {
     cause: attempts as any,
   });

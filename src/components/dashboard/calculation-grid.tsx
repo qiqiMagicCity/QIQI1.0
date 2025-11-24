@@ -1,79 +1,335 @@
 'use client';
 
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { useHoldings } from "@/hooks/use-holdings";
-import { StatusBadge } from "@/components/ui/status-badge";
-import { DollarSign, TrendingUp, TrendingDown } from "lucide-react";
-import { cn } from "@/lib/utils";
-import { Skeleton } from "@/components/ui/skeleton";
+import { useHoldings } from '@/hooks/use-holdings';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Skeleton } from '@/components/ui/skeleton';
+import {
+  LucideIcon,
+  CheckCircle2,
+  Activity,
+  BarChart2,
+  History,
+  Wallet,
+  Trophy,
+  CalendarDays,
+  Calendar,
+  CalendarRange,
+} from 'lucide-react';
+import { cn, formatCurrency } from '@/lib/utils';
+import { StatusBadge } from '@/components/ui/status-badge';
+import { DebugM9Breakdown } from './debug-m9-breakdown';
 
-const formatCurrency = (value: number) => {
-  const sign = value > 0 ? '+' : '';
-  return sign + value.toFixed(2);
-};
+interface MetricSubItem {
+  label: string;
+  value: number | null;
+  formattedValue: string | React.ReactNode;
+}
+
+interface MetricItem {
+  title: string;
+  icon: LucideIcon;
+  theme: string;
+  value?: number | null;
+  formattedValue?: string | React.ReactNode;
+  subItems?: MetricSubItem[];
+  isPnl?: boolean;
+  iconCls?: string; // Optional for backward compatibility if needed
+  valueCls?: string; // Optional
+}
 
 export function CalculationGrid() {
-  const { summary, loading } = useHoldings();
+  const { summary, rows, loading } = useHoldings();
 
   if (loading) {
     return (
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 md:grid-cols-3">
-        {[...Array(3)].map((_, i) => (
-          <Card key={i}>
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <Skeleton className="h-4 w-2/5" />
-              <Skeleton className="h-5 w-5" />
-            </CardHeader>
-            <CardContent>
-              <Skeleton className="h-8 w-3/5" />
-            </CardContent>
-          </Card>
-        ))}
+      <div className="space-y-4">
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          {[...Array(4)].map((_, i) => (
+            <Card key={`r1-${i}`} className="min-h-[120px] border-none shadow-sm bg-muted/20">
+              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                <Skeleton className="h-4 w-1/3" />
+                <Skeleton className="h-5 w-5 rounded-full" />
+              </CardHeader>
+              <CardContent>
+                <Skeleton className="h-8 w-2/3" />
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 lg:w-3/4 lg:mx-auto">
+          {[...Array(3)].map((_, i) => (
+            <Card key={`r2-${i}`} className="min-h-[120px] border-none shadow-sm bg-muted/20">
+              <CardContent className="pt-6">
+                <Skeleton className="h-8 w-full" />
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 lg:w-3/4 lg:mx-auto">
+          {[...Array(3)].map((_, i) => (
+            <Card key={`r3-${i}`} className="min-h-[120px] border-none shadow-sm bg-muted/20">
+              <CardContent className="pt-6">
+                <Skeleton className="h-8 w-full" />
+              </CardContent>
+            </Card>
+          ))}
+        </div>
       </div>
     );
   }
 
-  const showTodayPlNumber =
-    (summary?.aggTodayPlStatus === 'live' || summary?.aggTodayPlStatus === 'closed') &&
-    typeof summary?.totalTodayPl === 'number';
+  if (!summary) {
+    return null;
+  }
 
-  const metrics = [
+  // Helper to get PnL color text
+  const getPnLColor = (val: number | null | undefined) => {
+    if (val == null) return "text-muted-foreground";
+    if (val > 0) return "text-emerald-700 dark:text-emerald-400";
+    if (val < 0) return "text-red-700 dark:text-red-400";
+    return "text-muted-foreground";
+  };
+
+  // Helper to get Card Theme Styles - Unified Sky Blue Theme
+  // Returns: { bg, border, iconBg, iconColor }
+  const getThemeStyles = (color: string) => {
+    return {
+      bg: "bg-sky-100 dark:bg-sky-900/40",
+      border: "border-sky-200 dark:border-sky-800",
+      iconBg: "bg-white/80 dark:bg-sky-800",
+      iconColor: "text-sky-700 dark:text-sky-300",
+    };
+  };
+
+  // Helper to render Trade Counts Row
+  const renderTradeCountsRow = (counts: { buy: number; sell: number; short: number; cover: number; total: number } | undefined, label?: string) => (
+    <div className="flex items-center gap-1 text-sm font-mono">
+      {label && <span className="w-10 text-muted-foreground mr-1">{label}</span>}
+      <span className="text-green-600 font-bold">B/{counts?.buy ?? 0}</span>
+      <span className="mx-1"> </span>
+      <span className="text-red-600 font-bold">S/{counts?.sell ?? 0}</span>
+      <span className="mx-1"> </span>
+      <span className="text-purple-600 font-bold">P/{counts?.short ?? 0}</span>
+      <span className="mx-1"> </span>
+      <span className="text-blue-600 font-bold">C/{counts?.cover ?? 0}</span>
+      <span className="mx-1"> </span>
+      <span className="text-foreground font-bold">【{counts?.total ?? 0}】</span>
+    </div>
+  );
+
+  // Helper to render Win Rate Row
+  const renderWinRateRow = (stats: { winCount: number; lossCount: number; winRate: number } | undefined, label?: string) => (
+    <div className="flex items-center gap-1 text-sm font-mono">
+      {label && <span className="w-10 text-muted-foreground mr-1">{label}</span>}
+      <span className="text-green-600 font-bold">W/{stats?.winCount ?? 0}</span>
+      <span className="mx-1"> </span>
+      <span className="text-red-600 font-bold">L/{stats?.lossCount ?? 0}</span>
+      <span className="mx-1"> </span>
+      <span className="text-foreground font-bold">{(stats?.winRate ? (stats.winRate * 100).toFixed(1) : "0.0")}%</span>
+    </div>
+  );
+
+  // Define the 10 metrics with their themes
+  const metricsData: MetricItem[] = [
+    // 1. 今日平仓盈利(历史仓位)
     {
-      title: "持仓市值",
-      value: summary.totalMv != null ? summary.totalMv.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '—',
-      icon: DollarSign,
+      title: "今日平仓盈利 (历史仓位)",
+      value: summary.m4_historicalRealized,
+      formattedValue: summary.m4_historicalRealized != null ? formatCurrency(summary.m4_historicalRealized) : "—",
+      icon: CheckCircle2,
+      theme: 'emerald',
+      isPnl: true,
     },
+    // 2. 今日交易盈利(日内交易)
     {
-      title: "持仓总盈亏",
-      value: summary.totalPnl != null ? formatCurrency(summary.totalPnl) : '—',
-      icon: summary.totalPnl == null || summary.totalPnl >= 0 ? TrendingUp : TrendingDown,
-      valueCls: summary.totalPnl != null ? (summary.totalPnl > 0 ? 'text-success' : 'text-destructive') : '',
+      title: "今日交易盈利 (日内交易)",
+      icon: Activity,
+      theme: 'blue',
+      subItems: [
+        {
+          label: "交易视角",
+          value: summary.m5_1_trading,
+          formattedValue: summary.m5_1_trading != null ? formatCurrency(summary.m5_1_trading) : "—",
+        },
+        {
+          label: "账本视角",
+          value: summary.m5_2_ledger,
+          formattedValue: summary.m5_2_ledger != null ? formatCurrency(summary.m5_2_ledger) : "—",
+        },
+      ],
     },
+    // 3. 当日盈亏情况 (Total Today PnL)
     {
-      title: "今日盈亏",
-      value: showTodayPlNumber
-        ? formatCurrency(summary.totalTodayPl!)
-        : <StatusBadge status={summary?.aggTodayPlStatus ?? 'degraded'} />,
-      icon: summary.totalTodayPl == null || summary.totalTodayPl >= 0 ? TrendingUp : TrendingDown,
-      valueCls: showTodayPlNumber && summary.totalTodayPl != null ? (summary.totalTodayPl > 0 ? 'text-success' : 'text-destructive') : '',
-    }
+      title: "当日盈亏情况",
+      value: summary.totalTodayPl,
+      formattedValue: summary.totalTodayPl != null ? formatCurrency(summary.totalTodayPl) : "—",
+      icon: Activity,
+      theme: 'cyan',
+      isPnl: true,
+    },
+    // 4. 今日交易次数(分类统计)
+    {
+      title: "今日交易次数 (分类统计)",
+      value: null,
+      formattedValue: (
+        <div className="flex items-center gap-1 text-lg font-mono">
+          <span className="text-green-600 font-bold">B/{summary.todayTradeCounts?.buy ?? 0}</span>
+          <span className="mx-1"> </span>
+          <span className="text-red-600 font-bold">S/{summary.todayTradeCounts?.sell ?? 0}</span>
+          <span className="mx-1"> </span>
+          <span className="text-purple-600 font-bold">P/{summary.todayTradeCounts?.short ?? 0}</span>
+          <span className="mx-1"> </span>
+          <span className="text-blue-600 font-bold">C/{summary.todayTradeCounts?.cover ?? 0}</span>
+          <span className="mx-1"> </span>
+          <span className="text-foreground font-bold">【{summary.todayTradeCounts?.total ?? 0}】</span>
+        </div>
+      ),
+      icon: BarChart2,
+      theme: 'orange',
+      isPnl: false,
+    },
+    // 5. 累计交易次数 (M8)
+    {
+      title: "累计交易次数",
+      value: null,
+      formattedValue: (
+        <div className="flex flex-col gap-1">
+          {renderTradeCountsRow(summary.totalTradeCounts)}
+          {renderTradeCountsRow(summary.wtdTradeCounts, "本周")}
+          {renderTradeCountsRow(summary.mtdTradeCounts, "本月")}
+        </div>
+      ),
+      icon: History,
+      theme: 'purple',
+      isPnl: false,
+    },
+    // 6. 累计已实现盈利 (M9)
+    {
+      title: "累计已实现盈利",
+      value: summary.totalHistoricalRealizedPnl,
+      formattedValue: formatCurrency(summary.totalHistoricalRealizedPnl ?? 0),
+      icon: Wallet,
+      theme: 'amber',
+      isPnl: true,
+    },
+    // 7. 胜率 (M10)
+    {
+      title: "胜率",
+      value: null,
+      formattedValue: (
+        <div className="flex flex-col gap-1">
+          {renderWinRateRow(summary.winRateStats)}
+          {renderWinRateRow(summary.wtdWinRateStats, "本周")}
+          {renderWinRateRow(summary.mtdWinRateStats, "本月")}
+        </div>
+      ),
+      icon: Trophy,
+      theme: 'rose',
+      isPnl: false,
+    },
+    // 8. WTD
+    {
+      title: "WTD (本周累计盈利)",
+      value: summary.wtdPnl,
+      formattedValue: summary.wtdPnl != null ? formatCurrency(summary.wtdPnl) : "—",
+      icon: CalendarDays,
+      theme: 'sky',
+      isPnl: true,
+    },
+    // 9. MTD
+    {
+      title: "MTD (本月累计盈利)",
+      value: summary.mtdPnl,
+      formattedValue: summary.mtdPnl != null ? formatCurrency(summary.mtdPnl) : "—",
+      icon: Calendar,
+      theme: 'indigo',
+      isPnl: true,
+    },
+    // 10. YTD
+    {
+      title: "YTD (本年累计盈利)",
+      value: summary.ytdPnl,
+      formattedValue: summary.ytdPnl != null ? formatCurrency(summary.ytdPnl) : "—",
+      icon: CalendarRange,
+      theme: 'violet',
+      isPnl: true,
+    },
   ];
 
-  return (
-    <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 md:grid-cols-3">
-      {metrics.map((metric) => (
-        <Card key={metric.title} className="transition-all hover:shadow-lg hover:-translate-y-1 bg-background">
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">{metric.title}</CardTitle>
-            <metric.icon className="h-5 w-5 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            <div className={cn("text-2xl font-bold", typeof metric.value === 'string' && metric.valueCls)}>
-              {metric.value}
+  // Split metrics into rows: 4 - 3 - 3
+  const row1Metrics = metricsData.slice(0, 4);
+  const row2Metrics = metricsData.slice(4, 7);
+  const row3Metrics = metricsData.slice(7, 10);
+
+  const renderMetricCard = (metric: MetricItem, idx: number) => {
+    const styles = getThemeStyles(metric.theme);
+    return (
+      <Card
+        key={idx}
+        className={cn(
+          "relative overflow-hidden transition-all duration-200 hover:shadow-md border",
+          styles.bg,
+          styles.border
+        )}
+      >
+        <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+          <CardTitle className="text-sm font-bold text-foreground/80 tracking-tight">
+            {metric.title}
+          </CardTitle>
+          <div className={cn("p-1.5 rounded-full", styles.iconBg)}>
+            <metric.icon className={cn("h-4 w-4", styles.iconColor)} />
+          </div>
+        </CardHeader>
+        <CardContent>
+          {metric.subItems ? (
+            <div className="grid grid-cols-2 gap-4 pt-1">
+              {metric.subItems.map((subItem) => (
+                <div key={subItem.label} className="space-y-1">
+                  <div className="text-[10px] uppercase tracking-wider text-muted-foreground/80 font-bold">
+                    {subItem.label}
+                  </div>
+                  <div
+                    className={cn(
+                      "text-lg font-bold font-mono tracking-tight",
+                      getPnLColor(subItem.value)
+                    )}
+                  >
+                    {subItem.formattedValue}
+                  </div>
+                </div>
+              ))}
             </div>
-          </CardContent>
-        </Card>
-      ))}
+          ) : (
+            <div
+              className={cn(
+                "text-2xl font-bold font-mono tracking-tight",
+                metric.isPnl ? getPnLColor(metric.value) : "text-foreground"
+              )}
+            >
+              {metric.formattedValue}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+    );
+  };
+
+  return (
+    <div className="space-y-4">
+      {/* Row 1: 4 items */}
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        {row1Metrics.map((metric, i) => renderMetricCard(metric, i))}
+      </div>
+
+      {/* Row 2: 3 items, centered */}
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 lg:w-3/4 lg:mx-auto">
+        {row2Metrics.map((metric, i) => renderMetricCard(metric, i + 4))}
+      </div>
+
+      {/* Row 3: 3 items, centered */}
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 lg:w-3/4 lg:mx-auto">
+        {row3Metrics.map((metric, i) => renderMetricCard(metric, i + 7))}
+      </div>
     </div>
   );
 }
