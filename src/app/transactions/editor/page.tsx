@@ -1,16 +1,12 @@
 'use client';
 
-import { useEffect } from 'react';
+import { useEffect, Suspense } from 'react';
 import { useRouter, useSearchParams, usePathname } from 'next/navigation';
 
-
-
-
-
-export default function TransactionEditorPage() {
+function EditorRedirector() {
     const router = useRouter();
     const sp = useSearchParams();
-    const pathname = usePathname(); // Included as per user request
+    const pathname = usePathname();
 
     useEffect(() => {
         const id = sp.get('id');
@@ -31,5 +27,13 @@ export default function TransactionEditorPage() {
         router.replace(`${targetPath}?${query}`);
     }, [sp, router]);
 
-    return null; // This page no longer renders anything, it just redirects
+    return null;
+}
+
+export default function TransactionEditorPage() {
+    return (
+        <Suspense fallback={null}>
+            <EditorRedirector />
+        </Suspense>
+    );
 }

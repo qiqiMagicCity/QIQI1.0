@@ -181,7 +181,7 @@ export default function SettingsPage() {
                       </Button>
                     </div>
                     <p className="text-sm text-muted-foreground">
-                      "跟随系统"将自动匹配您设备的显示设置。
+                      &quot;跟随系统&quot;将自动匹配您设备的显示设置。
                     </p>
                   </div>
                 </CardContent>

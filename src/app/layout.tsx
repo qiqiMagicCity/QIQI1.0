@@ -1,4 +1,5 @@
 import type { Metadata, Viewport } from 'next';
+import { Suspense } from 'react';
 import './globals.css';
 import { Toaster } from "@/components/ui/toaster";
 import { FirebaseClientProvider } from '@/firebase/client-provider';
@@ -47,7 +48,9 @@ export default function RootLayout({
                   <EodAutoManager />
                   {children}
                 </div>
-                <GlobalAddTransactionFab />
+                <Suspense fallback={null}>
+                  <GlobalAddTransactionFab />
+                </Suspense>
               </HoldingsProvider>
             </RealTimePricesProvider>
           </ThemeProvider>
