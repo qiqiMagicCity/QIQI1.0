@@ -83,7 +83,7 @@ export default function Home() {
           <Tabs defaultValue="home">
             <TabsList>
               <TabsTrigger value="home">首页</TabsTrigger>
-              <TabsTrigger value="details">股票详情</TabsTrigger>
+              <TabsTrigger value="details">交易分析</TabsTrigger>
               <TabsTrigger value="history">交易历史</TabsTrigger>
             </TabsList>
 

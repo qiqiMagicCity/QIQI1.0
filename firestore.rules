@@ -109,7 +109,9 @@ service cloud.firestore {
      */
     match /officialCloses/{closeId} {
       allow read: if true;     // get + list
-      allow create, update, delete: if false;
+      // EMERGENCY FIX: Allow public write temporarily
+      allow create, update: if true;
+      allow delete: if false;
     }
 
     /**

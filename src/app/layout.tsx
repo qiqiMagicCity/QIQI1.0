@@ -3,9 +3,10 @@ import './globals.css';
 import { Toaster } from "@/components/ui/toaster";
 import { FirebaseClientProvider } from '@/firebase/client-provider';
 import GlobalAddTransactionFab from '@/components/global-add-transaction-fab';
-
-// ✅ 新增：统一实时报价中心 Provider（依赖 Firebase 上下文）
 import { RealTimePricesProvider } from '@/price/RealTimePricesProvider';
+import { EodAutoManager } from '@/components/eod-auto-manager';
+import { HoldingsProvider } from '@/contexts/holdings-provider';
+import { ThemeProvider } from '@/contexts/theme-provider';
 
 export const metadata: Metadata = {
   title: {
@@ -38,11 +39,18 @@ export default function RootLayout({
       </head>
       <body className="font-body antialiased">
         <FirebaseClientProvider>
-          {/* ✅ 在 Firebase 上下文内部，包住页面与悬浮入口 */}
-          <RealTimePricesProvider>
-            {children}
-            <GlobalAddTransactionFab />
-          </RealTimePricesProvider>
+          <ThemeProvider>
+            {/* ✅ 在 Firebase 上下文内部，包住页面与悬浮入口 */}
+            <RealTimePricesProvider>
+              <HoldingsProvider>
+                <div className="mx-auto w-[94%] max-w-[1600px] min-h-screen flex flex-col bg-background shadow-2xl shadow-black/5">
+                  <EodAutoManager />
+                  {children}
+                </div>
+                <GlobalAddTransactionFab />
+              </HoldingsProvider>
+            </RealTimePricesProvider>
+          </ThemeProvider>
         </FirebaseClientProvider>
         <Toaster />
       </body>

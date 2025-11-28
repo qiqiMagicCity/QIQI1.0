@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useId, useMemo } from 'react';
+import { useCallback, useEffect, useId, useMemo } from 'react';
 import { usePriceCenterContext } from './RealTimePricesProvider';
 import type { PriceRecord } from './RealTimePricesProvider';
 
@@ -26,7 +26,7 @@ export function useRealTimePrices(symbols: string[]) {
   }, [register, unregister, id, symbols.join(',')]);
 
   // 读取某个 symbol 的当前 PriceRecord（价格记录）
-  const get = (symbol: string): PriceRecord | undefined => getFromCenter(symbol);
+  const get = useCallback((symbol: string): PriceRecord | undefined => getFromCenter(symbol), [getFromCenter]);
 
   /** 提供一个只读的快照（注意：不触发渲染，主要用于调试/批量查看） */
   const snapshot = useMemo(() => map, [map]);

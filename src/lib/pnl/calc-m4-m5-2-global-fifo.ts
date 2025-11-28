@@ -45,16 +45,12 @@ export type GlobalFifoResult = {
     lossCount: number; // M10: 亏损批次
     pnlEvents: PnLEvent[]; // [NEW] 所有已实现盈亏事件，供 M11-M13 使用
     auditTrail: AuditEvent[]; // [NEW] Detailed ledger for debugging
+    openPositions: Map<string, Array<{ qty: number; cost: number; date: string }>>; // [NEW] 当前持仓队列，用于计算持仓均价
 };
 
 /**
  * 计算 M4 和 M5.2: 全局 FIFO
- * M4: 今日卖出配对到历史买入的盈亏
- * M5.2: 今日卖出配对到今日买入的盈亏
- * 
- * @param input.transactions - 所有交易记录
- * @param input.todayNy - 今日纽约交易日 (YYYY-MM-DD)
- * @returns M4, M5.2, TotalRealizedPnl, WinCount, LossCount, PnLEvents, AuditTrail
+ * ...
  */
 export function calcGlobalFifo(input: GlobalFifoInput): GlobalFifoResult {
     const { transactions, todayNy } = input;
@@ -64,7 +60,8 @@ export function calcGlobalFifo(input: GlobalFifoInput): GlobalFifoResult {
             m4: 0, m5_2: 0,
             totalRealizedPnl: 0, winCount: 0, lossCount: 0,
             pnlEvents: [],
-            auditTrail: []
+            auditTrail: [],
+            openPositions: new Map()
         };
     }
 
@@ -80,6 +77,7 @@ export function calcGlobalFifo(input: GlobalFifoInput): GlobalFifoResult {
     const auditTrail: AuditEvent[] = [];
 
     for (const tx of sortedAllTx) {
+        // ... (existing loop logic) ...
         const key = tx.contractKey || normalizeSymbolForClient(tx.symbol);
         if (!globalQueues.has(key)) globalQueues.set(key, []);
         const queue = globalQueues.get(key)!;
@@ -93,13 +91,12 @@ export function calcGlobalFifo(input: GlobalFifoInput): GlobalFifoResult {
         const splitFactor = getCumulativeSplitFactor(tx.symbol, tx.transactionTimestamp);
         const adjQty = tx.qty * splitFactor;
         const adjPrice = tx.price / splitFactor;
-        const adjMultiplier = tx.multiplier; // Multiplier usually doesn't change in stock split, but for options it might. Assuming stock split here.
+        const adjMultiplier = tx.multiplier;
 
         let remainingQty = adjQty;
 
         while (remainingQty !== 0) {
             if (queue.length === 0) {
-                // 没有持仓可配对,直接入队
                 queue.push({ qty: remainingQty, cost: adjPrice, date: txDate });
                 remainingQty = 0;
             } else {
@@ -108,24 +105,18 @@ export function calcGlobalFifo(input: GlobalFifoInput): GlobalFifoResult {
                 const txSign = Math.sign(remainingQty);
 
                 if (headSign === txSign) {
-                    // 同向,直接入队
                     queue.push({ qty: remainingQty, cost: adjPrice, date: txDate });
                     remainingQty = 0;
                 } else {
-                    // 反向配对,产生平仓
                     const matchQty = Math.min(Math.abs(remainingQty), Math.abs(head.qty));
 
-                    // 计算PnL
                     let pnl = 0;
                     if (headSign > 0) {
-                        // 平多: Sell Price - Buy Cost
                         pnl = (adjPrice - head.cost) * matchQty * adjMultiplier;
                     } else {
-                        // 平空: Short Cost - Cover Price
                         pnl = (head.cost - adjPrice) * matchQty * adjMultiplier;
                     }
 
-                    // Record Audit Event
                     auditTrail.push({
                         symbol: tx.symbol,
                         openDate: head.date,
@@ -137,17 +128,13 @@ export function calcGlobalFifo(input: GlobalFifoInput): GlobalFifoResult {
                         multiplier: adjMultiplier
                     });
 
-                    // M9: 累加历史总已实现盈亏
                     totalRealizedPnl += pnl;
 
-                    // M10: 统计胜率 (按批次)
                     if (pnl > 0.0001) winCount++;
                     else if (pnl < -0.0001) lossCount++;
 
-                    // [NEW] 记录盈亏事件
                     pnlEvents.push({ date: txDate, pnl });
 
-                    // M4/M5.2: 今日盈亏归因
                     if (txDate === todayNy) {
                         if (head.date === todayNy) {
                             m5_2 += pnl;
@@ -156,7 +143,6 @@ export function calcGlobalFifo(input: GlobalFifoInput): GlobalFifoResult {
                         }
                     }
 
-                    // 更新队列
                     if (Math.abs(head.qty) > matchQty) {
                         head.qty = head.qty > 0 ? head.qty - matchQty : head.qty + matchQty;
                         remainingQty = remainingQty > 0 ? remainingQty - matchQty : remainingQty + matchQty;
@@ -170,5 +156,5 @@ export function calcGlobalFifo(input: GlobalFifoInput): GlobalFifoResult {
         }
     }
 
-    return { m4, m5_2, totalRealizedPnl, winCount, lossCount, pnlEvents, auditTrail };
+    return { m4, m5_2, totalRealizedPnl, winCount, lossCount, pnlEvents, auditTrail, openPositions: globalQueues };
 }

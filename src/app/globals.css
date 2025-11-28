@@ -4,9 +4,11 @@
 
 @layer base {
   :root {
-    --background: 140 65% 85%; /* A more saturated, deeper green */
+    --background: 140 65% 85%;
+    /* A more saturated, deeper green */
     --foreground: 140 15% 10%;
-    --card: 140 60% 96%; /* Lighter card for contrast */
+    --card: 140 60% 96%;
+    /* Lighter card for contrast */
     --card-foreground: 140 12% 12%;
     --popover: 140 60% 96%;
     --popover-foreground: 140 12% 12%;
@@ -14,7 +16,7 @@
     /* 主色：品牌绿 */
     --primary: 150 60% 45%;
     --primary-foreground: 150 60% 96%;
-    
+
     /* 次级与静态信息区块 */
     --secondary: 150 8% 92%;
     --secondary-foreground: 150 8% 10%;
@@ -22,7 +24,8 @@
     /* 附色/悬浮背景 */
     --muted: 150 8% 92%;
     --muted-foreground: 150 8% 38%;
-    --accent: 170 60% 40%; /* 青蓝点缀 */
+    --accent: 170 60% 40%;
+    /* 青蓝点缀 */
     --accent-foreground: 170 60% 96%;
 
     /* 破坏色 */
@@ -33,7 +36,7 @@
     --border: 140 10% 88%;
     --input: 140 10% 88%;
     --ring: 150 60% 45%;
-    
+
     --radius: 0.75rem;
 
     /* 语义色（亮色模式） */
@@ -41,7 +44,8 @@
     --ready: 160 45% 40%;
     --warn: 30 92% 50%;
     --mute: 215 16% 45%;
-    --negative: 0 72% 46%; /* 亮色模式下下跌/警告依然用红色 */
+    --negative: 0 72% 46%;
+    /* 亮色模式下下跌/警告依然用红色 */
     --warning: 38 92% 50%;
   }
 
@@ -62,19 +66,21 @@
 
     --muted: 150 6% 22%;
     --muted-foreground: 150 8% 65%;
-    
+
     --accent: 170 60% 40%;
     --accent-foreground: 170 60% 96%;
-    
+
     /* 下跌与警示用中性色，不用大红 */
-    --destructive: 200 10% 42%;        /* 冷灰蓝表示下跌 */
+    --destructive: 200 10% 42%;
+    /* 冷灰蓝表示下跌 */
     --destructive-foreground: 150 10% 96%;
-    --warning: 38 92% 50%;           /* 琥珀黄，仅少量使用 */
+    --warning: 38 92% 50%;
+    /* 琥珀黄，仅少量使用 */
 
     --border: 150 6% 24%;
     --input: 150 6% 24%;
     --ring: 150 60% 45%;
-    
+
     /* 语义色（暗色模式） */
     --ok: 150 61% 46%;
     --ready: 160 45% 46%;
@@ -82,15 +88,92 @@
     --mute: 210 14% 66%;
     --negative: 200 10% 42%;
   }
+
+  /* --- Blue Theme (Ocean) --- */
+  [data-theme='blue'] {
+    --primary: 217 91% 60%;
+    --primary-foreground: 210 40% 98%;
+    --background: 210 40% 96%;
+    --card: 210 40% 98%;
+    --accent: 217 91% 60%;
+    --ring: 217 91% 60%;
+  }
+
+  [data-theme='blue'].dark {
+    --background: 222 47% 11%;
+    --foreground: 210 40% 98%;
+    --card: 217 33% 17%;
+    --card-foreground: 210 40% 98%;
+    --popover: 217 33% 17%;
+    --popover-foreground: 210 40% 98%;
+    --primary: 217 91% 60%;
+    --primary-foreground: 222 47% 11%;
+    --muted: 217 33% 17%;
+    --muted-foreground: 215 20% 65%;
+    --border: 217 33% 20%;
+    --input: 217 33% 20%;
+  }
+
+  /* --- Violet Theme (Purple) --- */
+  [data-theme='violet'] {
+    --primary: 262 83% 58%;
+    --primary-foreground: 210 40% 98%;
+    --background: 262 30% 96%;
+    --card: 262 30% 98%;
+    --accent: 262 83% 58%;
+    --ring: 262 83% 58%;
+  }
+
+  [data-theme='violet'].dark {
+    --background: 265 20% 10%;
+    --foreground: 210 40% 98%;
+    --card: 265 15% 15%;
+    --card-foreground: 210 40% 98%;
+    --popover: 265 15% 15%;
+    --popover-foreground: 210 40% 98%;
+    --primary: 263 70% 50%;
+    --primary-foreground: 210 40% 98%;
+    --muted: 265 15% 15%;
+    --muted-foreground: 265 10% 65%;
+    --border: 265 15% 20%;
+    --input: 265 15% 20%;
+  }
+
+  /* --- Orange Theme (Sunset) --- */
+  [data-theme='orange'] {
+    --primary: 24 95% 53%;
+    --primary-foreground: 60 9% 98%;
+    --background: 30 30% 96%;
+    --card: 30 30% 98%;
+    --accent: 24 95% 53%;
+    --ring: 24 95% 53%;
+  }
+
+  [data-theme='orange'].dark {
+    --background: 20 14% 4%;
+    --foreground: 60 9% 98%;
+    --card: 24 10% 10%;
+    --card-foreground: 60 9% 98%;
+    --popover: 24 10% 10%;
+    --popover-foreground: 60 9% 98%;
+    --primary: 20 90% 48%;
+    --primary-foreground: 60 9% 98%;
+    --muted: 24 10% 10%;
+    --muted-foreground: 24 5% 65%;
+    --border: 24 10% 15%;
+    --input: 24 10% 15%;
+  }
 }
 
 @layer base {
   * {
     @apply border-border;
   }
+
   body {
     @apply bg-background text-foreground overflow-x-hidden;
   }
+
   .dark body {
     background:
       radial-gradient(1200px 600px at 20% 10%, hsl(150 60% 20% / .10), transparent 40%),
@@ -100,43 +183,96 @@
 }
 
 /* === App Surfaces === */
-.app-surface { background: transparent; color: hsl(var(--foreground)); }
+.app-surface {
+  background: transparent;
+  color: hsl(var(--foreground));
+}
+
 .card {
   background: hsl(var(--card) / 0.8);
   border: 1px solid hsl(var(--border));
   border-radius: var(--radius, 0.75rem);
-  box-shadow: 0 1px 2px rgba(0,0,0,.35), 0 8px 30px rgba(0,0,0,.45);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, .35), 0 8px 30px rgba(0, 0, 0, .45);
   backdrop-filter: blur(10px);
 }
 
 /* Metric typography */
-.metric-title { font-size: .8rem; opacity: .75; }
-.metric-value { font-size: 1.875rem; line-height: 1.2; font-variant-numeric: tabular-nums; }
+.metric-title {
+  font-size: .8rem;
+  opacity: .75;
+}
+
+.metric-value {
+  font-size: 1.875rem;
+  line-height: 1.2;
+  font-variant-numeric: tabular-nums;
+}
 
 /* 状态徽章：色彩克制，避免大面积纯色底 */
 .badge {
-  display:inline-flex; align-items:center; gap:.35rem;
+  display: inline-flex;
+  align-items: center;
+  gap: .35rem;
   position: relative;
-  padding:.25rem .55rem; border-radius:999px;
-  border:1px solid hsl(var(--border));
-  font-size:.75rem; line-height:1; white-space:nowrap;
+  padding: .25rem .55rem;
+  border-radius: 999px;
+  border: 1px solid hsl(var(--border));
+  font-size: .75rem;
+  line-height: 1;
+  white-space: nowrap;
 }
 
 /* 徽章变体（点 + 边框轻色调） */
-.badge-live   { color:hsl(var(--ok));    background: hsl(var(--ok) / .08);    border-color:hsl(var(--ok)/.25); }
-.badge-ready  { color:hsl(var(--ready)); background: hsl(var(--ready) / .08); border-color:hsl(var(--ready)/.25); }
-.badge-stale  { color:hsl(var(--warn));  background: hsl(var(--warn) / .10);  border-color:hsl(var(--warn)/.25); }
-.badge-close  { color:hsl(var(--mute));  background: hsl(var(--mute) / .12);  border-color:hsl(var(--mute)/.25); }
+.badge-live {
+  color: hsl(var(--ok));
+  background: hsl(var(--ok) / .08);
+  border-color: hsl(var(--ok)/.25);
+}
+
+.badge-ready {
+  color: hsl(var(--ready));
+  background: hsl(var(--ready) / .08);
+  border-color: hsl(var(--ready)/.25);
+}
+
+.badge-stale {
+  color: hsl(var(--warn));
+  background: hsl(var(--warn) / .10);
+  border-color: hsl(var(--warn)/.25);
+}
+
+.badge-close {
+  color: hsl(var(--mute));
+  background: hsl(var(--mute) / .12);
+  border-color: hsl(var(--mute)/.25);
+}
 
 
 /* 表格优化：暗色优化 */
 .table {
-  background:transparent;
-  border:1px solid hsl(var(--border));
-  border-radius:var(--radius);
+  background: transparent;
+  border: 1px solid hsl(var(--border));
+  border-radius: var(--radius);
 }
-.table thead th { background: hsl(var(--secondary) / 0.5); color:hsl(var(--foreground)); font-weight:600; }
-.table tbody tr { border-bottom-color: hsl(var(--border) / 0.5); }
-.table tbody tr:hover { background: hsl(var(--accent) / .35); }
-.dark .table tbody tr:nth-child(even){ background: hsl(var(--foreground) / 0.02); }
-.light .table tbody tr:nth-child(even){ background: hsl(210 20% 98%); }
+
+.table thead th {
+  background: hsl(var(--secondary) / 0.5);
+  color: hsl(var(--foreground));
+  font-weight: 600;
+}
+
+.table tbody tr {
+  border-bottom-color: hsl(var(--border) / 0.5);
+}
+
+.table tbody tr:hover {
+  background: hsl(var(--accent) / .35);
+}
+
+.dark .table tbody tr:nth-child(even) {
+  background: hsl(var(--foreground) / 0.02);
+}
+
+.light .table tbody tr:nth-child(even) {
+  background: hsl(210 20% 98%);
+}

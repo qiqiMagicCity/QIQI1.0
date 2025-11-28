@@ -17,11 +17,15 @@ import { ArrowLeft } from 'lucide-react';
 import { EodCheck } from '@/components/settings/eod-check';
 import { DebugM9Breakdown } from '@/components/dashboard/debug-m9-breakdown';
 import { DebugM6Breakdown } from '@/components/dashboard/debug-m6-breakdown';
+import { useTheme } from '@/contexts/theme-provider';
+import { cn } from '@/lib/utils';
+import { TransactionAnalysisLiveSelfCheck } from '@/components/debug/transaction-analysis-self-check';
 
 export default function SettingsPage() {
   const { ready, user } = useRequireAuth();
   const auth = useAuth();
   const { toast } = useToast();
+  const { mode, setMode, color, setColor } = useTheme();
   const [displayName, setDisplayName] = useState(user?.displayName || '');
   const [isSaving, setIsSaving] = useState(false);
 
@@ -115,11 +119,70 @@ export default function SettingsPage() {
               <Card>
                 <CardHeader>
                   <CardTitle>外观</CardTitle>
-                  <CardDescription>自定义应用的外观和感觉。在亮色和暗色主题间切换。</CardDescription>
+                  <CardDescription>自定义应用的外观和感觉。选择您喜欢的主题颜色和模式。</CardDescription>
                 </CardHeader>
-                <CardContent>
-                  <div className="text-sm text-muted-foreground">
-                    主题切换功能正在开发中，敬请期待！
+                <CardContent className="space-y-8">
+                  <div className="space-y-4">
+                    <Label className="text-base">颜色主题</Label>
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                      {[
+                        { name: 'green', label: 'Luck Green', color: 'bg-emerald-500' },
+                        { name: 'blue', label: 'Ocean Blue', color: 'bg-blue-500' },
+                        { name: 'violet', label: 'Mystic Purple', color: 'bg-violet-500' },
+                        { name: 'orange', label: 'Sunset Orange', color: 'bg-orange-500' },
+                      ].map((theme) => (
+                        <div
+                          key={theme.name}
+                          className={cn(
+                            "cursor-pointer rounded-lg border-2 p-1 hover:border-primary transition-all",
+                            color === theme.name ? "border-primary" : "border-transparent"
+                          )}
+                          onClick={() => setColor(theme.name as any)}
+                        >
+                          <div className="space-y-2 rounded-md bg-muted p-2">
+                            <div className={cn("h-20 rounded-lg shadow-sm", theme.color)} />
+                            <div className="space-y-1">
+                              <p className="text-sm font-medium leading-none">{theme.label}</p>
+                              <p className="text-xs text-muted-foreground">
+                                {color === theme.name ? '当前使用' : '点击切换'}
+                              </p>
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  <Separator />
+
+                  <div className="space-y-4">
+                    <Label className="text-base">显示模式</Label>
+                    <div className="grid grid-cols-3 gap-4">
+                      <Button
+                        variant={mode === 'light' ? 'default' : 'outline'}
+                        className="w-full"
+                        onClick={() => setMode('light')}
+                      >
+                        亮色模式
+                      </Button>
+                      <Button
+                        variant={mode === 'dark' ? 'default' : 'outline'}
+                        className="w-full"
+                        onClick={() => setMode('dark')}
+                      >
+                        暗色模式
+                      </Button>
+                      <Button
+                        variant={mode === 'system' ? 'default' : 'outline'}
+                        className="w-full"
+                        onClick={() => setMode('system')}
+                      >
+                        跟随系统
+                      </Button>
+                    </div>
+                    <p className="text-sm text-muted-foreground">
+                      "跟随系统"将自动匹配您设备的显示设置。
+                    </p>
                   </div>
                 </CardContent>
               </Card>
@@ -133,10 +196,11 @@ export default function SettingsPage() {
                 </CardHeader>
                 <CardContent>
                   <Tabs defaultValue="eod">
-                    <TabsList className="grid w-full grid-cols-3">
+                    <TabsList className="grid w-full grid-cols-4">
                       <TabsTrigger value="eod">EOD 数据检查</TabsTrigger>
                       <TabsTrigger value="m6">M6 当日盈亏</TabsTrigger>
                       <TabsTrigger value="m9">M9 累计盈亏</TabsTrigger>
+                      <TabsTrigger value="account-analysis">账户分析页面自检</TabsTrigger>
                     </TabsList>
                     <TabsContent value="eod" className="mt-4">
                       <EodCheck />
@@ -146,6 +210,9 @@ export default function SettingsPage() {
                     </TabsContent>
                     <TabsContent value="m9" className="mt-4">
                       <DebugM9Breakdown />
+                    </TabsContent>
+                    <TabsContent value="account-analysis" className="mt-4">
+                      <TransactionAnalysisLiveSelfCheck />
                     </TabsContent>
                   </Tabs>
                 </CardContent>

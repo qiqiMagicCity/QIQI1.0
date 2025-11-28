@@ -188,10 +188,17 @@ export function AddTransactionForm({ onSuccess, defaultValues }: AddTransactionF
         if (docSnap.exists()) {
           const data = docSnap.data();
           const transactionMillis = toMillisAny(data.transactionTimestamp);
+
+          // Normalize type: ensure uppercase and handle legacy fields
+          let normalizedType = (data.type || data.action || data.side || 'BUY').toUpperCase();
+          // Map legacy 'SHORT SELL' etc if needed, though 'SHORT' is standard in this app now
+          if (normalizedType === 'SHORT SELL') normalizedType = 'SHORT';
+          if (normalizedType === 'SHORT COVER') normalizedType = 'COVER';
+
           // Map fetched data to form fields
           form.reset({
             symbol: data.symbol ?? '',
-            type: data.type,
+            type: normalizedType,
             quantity: data.quantity ?? '',
             price: data.price ?? '',
             date: transactionMillis ? new Date(transactionMillis) : new Date(),
@@ -457,7 +464,7 @@ export function AddTransactionForm({ onSuccess, defaultValues }: AddTransactionF
                 <FormControl>
                   <RadioGroup
                     onValueChange={field.onChange}
-                    defaultValue={field.value}
+                    value={field.value}
                     className="grid grid-cols-2 gap-4"
                   >
                     {["BUY", "SELL", "SHORT", "COVER"].map((type) => (

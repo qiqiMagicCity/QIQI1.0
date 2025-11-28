@@ -16,8 +16,6 @@ import {
   CalendarRange,
 } from 'lucide-react';
 import { cn, formatCurrency } from '@/lib/utils';
-import { StatusBadge } from '@/components/ui/status-badge';
-import { DebugM9Breakdown } from './debug-m9-breakdown';
 
 interface MetricSubItem {
   label: string;
@@ -33,12 +31,10 @@ interface MetricItem {
   formattedValue?: string | React.ReactNode;
   subItems?: MetricSubItem[];
   isPnl?: boolean;
-  iconCls?: string; // Optional for backward compatibility if needed
-  valueCls?: string; // Optional
 }
 
 export function CalculationGrid() {
-  const { summary, rows, loading } = useHoldings();
+  const { summary, loading } = useHoldings();
 
   if (loading) {
     return (
@@ -90,42 +86,39 @@ export function CalculationGrid() {
     return "text-muted-foreground";
   };
 
-  // Helper to get Card Theme Styles - Unified Sky Blue Theme
-  // Returns: { bg, border, iconBg, iconColor }
+  // Helper to get Card Theme Styles - Unified Sky Blue Theme (Light) / Neutral (Dark)
   const getThemeStyles = (color: string) => {
     return {
-      bg: "bg-sky-100 dark:bg-sky-900/40",
-      border: "border-sky-200 dark:border-sky-800",
-      iconBg: "bg-white/80 dark:bg-sky-800",
-      iconColor: "text-sky-700 dark:text-sky-300",
+      bg: "bg-sky-100 dark:bg-card",
+      border: "border-sky-200 dark:border-border",
+      iconBg: "bg-white/80 dark:bg-muted",
+      iconColor: "text-sky-700 dark:text-foreground",
     };
   };
 
   // Helper to render Trade Counts Row
-  const renderTradeCountsRow = (counts: { buy: number; sell: number; short: number; cover: number; total: number } | undefined, label?: string) => (
-    <div className="flex items-center gap-1 text-sm font-mono">
-      {label && <span className="w-10 text-muted-foreground mr-1">{label}</span>}
-      <span className="text-green-600 font-bold">B/{counts?.buy ?? 0}</span>
-      <span className="mx-1"> </span>
-      <span className="text-red-600 font-bold">S/{counts?.sell ?? 0}</span>
-      <span className="mx-1"> </span>
-      <span className="text-purple-600 font-bold">P/{counts?.short ?? 0}</span>
-      <span className="mx-1"> </span>
-      <span className="text-blue-600 font-bold">C/{counts?.cover ?? 0}</span>
-      <span className="mx-1"> </span>
-      <span className="text-foreground font-bold">【{counts?.total ?? 0}】</span>
+  const renderTradeCountsRow = (counts: { buy: number; sell: number; short: number; cover: number; total: number } | undefined, label: string) => (
+    <div className="flex items-center text-sm font-mono w-full">
+      <span className="w-10 text-muted-foreground shrink-0">{label}</span>
+      <div className="flex items-center justify-between flex-1 pr-1">
+        <span className="text-green-600 font-bold w-[3.2rem]">B/{counts?.buy ?? 0}</span>
+        <span className="text-red-600 font-bold w-[3.2rem]">S/{counts?.sell ?? 0}</span>
+        <span className="text-purple-600 font-bold w-[3.2rem]">P/{counts?.short ?? 0}</span>
+        <span className="text-blue-600 font-bold w-[3.2rem]">C/{counts?.cover ?? 0}</span>
+        <span className="text-foreground font-bold w-[3.5rem] text-right">【{counts?.total ?? 0}】</span>
+      </div>
     </div>
   );
 
   // Helper to render Win Rate Row
-  const renderWinRateRow = (stats: { winCount: number; lossCount: number; winRate: number } | undefined, label?: string) => (
-    <div className="flex items-center gap-1 text-sm font-mono">
-      {label && <span className="w-10 text-muted-foreground mr-1">{label}</span>}
-      <span className="text-green-600 font-bold">W/{stats?.winCount ?? 0}</span>
-      <span className="mx-1"> </span>
-      <span className="text-red-600 font-bold">L/{stats?.lossCount ?? 0}</span>
-      <span className="mx-1"> </span>
-      <span className="text-foreground font-bold">{(stats?.winRate ? (stats.winRate * 100).toFixed(1) : "0.0")}%</span>
+  const renderWinRateRow = (stats: { winCount: number; lossCount: number; winRate: number } | undefined, label: string) => (
+    <div className="flex items-center text-sm font-mono w-full">
+      <span className="w-10 text-muted-foreground shrink-0">{label}</span>
+      <div className="flex items-center gap-4">
+        <span className="text-green-600 font-bold w-[3.5rem]">W/{stats?.winCount ?? 0}</span>
+        <span className="text-red-600 font-bold w-[3.5rem]">L/{stats?.lossCount ?? 0}</span>
+        <span className="text-foreground font-bold w-[4rem]">{(stats?.winRate ? (stats.winRate * 100).toFixed(1) : "0.0")}%</span>
+      </div>
     </div>
   );
 
@@ -161,11 +154,23 @@ export function CalculationGrid() {
     // 3. 当日盈亏情况 (Total Today PnL)
     {
       title: "当日盈亏情况",
-      value: summary.totalTodayPl,
-      formattedValue: summary.totalTodayPl != null ? formatCurrency(summary.totalTodayPl) : "—",
+      value: summary.m6_total,
+      formattedValue: summary.m6_total != null ? formatCurrency(summary.m6_total) : "—",
       icon: Activity,
       theme: 'cyan',
       isPnl: true,
+      subItems: [
+        {
+          label: "存量盈亏",
+          value: summary.m6_1_legacy,
+          formattedValue: summary.m6_1_legacy != null ? formatCurrency(summary.m6_1_legacy) : "—",
+        },
+        {
+          label: "增量盈亏",
+          value: summary.m6_2_new,
+          formattedValue: summary.m6_2_new != null ? formatCurrency(summary.m6_2_new) : "—",
+        },
+      ],
     },
     // 4. 今日交易次数(分类统计)
     {
@@ -194,7 +199,7 @@ export function CalculationGrid() {
       value: null,
       formattedValue: (
         <div className="flex flex-col gap-1">
-          {renderTradeCountsRow(summary.totalTradeCounts)}
+          {renderTradeCountsRow(summary.totalTradeCounts, "总计")}
           {renderTradeCountsRow(summary.wtdTradeCounts, "本周")}
           {renderTradeCountsRow(summary.mtdTradeCounts, "本月")}
         </div>
@@ -218,7 +223,7 @@ export function CalculationGrid() {
       value: null,
       formattedValue: (
         <div className="flex flex-col gap-1">
-          {renderWinRateRow(summary.winRateStats)}
+          {renderWinRateRow(summary.winRateStats, "总计")}
           {renderWinRateRow(summary.wtdWinRateStats, "本周")}
           {renderWinRateRow(summary.mtdWinRateStats, "本月")}
         </div>
@@ -281,8 +286,24 @@ export function CalculationGrid() {
           </div>
         </CardHeader>
         <CardContent>
-          {metric.subItems ? (
-            <div className="grid grid-cols-2 gap-4 pt-1">
+          {/* Render Main Value if present */}
+          {(metric.formattedValue && metric.value !== undefined) && (
+            <div
+              className={cn(
+                "text-2xl font-bold font-mono tracking-tight mb-2",
+                metric.isPnl ? getPnLColor(metric.value) : "text-foreground"
+              )}
+            >
+              {metric.formattedValue}
+            </div>
+          )}
+
+          {/* Render Sub Items if present */}
+          {metric.subItems && (
+            <div className={cn(
+              "grid grid-cols-2 gap-4 pt-1",
+              (metric.formattedValue && metric.value !== undefined) && "border-t border-border/50 mt-1"
+            )}>
               {metric.subItems.map((subItem) => (
                 <div key={subItem.label} className="space-y-1">
                   <div className="text-[10px] uppercase tracking-wider text-muted-foreground/80 font-bold">
@@ -298,15 +319,6 @@ export function CalculationGrid() {
                   </div>
                 </div>
               ))}
-            </div>
-          ) : (
-            <div
-              className={cn(
-                "text-2xl font-bold font-mono tracking-tight",
-                metric.isPnl ? getPnLColor(metric.value) : "text-foreground"
-              )}
-            >
-              {metric.formattedValue}
             </div>
           )}
         </CardContent>

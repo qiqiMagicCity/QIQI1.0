@@ -30,6 +30,8 @@ type PriceCenterCtx = {
   register(consumerId: string, symbols: string[]): void;
   /** 取消注册 */
   unregister(consumerId: string): void;
+  /** 当前正在拉取的股票代码（用于 UI 显示 loading 态） */
+  fetchingSymbol: string | null;
 };
 
 const PriceCenterContext = createContext<PriceCenterCtx | null>(null);
@@ -81,6 +83,9 @@ export const RealTimePricesProvider: React.FC<{ children: React.ReactNode }> = (
   const observed = useRef<Set<string>>(new Set());
   // 观察集合版本号（用于触发订阅 effect 重新执行）
   const [observedVer, setObservedVer] = useState(0);
+
+  // === 当前正在拉取的 Symbol ===
+  const [fetchingSymbol, setFetchingSymbol] = useState<string | null>(null);
 
   const recomputeObserved = () => {
     const s = new Set<string>();
@@ -140,6 +145,10 @@ export const RealTimePricesProvider: React.FC<{ children: React.ReactNode }> = (
         };
 
         setMapState(prev => {
+          const old = prev.get(symbol);
+          if (old && old.price === price && old.status === rec.status) {
+            return prev; // No change, skip render
+          }
           const next = new Map(prev);
           next.set(symbol, rec);
           return next;
@@ -185,9 +194,12 @@ export const RealTimePricesProvider: React.FC<{ children: React.ReactNode }> = (
       // 缓存新鲜（TTL）就跳过主动拉（减少 API 压力）
       const existing = mapRef.current.get(s);
       if (existing && Date.now() - existing.ts < CACHE_TTL_MS) {
-        timer = setTimeout(tick, QUEUE_GAP_MS);
+        timer = setTimeout(tick, 100);
         return;
       }
+
+      // 开始拉取：设置 fetchingSymbol
+      setFetchingSymbol(s);
 
       try {
         // 仅传纯 JSON，并做本地超时
@@ -208,6 +220,10 @@ export const RealTimePricesProvider: React.FC<{ children: React.ReactNode }> = (
           };
 
           setMapState(prev => {
+            const old = prev.get(s);
+            if (old && old.price === price && old.status === rec.status) {
+              return prev;
+            }
             const next = new Map(prev);
             next.set(s, rec);
             return next;
@@ -243,6 +259,8 @@ export const RealTimePricesProvider: React.FC<{ children: React.ReactNode }> = (
           return next;
         });
       } finally {
+        // 结束拉取：清除 fetchingSymbol
+        setFetchingSymbol(null);
         timer = setTimeout(tick, QUEUE_GAP_MS);
       }
     };
@@ -267,7 +285,8 @@ export const RealTimePricesProvider: React.FC<{ children: React.ReactNode }> = (
     map: mapState,
     register,
     unregister,
-  }), [get, mapState, register, unregister]);
+    fetchingSymbol,
+  }), [get, mapState, register, unregister, fetchingSymbol]);
 
   return (
     <PriceCenterContext.Provider value={value}>

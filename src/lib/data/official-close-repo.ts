@@ -5,7 +5,9 @@ import {
   collection,
   query,
   where,
-  documentId
+  documentId,
+  doc,
+  setDoc
 } from 'firebase/firestore';
 import { getFunctions, httpsCallable } from 'firebase/functions';
 import { initializeFirebase } from '@/firebase'; // 确保这个路径指向 src/firebase/index.ts
@@ -22,6 +24,10 @@ export interface OfficialCloseResult {
 // --- 全局状态：在途请求去重集合 (9.3.1 规则) ---
 // 作用：防止手抖或页面刷新时，重复发送一模一样的补齐请求
 const pendingBackfills = new Set<string>();
+
+// --- 全局缓存：EOD 结果缓存 ---
+// Key: `${tradingDate}_${symbol}`
+const resultCache = new Map<string, OfficialCloseResult>();
 
 // --- 辅助：获取 NY 今日 ---
 const getNyToday = () => toNyCalendarDayString(Date.now());
@@ -52,40 +58,69 @@ export async function getOfficialCloses(
   // 1. 构建查询 ID 列表
   const docIds = symbols.map(s => `${tradingDate}_${s}`);
   const results: Record<string, OfficialCloseResult> = {};
+  const symbolsToFetch: string[] = [];
 
-  // 先把结果都默认设为 "missing" (缺失)
+  // 先查缓存
   symbols.forEach(s => {
-    results[s] = { status: 'missing' };
+    const key = `${tradingDate}_${s}`;
+    const cached = resultCache.get(key);
+    if (cached && cached.status === 'ok') {
+      results[s] = cached;
+    } else {
+      results[s] = { status: 'missing' };
+      symbolsToFetch.push(s);
+    }
   });
 
-  // 2. 查库 (Firestore)
+  if (symbolsToFetch.length === 0) {
+    return results;
+  }
+
+  // 2. 查库 (Firestore) - Only for symbols not in cache
   try {
     const colRef = collection(firestore, 'officialCloses');
-    // 这里一次性查询所有需要的 ID
-    const q = query(colRef, where(documentId(), 'in', docIds));
-    const snap = await getDocs(q);
+    const chunks: string[][] = [];
+    const chunkSize = 10;
 
-    snap.forEach(d => {
-      const data = d.data();
+    // Only fetch IDs for symbols that need fetching
+    const fetchIds = symbolsToFetch.map(s => `${tradingDate}_${s}`);
 
-      // 兼容 date / tradingDate
-      const rawTradingDate = data.tradingDate;
-      const rawDate = data.date;
-      const effectiveTradingDate =
-        typeof rawTradingDate === "string" && rawTradingDate
-          ? rawTradingDate
-          : typeof rawDate === "string" && rawDate
-            ? rawDate
-            : undefined;
+    for (let i = 0; i < fetchIds.length; i += chunkSize) {
+      chunks.push(fetchIds.slice(i, i + chunkSize));
+    }
 
-      if (data.symbol) {
-        results[data.symbol] = {
-          status: data.status === 'ok' ? 'ok' : 'error',
-          close: data.close,
-          tradingDate: effectiveTradingDate,
-          provider: data.provider
-        };
-      }
+    const snapshots = await Promise.all(
+      chunks.map(chunk => {
+        const q = query(colRef, where(documentId(), 'in', chunk));
+        return getDocs(q);
+      })
+    );
+
+    snapshots.forEach(snap => {
+      snap.forEach(d => {
+        const data = d.data();
+
+        // 兼容 date / tradingDate
+        const rawTradingDate = data.tradingDate;
+        const rawDate = data.date;
+        const effectiveTradingDate =
+          typeof rawTradingDate === "string" && rawTradingDate
+            ? rawTradingDate
+            : typeof rawDate === "string" && rawDate
+              ? rawDate
+              : undefined;
+
+        if (data.symbol) {
+          results[data.symbol] = {
+            status: data.status === 'ok' ? 'ok' : 'error',
+            close: data.close,
+            tradingDate: effectiveTradingDate,
+            provider: data.provider
+          };
+          // Update Cache
+          resultCache.set(`${tradingDate}_${data.symbol}`, results[data.symbol]);
+        }
+      });
     });
   } catch (e) {
     console.error("[Repo] Failed to fetch officialCloses", e);
@@ -126,20 +161,30 @@ export async function getOfficialCloses(
       });
 
       // 发起请求 (后端去干活，我们不傻等结果)
-      console.log(`[Repo] Triggering backfill for ${realCandidates.length} symbols on ${tradingDate}`);
+      // [FIX] Batch backfill requests to avoid CF timeout or rate limits
+      const backfillChunks: string[][] = [];
+      const backfillChunkSize = 5; // Conservative chunk size for external API calls
 
-      requestBackfillFn({ date: tradingDate, symbols: realCandidates })
-        .then(() => {
-          // 成功后，过5秒再释放锁，允许重试 (给后端一点写入时间)
-          setTimeout(() => {
-            realCandidates.forEach(s => pendingBackfills.delete(`${tradingDate}_${s}`));
-          }, 5000);
-        })
-        .catch(err => {
-          console.error("[Repo] Backfill request failed", err);
-          // 失败了立即释放锁，允许用户刷新重试
-          realCandidates.forEach(s => pendingBackfills.delete(`${tradingDate}_${s}`));
-        });
+      for (let i = 0; i < realCandidates.length; i += backfillChunkSize) {
+        backfillChunks.push(realCandidates.slice(i, i + backfillChunkSize));
+      }
+
+      console.log(`[Repo] Triggering backfill for ${realCandidates.length} symbols in ${backfillChunks.length} chunks on ${tradingDate}`);
+
+      backfillChunks.forEach(chunk => {
+        requestBackfillFn({ date: tradingDate, symbols: chunk })
+          .then(() => {
+            // 成功后，过5秒再释放锁
+            setTimeout(() => {
+              chunk.forEach(s => pendingBackfills.delete(`${tradingDate}_${s}`));
+            }, 5000);
+          })
+          .catch(err => {
+            console.error(`[Repo] Backfill chunk failed for ${chunk.join(', ')}`, err);
+            // 失败了立即释放锁
+            chunk.forEach(s => pendingBackfills.delete(`${tradingDate}_${s}`));
+          });
+      });
 
       // 兜底保险：30秒后无论如何强制释放锁，防止死锁
       setTimeout(() => {
@@ -152,4 +197,26 @@ export async function getOfficialCloses(
   }
 
   return results;
+}
+
+/**
+ * [NEW] 将实时价格保存为 EOD 数据 (仅用于填充今日数据)
+ * 对应 GLOBAL_RULES.md 4.5.1 B 策略
+ */
+export async function saveRealTimeAsEod(
+  tradingDate: string,
+  symbol: string,
+  price: number
+): Promise<void> {
+  const { firebaseApp } = initializeFirebase();
+  const functions = getFunctions(firebaseApp, 'us-central1');
+  const saveFn = httpsCallable(functions, 'saveRealTimeEod');
+
+  await saveFn({
+    date: tradingDate,
+    symbol,
+    price
+  });
+
+  console.log(`[Repo] Saved Real-time EOD for ${symbol} on ${tradingDate}: ${price}`);
 }

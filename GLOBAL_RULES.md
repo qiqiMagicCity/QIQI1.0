@@ -1,10 +1,13 @@
-LuckyTrading777 全局规则与架构活文档（v0.3 · 战地修正版）
+LuckyTrading777 全局规则与架构活文档（v0.3.13 · 战地修正版）
 
 目标：本活文档不是“制度手册”，而是可以直接指导代码和系统设计的架构蓝图。
 每一条规则都要回答三个问题：
-1）在系统里有什么影响？
-2）在数据模型（Data Model，数据模型）上如何约束？
-3）在代码层面应该怎么写 / 不该怎么写？
+
+在系统里有什么影响？
+
+在数据模型（Data Model）上如何约束？
+
+在代码层面应该怎么写 / 不该怎么写？
 
 0. 总纲：项目最高原则（Worldview，世界观）
 
@@ -13,18 +16,15 @@ LuckyTrading777 全局规则与架构活文档（v0.3 · 战地修正版）
 0.1 交易记录是第一性真相
 
 原则描述
-
 数据库里的原始交易记录，是整个系统的唯一“事实来源”（Single Source of Truth，唯一真实来源）。
-
 所有持仓、盈亏、报表、统计指标，必须从原始交易记录推导出来。
-
 任何派生错误，都只能通过“重算”修复，不能通过修改原始交易记录来“改结果”。
 
 对系统设计的约束
 
-必须存在一层“原始事实层”（Raw Fact Layer，原始事实层），专门存储用户录入的交易记录；
+必须存在一层“原始事实层”（Raw Fact Layer），专门存储用户录入的交易记录；
 
-所有其他层（持仓快照、报表缓存、图表数据）都视为“派生层”（Derived Layer，派生层）；
+所有其他层（持仓快照、报表缓存、图表数据）都视为“派生层”（Derived Layer）；
 
 系统必须支持“从原始事实层重建派生层”的能力（rebuild / replay，重算能力）。
 
@@ -36,7 +36,7 @@ LuckyTrading777 全局规则与架构活文档（v0.3 · 战地修正版）
 
 不允许在记录上混入“计算结果字段”（例如当前持仓、累计盈亏等）。这些应放在派生层。
 
-原始记录必须具备不可丢失的主键（Primary Key，主键），支持审计和重算。
+原始记录必须具备不可丢失的主键（Primary Key），支持审计和重算。
 
 对代码的约束
 
@@ -46,21 +46,19 @@ LuckyTrading777 全局规则与架构活文档（v0.3 · 战地修正版）
 
 变更交易记录的代码只能存在于：
 
-用户界面（UI，User Interface，用户界面）触发的明确操作；
+用户界面（UI）触发的明确操作；
 
-对应的“交易编辑服务”（Transaction Edit Service，交易编辑服务），并且记录审计日志。
+对应的“交易编辑服务”（Transaction Edit Service），并且记录审计日志。
 
 0.2 计算必须基于完整、真实、可追溯的参数
 
 原则描述
-
 所有计算（持仓、盈亏、比率、指标等）都必须基于明确、完整、可追溯的输入参数。
-
 禁止使用“默认值、兜底值、上一值、估算值”等方式去“硬凑”一个数字。
 
 对系统设计的约束
 
-每一个“计算单元”（Calculation Unit，计算单元）都必须有清晰的输入集合（Input Set，输入集合），不能“随手去别的地方取值”；
+每一个“计算单元”（Calculation Unit）都必须有清晰的输入集合（Input Set），不能“随手去别的地方取值”；
 
 系统需要有能力回答：
 
@@ -78,7 +76,7 @@ LuckyTrading777 全局规则与架构活文档（v0.3 · 战地修正版）
 
 对于派生层存储的任何数值（例如 DailyPnL，当日盈亏）：
 
-需要记录其“计算基准日”、“使用的价格类型（实时价 / 收盘价）”、“计算版本”等元数据（Metadata，元数据）；
+需要记录其“计算基准日”、“使用的价格类型（实时价 / 收盘价）”、“计算版本”等元数据（Metadata）；
 
 需要能在日志 / 数据表中追踪回去，知道是在哪一次批处理 / 任务中算出来的。
 
@@ -101,16 +99,14 @@ LuckyTrading777 全局规则与架构活文档（v0.3 · 战地修正版）
 0.3 所有“哪一天”一律按纽约交易日口径处理
 
 原则描述
-
-所有“哪一天”的概念，一律以纽约交易日（NY Trading Day，纽约交易日）为准，统一写作 YYYY-MM-DD。
-
+所有“哪一天”的概念，一律以纽约交易日（NY Trading Day）为准，统一写作 YYYY-MM-DD。
 不使用本机自然日（00:00–24:00）来判定“今天 / 昨天 / 某一天”。
 
 对系统设计的约束
 
-项目中必须有一个“统一时间抽象层”（Time Abstraction Layer，时间抽象层），专门负责：
+项目中必须有一个“统一时间抽象层”（Time Abstraction Layer），专门负责：
 
-将任意时间戳（Timestamp，时间戳）映射为 NY 交易日；
+将任意时间戳（Timestamp）映射为 NY 交易日；
 
 与外部行情 / 收盘价接口对接时，统一转换为 NY 交易日；
 
@@ -141,10 +137,9 @@ new Date('YYYY-MM-DD') 这类易有歧义的解析；
 0.4 前台展示的每一个数字都必须可解释
 
 原则描述
-
 前端用户界面中出现的每一个数字，都必须能被系统解释：
 
-它是哪个“概念”（Concept，概念）；
+它是哪个“概念”（Concept）；
 
 它是用什么公式算出来的；
 
@@ -152,9 +147,9 @@ new Date('YYYY-MM-DD') 这类易有歧义的解析；
 
 对系统设计的约束
 
-每个关键指标（例如“当日盈亏”、“总资产”、“收益率”）都应有对应的“指标定义”（Metric Definition，指标定义）；
+每个关键指标（例如“当日盈亏”、“总资产”、“收益率”）都应有对应的“指标定义”（Metric Definition）；
 
-可以在内部维护一份“指标字典”（Metrics Dictionary，指标字典），用于开发、测试和排障；
+可以在内部维护一份“指标字典”（Metrics Dictionary），用于开发、测试和排障；
 
 系统应具备某种“Explain / Debug 模式”，可以在需要时展开一个指标的计算来源。
 
@@ -173,7 +168,6 @@ new Date('YYYY-MM-DD') 这类易有歧义的解析；
 1.1 交易记录神圣不可侵犯原则（对应总纲 0.1）
 
 原则目标
-
 确保任何情况下，由用户手工录入并存储在数据库中的交易记录，其原始完整性都得到绝对保护。
 
 1.1.1 数据模型约束
@@ -196,7 +190,7 @@ new Date('YYYY-MM-DD') 这类易有歧义的解析；
 
 禁止以下代码路径修改原始记录：
 
-批量计算任务（Batch Job，批处理任务）；
+批量计算任务（Batch Job）；
 
 报表生成器；
 
@@ -206,7 +200,7 @@ new Date('YYYY-MM-DD') 这类易有歧义的解析；
 
 1.1.3 审计与回滚
 
-所有对原始交易记录的修改都必须记录审计日志（Audit Log，审计日志）：
+所有对原始交易记录的修改都必须记录审计日志（Audit Log）：
 
 谁在什么时候，对哪条记录做了什么修改；
 
@@ -227,9 +221,7 @@ new Date('YYYY-MM-DD') 这类易有歧义的解析；
 1.2 计算禁止“托底”（Fallback，兜底）的原则（对应总纲 0.2）
 
 原则目标
-
 确保所有计算结果都基于完整、真实的输入参数；
-
 缺失必要参数时，系统宁可“不出数”，也不能“瞎出数”。
 
 1.2.1 计算函数设计约束
@@ -240,7 +232,7 @@ new Date('YYYY-MM-DD') 这类易有歧义的解析；
 
 返回结构明确区分“成功计算”与“无法计算”；
 
-示例风格（伪代码，仅说明结构）：
+示例风格（伪代码）：
 
 type CalcResult<T> = {
   ok: boolean;              // 是否计算成功
@@ -279,8 +271,6 @@ type CalcResult<T> = {
 
 不得用 0 或其它数字代替“未计算”。
 
-注：具体的状态枚举、标签和样式会在“状态与标签系统”章节中统一定义，这里只定义“禁止托底”的行为规则。
-
 1.2.4 违规处理策略
 
 一旦发现某个模块在缺失关键数据的情况下仍输出数值，应视为违规：
@@ -291,16 +281,27 @@ type CalcResult<T> = {
 
 对受影响的数据进行重算或标记，避免用户误解。
 
-2. 时间与日期规则（Time & Date Rules，时间与日期规则）
+1.3 非侵入式数据调整原则（Non-Invasive Adjustment） [v0.3.9 新增]
+
+原则目标
+处理拆股（Stock Split）、合股等公司行动时，严禁修改原始交易记录（price / qty）。必须采用“运行时动态映射”机制，以维护 1.1 的神圣性。
+
+1.3.1 实现约束
+
+配置源：拆股信息存储在代码配置（如 stock-splits.ts）或独立的 Firestore 配置表中，不污染 transactions 集合。
+
+计算时机：调整动作仅在 FIFO 计算 或 持仓重建 的内存过程（Runtime）中发生。
+
+逻辑：系统根据交易日期与 split 生效日期的关系，动态应用 splitFactor 生成临时的 adjQty 和 adjPrice 用于计算，原始数据保持“当时录入的样子”。
+
+2. 时间与日期规则（Time & Date Rules）
 
 本章在总纲 0.3 的基础上，定义“项目内时间处理”的统一方式，为所有与“当天 / 某天 / 交易日”相关的代码提供统一约束。
 
 2.1 纽约时间唯一制（对应总纲 0.3）
 
 原则目标
-
 凡是问“哪一天”的场景（今天 / 昨天 / 收盘日 / 评估日 / 日度键），一律以纽约交易日为准，统一写作 YYYY-MM-DD。
-
 保证不同环境、不同模块对“哪一天”的判断永远一致。
 
 2.1.1 适用范围
@@ -309,7 +310,7 @@ type CalcResult<T> = {
 
 算法逻辑；
 
-接口（API，Application Programming Interface，应用程序接口）请求与响应；
+接口（API）请求与响应；
 
 数据库存储结构；
 
@@ -339,7 +340,7 @@ isTradingDay(day)：判断某日是否为交易日；
 
 2.1.3 数据字段与键名约束 [v0.3 重点修正]
 
-统一字段名：所有涉及业务日期的字段，必须 统一命名为 tradingDate。
+统一字段名：所有涉及业务日期的字段，必须统一命名为 tradingDate。
 
 禁止使用：严禁使用 date、day、time 等模糊名称作为业务主键。
 
@@ -364,30 +365,19 @@ new Date('YYYY-MM-DD') 解析日期；
 手写 -05:00 / -04:00 等时区差值。
 
 在不同模块中各自维护一套“自己的日期计算逻辑”。
-
 对同一时刻先按 NY 规则处理，再进行二次时区转换导致日期偏移。
 
 2.1.5 验收口径（全部需满足）
 
-多环境一致：
+多环境一致：以“纽约时间 2025-10-06 22:30”为例，在纽约 / 伦敦 / 北京 / 服务器环境下，使用统一工具模块换算出的 NY 交易日都应为 2025-10-06；
 
-以“纽约时间 2025-10-06 22:30”为例，在纽约 / 伦敦 / 北京 / 服务器环境下，使用统一工具模块换算出的 NY 交易日都应为 2025-10-06；
+边界正确：09:29:59 / 09:30:00、15:59:59 / 16:00:00 这类关键时刻的归属交易日不能出错；
 
-边界正确：
+夏令时稳定：夏令时切换周的样例验证中，不得出现日期偏移；
 
-09:29:59 / 09:30:00、15:59:59 / 16:00:00 这类关键时刻的归属交易日不能出错；
+节假日一致：依赖统一的交易日历数据（Trading Calendar），不同模块对“是否交易日”的判断一致；
 
-夏令时稳定：
-
-夏令时切换周的样例验证中，不得出现日期偏移；
-
-节假日一致：
-
-依赖统一的交易日历数据（Trading Calendar，交易日历），不同模块对“是否交易日”的判断一致；
-
-统一表示：
-
-所有“日”的键名 / 字段 / 展示都统一使用 YYYY-MM-DD 文本形式。
+统一表示：所有“日”的键名 / 字段 / 展示都统一使用 YYYY-MM-DD 文本形式。
 
 2.1.6 违规处理
 
@@ -399,21 +389,15 @@ new Date('YYYY-MM-DD') 解析日期；
 
 对可能已生成的数据按需要进行重算或标记。
 
-2.2 官方交易日历管理（SEC Trading Calendar，官方交易日历）
+2.2 官方交易日历管理（SEC Trading Calendar）
 
 原则目标
-
-用一份权威、统一维护的“美股交易日历”（Trading Calendar，交易日历）作为项目内所有“是否交易日 / 是否休市”判断的唯一来源；
-
-保证代码中的 US_MARKET_HOLIDAYS、isTradingDay、getMarketSession 等逻辑，与真实的 SEC（美国证券交易委员会，U.S. Securities and Exchange Commission）公布的日历完全对齐。
+用一份权威、统一维护的“美股交易日历”（Trading Calendar）作为项目内所有“是否交易日 / 是否休市”判断的唯一来源；
+保证代码中的 US_MARKET_HOLIDAYS、isTradingDay、getMarketSession 等逻辑，与真实的 SEC（美国证券交易委员会）公布的日历完全对齐。
 
 2.2.1 数据来源与维护方式
 
-数据来源：
-
-使用你已上传到系统中的 SEC 美股交易日日程表 作为权威数据源；
-
-日程表中包含：每一年的交易日、节假日、提前收盘日/休市日等信息。
+数据来源：使用你已上传到系统中的 SEC 美股交易日日程表作为权威数据源；
 
 维护方式：
 
@@ -429,7 +413,7 @@ new Date('YYYY-MM-DD') 解析日期；
 
 从“官方交易日历数据”中加载节假日与交易日信息；
 
-所有 isTradingDay(day)、prevNyTradingDay(day)、nextNyTradingDay(day)、getMarketSession(now) 这类函数，都只能依赖这份日历，而不是在代码中硬编码某一年的假日数组；
+所有 isTradingDay、prevNyTradingDay、nextNyTradingDay、getMarketSession 这类函数，都只能依赖这份日历，而不是在代码中硬编码某一年的假日数组；
 
 允许对不同年份、不同标的（若未来支持其他交易所）做扩展，但当前美股主市场一律以 SEC 日历为准。
 
@@ -439,7 +423,7 @@ new Date('YYYY-MM-DD') 解析日期；
 
 如 TradingCalendar_US：按 YYYY 或 YYYY-MM-DD 维度存储每一天的“类型”（交易日/休市日/半日市等）；
 
-或在配置文件中以结构化 JSON（JavaScript Object Notation，JavaScript 对象表示法）形式存储，并在启动时加载。
+或在配置文件中以结构化 JSON 形式存储，并在启动时加载。
 
 代码中的 US_MARKET_HOLIDAYS 常量：
 
@@ -473,58 +457,69 @@ new Date('YYYY-MM-DD') 解析日期；
 
 实时汇总层与前端徽章系统（见第 8 章）在判断盘中/收盘状态时，也必须通过时间工具 + 官方日历来统一判断。
 
-2.3 日切规则（Day Cut-off Rules，日切规则）
+2.3 日切规则（Day Cut-off Rules） [v0.3.2 新增]
 
 本条定义系统何时认为“新的一天开始了”。
 
 2.3.1 09:30 开盘日切原则
 
 原则描述
+系统判定“今天是哪一个交易日”时，不以午夜 00:00 为界，而是以 开盘时间 09:30 为界。
 
-系统判定“今天是哪一个交易日”时，不以午夜 00:00 为界，而是以 **开盘时间 09:30** 为界。
+00:00 至 09:30 之间：
+即便日历日期已变更，系统仍应显示 上一个交易日 的收盘数据（EOD）；此时视为“新交易日尚未开始”。
 
-在 00:00 至 09:30 之间：
-即使日历日期已变更，系统仍应显示 **上一个交易日** 的收盘数据（EOD）；
-此时视为“新交易日尚未开始”。
-
-在 09:30 之后：
-系统切换到 **当前交易日**；
-开始显示今日的实时盈亏（如有盘前数据，可结合具体需求，但基准日切换点严格为 09:30）。
+09:30 之后：
+系统切换到 当前交易日；开始显示今日的实时盈亏（如有盘前数据，可结合具体需求，但基准日切换点严格为 09:30）。
 
 2.3.2 系统设计约束
 
-所有涉及“获取今日数据”或“计算当日盈亏”的模块，必须调用统一的 `getEffectiveTradingDay()` 函数（位于 `ny-time` 模块），禁止自行判断 `new Date()`。
+所有涉及“获取今日数据”或“计算当日盈亏”的模块，必须调用统一的 getEffectiveTradingDay() 函数（位于 ny-time 模块），禁止自行判断 new Date()。
 
 逻辑伪代码：
-```typescript
+
 function getEffectiveTradingDay(now) {
+  // 注意：这里仅为逻辑示意，实际需结合 isTradingDay 排除周末/节假日
   if (now.time < "09:30") {
     return prevTradingDay(now); // 回退到昨天
   }
   return isTradingDay(now) ? now : prevTradingDay(now);
 }
-```
+
 
 2.3.3 违规处理
 
 任何在 00:00 立即切换数据导致盈亏归零的实现，均视为违规。
 
-3. 算法架构与隔离（Algorithm Architecture & Isolation，算法架构与隔离）
+2.4 代码防御与治理（Code Governance） [v0.3.9 新增]
 
-目标：避免出现“一个大文件 / 大函数里什么都算”，导致高耦合（High Coupling，高度耦合）、难以测试、一个错误牵连全局崩溃。
+原则目标
+通过工程手段物理阻断时区错误代码的提交。
+
+2.4.1 强制措施
+
+纽约时间卫士（NY Time Guard）：部署强制性 Pre-commit Hook（如 scripts/ny-time-guard.mjs）。
+
+禁区：
+
+禁止直接使用 new Date()（必须通过 nyTime 库封装）。
+
+禁止使用 toLocaleDateString / Intl.DateTimeFormat（除非显式指定时区为 America/New_York）。
+
+3. 算法架构与隔离（Algorithm Architecture & Isolation）
+
+目标：避免出现“一个大文件 / 大函数里什么都算”，导致高耦合、难以测试、一个错误牵连全局崩溃。
 本章约束算法在项目中的分层、文件组织与依赖关系。
 
-3.1 独立算法单元原则（Independent Calculation Units，独立计算单元）
+3.1 独立算法单元原则（Independent Calculation Units）
 
 原则描述
-
 每一个“算法”（例如持仓计算、当日盈亏计算、收益率计算、交易次数统计等），都应该被设计为独立的计算单元，而不是塞进一个“大杂烩函数 / 大杂烩文件”里。
-
 任意一个算法出错，不应导致完全不相关的计算一同崩溃。
 
 3.1.1 系统设计约束
 
-项目中的算法层应当拆分为若干“领域算法模块”（Domain Calculation Module，领域算法模块），例如：
+项目中的算法层应当拆分为若干“领域算法模块”（Domain Calculation Module），例如：
 
 positions（持仓相关算法）；
 
@@ -535,8 +530,7 @@ metrics（统计指标类算法）；
 activity（交易次数 / 活跃度统计）；
 
 每个模块内部，按算法进一步拆分为多个独立文件，每个文件只负责一类计算。
-
-上层“编排层”（Orchestration Layer，编排层）负责按需要组合调用这些算法，而不是在算法内部互相深度依赖。
+上层“编排层”（Orchestration Layer）负责按需要组合调用这些算法，而不是在算法内部互相深度依赖。
 
 3.1.2 文件组织约束
 
@@ -573,11 +567,11 @@ src/
 
 每个算法函数应满足：
 
-单一职责（Single Responsibility，单一职责）：只做一件清晰的事情；
+单一职责：只做一件清晰的事情；
 
-纯函数（Pure Function，纯函数）优先：输入参数 → 输出结果，不读写全局状态，不产生副作用（I/O、日志除外）；
+纯函数（Pure Function）优先：输入参数 → 输出结果，不读写全局状态，不产生副作用（I/O、日志除外）；
 
-输入和输出通过类型（Type，类型）或结构体明确约定。
+输入和输出通过类型（Type）或结构体明确约定。
 
 禁止的写法：
 
@@ -588,12 +582,11 @@ src/
 在算法内部捕获所有异常然后“吞掉”，导致上层无法感知错误。
 
 推荐的写法：
-
 在“服务层 / 编排层”做好数据准备，然后调用算法函数：
 
 // 伪代码，仅说明分层
-const trades = await loadUserTrades(userId, day);      // I/O 层：取数据
-const prices = await loadPrices(symbols, day);         // I/O 层：取行情
+const trades = await loadUserTrades(userId, day);       // I/O 层：取数据
+const prices = await loadPrices(symbols, day);          // I/O 层：取行情
 
 const pnlResult = calcTodayPnl({ trades, prices, day });// 算法层：纯计算
 
@@ -629,30 +622,27 @@ if (!pnlResult.ok) {
 2.1 纽约时间唯一制：算法在涉及“当日 / 某日”时，必须以 NY 交易日为输入；
 共同构成“可重算、可隔离、可调试”的计算体系基础。
 
-4. 计算与展示规则（Computation & Presentation Rules，计算与展示规则）
+4. 计算与展示规则（Computation & Presentation Rules）
 
-目标：把“页面上的每一个数字”当作一个独立的产品 / 技术对象来设计，
-让它在系统中有清晰的归属、公式、状态和数据来源，避免“大杂烩实现”和连环崩溃。
+目标：把“页面上的每一个数字”当作一个独立的产品 / 技术对象来设计，让它在系统中有清晰的归属、公式、状态和数据来源，避免“大杂烩实现”和连环崩溃。
 
-4.1 计算单元格独立精确原则（Independent Cell Metric，单元格独立精确）
+4.1 计算单元格独立精确原则（Independent Cell Metric）
 
 原则目标
-
 确保所有展示计算结果的单元格（如：总资产、总盈亏等）都遵循“独立、精确、可追溯”的原则。
-
-每一个单元格都对应一个清晰定义的“指标函数”（Metric Function，指标函数）。
+每一个单元格都对应一个清晰定义的“指标函数”（Metric Function）。
 
 4.1.1 适用范围
 
 首页的关键指标区域（比如总资产、总盈亏、今日盈亏等）；
 
-未来所有展示“派生计算数据”的 UI（User Interface，用户界面）单元格；
+未来所有展示“派生计算数据”的 UI 单元格；
 
 不适用于直接展示原始数据的单元（例如单条交易记录里的价格、数量等）。
 
-4.1.2 系统设计约束（Metric Catalog，指标目录）
+4.1.2 系统设计约束（Metric Catalog）
 
-系统中需维护一份“指标目录”（Metric Catalog，指标目录），每一个单元格级指标都包含：
+系统中需维护一份“指标目录”（Metric Catalog），每一个单元格级指标都包含：
 
 唯一标识（例如 M1_TOTAL_EQUITY、M3_TODAY_PNL）；
 
@@ -708,17 +698,11 @@ function calcTodayPnlRate(inputs: TodayPnlRateInputs): CalcResult<number> {
 
 4.1.5 禁止事项
 
-逻辑耦合：
+逻辑耦合：一个函数 / 模块同时负责过多本应独立的单元格计算，导致公式和职责混在一起。
 
-一个函数 / 模块同时负责过多本应独立的单元格计算，导致公式和职责混在一起。
+结果含糊：数据不足时返回估算值、经验值或 0 去“糊弄过去”。
 
-结果含糊：
-
-数据不足时返回估算值、经验值或 0 去“糊弄过去”。
-
-擅自实现 / 修改：
-
-在你没有明确给出计算公式之前，自作主张实现或修改任何单元格的计算逻辑。
+擅自实现 / 修改：在你没有明确给出计算公式之前，自作主张实现或修改任何单元格的计算逻辑。
 
 4.1.6 违规处理
 
@@ -730,46 +714,29 @@ function calcTodayPnlRate(inputs: TodayPnlRateInputs): CalcResult<number> {
 
 确保每个单元格可以“单独重算、单独验证、单独回溯”。
 
-4.1.7 盈亏与变动分离原则（PnL vs Change Separation）
+4.1.7 盈亏与变动分离原则（PnL vs Change Separation） [v0.3.9 增补]
 
-原则描述：
-为了彻底解决“账户盈亏（钱包）”与“行情走势（看板）”混淆的问题，前端展示必须严格区分以下两个概念：
+为了彻底解决“账户盈亏（钱包）”与“行情走势（看板）”混淆的问题，前端展示必须严格区分：
 
-1. **当日盈亏（Today's PnL）**：
-   - 关注“钱”的变化。
-   - 核心公式：`(Current Price - Previous Close) * Net Quantity`。
-   - 必须基于昨收价（PrevClose）。
+当日盈亏（Today's PnL）：关注“钱”的变化。
 
-2. **当日涨跌（Today's Change）**：
-   - 关注“行情”的走势。
-   - 核心公式：`(Current Price - Previous Close) / Previous Close`。
-   - 通常以百分比展示。
+核心：M6 算法。
 
-4.1.8 持仓盈亏计算原则（Holdings PnL Calculation）
+当日变动（Today's Change）：关注“行情”的走势。
 
-原则描述：
+核心：ChangeRate 与 ChangeValue。
+
+4.1.8 持仓盈亏计算原则（Holdings PnL Calculation） [v0.3.9 增补]
+
 持仓盈亏（Unrealized PnL）反映当前持仓相对于成本的浮动盈亏，必须严格遵循 FIFO（先进先出）原则计算成本。
 
-核心定义：
-1. **净持仓数量（Net Quantity, netQty）**：所有买入数量之和 - 所有卖出数量之和。
-2. **持仓成本总额（Total Cost, totalCost）**：
-   - 基于 FIFO 规则；
-   - 剩余未平仓部分的买入成交金额之和。
-3. **参考价格（Reference Price, refPrice）**：
-   - 交易时段：最新成交价（Last）；
-   - 闭市后：官方收盘价（Close）。
-4. **当前市值（Market Value, marketValue）**：
-   - `refPrice × netQty × multiplier`（股票 multiplier 为 1）。
+净持仓（Net Qty）：买入 - 卖出。
 
-计算公式：
-- **持仓盈亏（Unrealized PnL）** = `marketValue - totalCost`
-- **盈亏比例（PnL %）** = `Unrealized PnL / |totalCost|`
+总成本（Total Cost）：FIFO 队列剩余金额。
 
-展示规范：
-- 格式：`百分比 (数值)`，例如 `+10.00% (+500.00)`。
-- 颜色：遵循系统定义的涨跌色（通常为正绿负红，或根据配置）。
+参考价（Ref Price）：盘中 Last，盘后 Close。
 
-4.2 状态传递原则（State Propagation）
+4.2 计算结果状态传递原则（Status Propagation）
 
 原则目标
 只要是“算出来的结果”，如果用到了带“状态”的输入（比如价格有 live/stale/close 等），那结果自身也必须带上状态，且能真实反映输入质量。
@@ -780,29 +747,18 @@ function calcTodayPnlRate(inputs: TodayPnlRateInputs): CalcResult<number> {
 
 特别是首页的关键指标（例如 M1 总资产、M3 当日盈亏、M4 收益率等）。
 
-4.2.2 价格状态定义（PriceStatus，价格状态）
+4.2.2 价格状态定义（PriceStatus）
 
 此处先给出价格状态在“计算层”的抽象，用于状态传递；未来可在“状态与标签系统”章节统一整理枚举与样式。
-
 实时价格 nowPrice_s 的状态枚举示意：
 
-live（盘中）：
+live（盘中）：市场处于正常交易时段，API 获取实时价成功；
 
-市场处于正常交易时段（MarketOpen，市场开盘），API 获取实时价成功；
+stale（待更新）：市场处于正常交易时段，但 API 获取实时价失败或超时，目前使用的是上一次成功获取的价格 lastKnownPrice；
 
-stale（待更新）：
+ready（开盘就绪）：市场处于开盘前特定时段，API 已启动并获取到最新盘前价；
 
-市场处于正常交易时段（MarketOpen），但 API 获取实时价失败或超时，目前使用的是上一次成功获取的价格 lastKnownPrice；
-
-ready（开盘就绪）：
-
-市场处于开盘前特定时段（PreMarket，盘前），API 已启动并获取到最新盘前价；
-
-close（已收盘）：
-
-市场处于收盘后时段（MarketClosed，收盘后），当前使用的是最后一次有效价格（通常是收盘价或收盘后最后一次更新）。
-
-现有 deriveStatus(price, ts) 的行为与上述语义基本一致，本章将其视为价格状态的统一来源。
+close（已收盘）：市场处于收盘后时段，当前使用的是最后一次有效价格（通常是收盘价或收盘后最后一次更新）。
 
 4.2.3 状态传递与“最差状态原则”
 
@@ -810,13 +766,10 @@ close（已收盘）：
 
 如果某个指标依赖多只股票的价格状态，则结果状态是这些状态的“汇总结果”；
 
-最差状态原则：
-
-当多个带状态输入一起参与计算时，结果的状态取“最差的那个”；
+最差状态原则：当多个带状态输入一起参与计算时，结果的状态取“最差的那个”；
 
 状态优先级（从“最差”到“最好”）：
-
-stale > ready > live；
+stale > ready > live
 
 特殊规则：
 
@@ -833,7 +786,6 @@ stale > ready > live；
 4.2.5 状态传递示例（以 M1 / M3 / M4 为例）
 
 场景：总资产（M1）依赖多个持仓的实时价格。
-
 规则示意：
 
 如果市场是 MarketClosed：
@@ -848,8 +800,6 @@ M1 的状态必须是 close；
 
 只有当所有标的都是 live → M1 状态 = live。
 
-具体状态枚举与样式（Badge，徽章）由 UI 状态系统统一定义，本条只约束“状态如何从输入传递到结果”。
-
 4.2.6 违规处理
 
 任何“结果状态”没有反映真实依赖状态、或违反“最差状态原则”的实现，都视为违规：
@@ -858,10 +808,9 @@ M1 的状态必须是 close；
 
 避免用户误以为数据“完全可信”，而实际上有部分输入已过期。
 
-4.3 实时价格 API 获取轮动规则（Realtime Price Fetch Rotation，实时价格轮动规则）
+4.3 实时价格 API 获取轮动规则（Realtime Price Fetch Rotation）
 
 原则目标
-
 既要保证价格更新及时，又要防止某个第三方 API 卡死拖垮全局，同时遵守频率限制，在非交易时段自动停机节省资源。
 
 4.3.1 适用范围
@@ -870,7 +819,7 @@ M1 的状态必须是 close；
 
 特别是类似 useRealTimePrices 这类轮询模块 / 服务。
 
-4.3.2 队列轮动机制（Queue Rotation，队列轮动）
+4.3.2 队列轮动机制（Queue Rotation）
 
 使用一个队列存储所有需要获取价格的标的代码（symbols 列表）；
 
@@ -882,7 +831,7 @@ M1 的状态必须是 close；
 
 队列走完一圈后，从头重新开始。
 
-4.3.3 阻塞处理与超时回退（Timeout & Fallback，超时与回退）
+4.3.3 阻塞处理与超时回退（Timeout & Fallback）
 
 对单个标的的请求如果在合理时限（例如 30 秒）内没有返回：
 
@@ -896,19 +845,13 @@ M1 的状态必须是 close；
 
 4.3.4 API 启停规则（按纽约时间）
 
-启动：
+启动：NY 时间开盘前 10 分钟（PreMarket）开始轮动；
 
-NY 时间开盘前 10 分钟（PreMarket）开始轮动；
+运行：在 PreMarket + MarketOpen 时段持续运行价格轮询；
 
-运行：
+停止：NY 时间收盘后 10 分钟（MarketClosed 之后）自动停止所有请求；
 
-在 PreMarket + MarketOpen 时段持续运行价格轮询；
-
-停止：
-
-NY 时间收盘后 10 分钟（MarketClosed 之后）自动停止所有请求；
-
-具体时间边界应与统一时间模块（参见 2.1 纽约时间唯一制）集成，以 NY 交易日与交易时段为准。
+具体时间边界应与统一时间模块（参见 2.1）集成，以 NY 交易日与交易时段为准。
 
 4.3.5 禁止事项
 
@@ -930,29 +873,48 @@ NY 时间收盘后 10 分钟（MarketClosed 之后）自动停止所有请求；
 
 确保价格系统的行为可预期、可控，不因单点故障拖垮全局。
 
-5. 云函数入口与模块拆分（Cloud Functions Entry & Modularity，云函数入口与模块化）
-
-背景：在 Firebase Functions（Firebase 云函数）项目中，index.ts 是部署入口文件。
-Firebase 在部署时会扫描 index.ts 里 export const xxx = ... 或 export { xxx } from '...' 的导出，将这些导出当作真正的 Cloud Function（云函数）去部署。
-如果在入口文件中同时“写大量业务逻辑 + 做导出”，就会变成“大杂烩”，耦合严重、难以维护。
-
-5.1 入口文件只负责“目录与导出”的原则（Thin Entry，瘦入口）
+4.4 UI 与交互规范（UI Standards） [v0.3.9 新增]
 
 原则目标
+统一全局的视觉语言，确保“多空”与“操作”语义清晰。
 
+4.4.1 统一色谱（Color Palette）
+
+多头 (Long): 🟢 Emerald (绿) / NetQty > 0
+
+空头 (Short): 🔴 Red (红) / NetQty < 0
+
+4.4.2 操作徽章（Action Badges）
+
+买入 / BTO: 🟢 Emerald
+
+卖出 / STC: 🔴 Red
+
+卖空 / STO: 🟣 Violet
+
+补回 / BTC: 🔵 Blue
+
+拆股 / SPLIT: ⚪ Slate (灰)
+
+5. 云函数入口与模块拆分（Cloud Functions Entry & Modularity）
+
+背景：在 Firebase Functions 项目中，index.ts 是部署入口文件。如果在入口文件中同时“写大量业务逻辑 + 做导出”，就会变成“大杂烩”，耦合严重、难以维护。
+
+5.1 入口文件只负责“目录与导出”的原则（Thin Entry）
+
+原则目标
 确保云函数项目的入口文件（如 functions/src/index.ts）只负责：
 
 列出有哪些函数需要被部署；
 
 从对应模块导出这些函数；
-
 所有真实的业务逻辑、计算、I/O 都放在独立模块中，实现“瘦入口、粗实现”。
 
 5.1.1 系统设计约束
 
 对于 Firebase Functions 项目：
 
-入口文件（Entry File，入口文件）负责“函数目录”和“导出声明”；
+入口文件负责“函数目录”和“导出声明”；
 
 每一个云函数的实现放在独立的模块文件中；
 
@@ -1003,33 +965,18 @@ export { requestBackfillEod } from "./admin/request-backfill-eod"; // 管理入�
 
 5.1.3 模块化与耦合控制
 
-每一个云函数（例如 priceQuote、backfillWorker、requestBackfillEod）背后的实现应当：
+每一个云函数背后的实现应当：
 
-有自己专属的文件，负责该函数的 Handler（处理函数）和相关业务逻辑；
+有自己专属的文件，负责该函数的 Handler 和相关业务逻辑；
 
 内部再按算法架构与隔离原则（见第 3 章）拆成更小的算法模块、工具模块；
 
-通过这种分层：
-
-云函数入口层：只关心 HTTP / Pub/Sub 签名与导出；
-
-业务服务层（Service Layer，服务层）：处理业务流程（认证、参数校验、组织算法调用等）；
-
-算法层：做纯计算（参见第 3 章）；
-
-优点：
-
-某个云函数出问题时，仅影响该函数路径，不会因为 index.ts 里耦合太多逻辑导致“一个崩全崩”；
-
-更易于单元测试（Unit Test，单元测试）：可以对每个模块单独编写测试，而不必通过入口文件间接触发。
-
 5.1.4 与现有规则的关系
 
-本条与：
+与 3.1 独立算法单元原则：一致地强调“拆分责任、降低耦合”；
 
-3.1 独立算法单元原则：一致地强调“拆分责任、降低耦合”；
+与 4.1 计算单元格独立精确原则：在“展示指标”一侧做类似拆分；
 
-4.1 计算单元格独立精确原则：在“展示指标”一侧做类似拆分；
 共同形成“前台指标、后台算法、云函数入口”三层各司其职的整体架构。
 
 5.1.5 违规处理
@@ -1039,7 +986,6 @@ export { requestBackfillEod } from "./admin/request-backfill-eod"; // 管理入�
 同时承担了复杂业务逻辑与导出职责；
 
 代码过长、修改频繁、牵一发而动全身；
-
 则应视为架构层面的耦合问题，需进行重构：
 
 将业务逻辑迁移至独立模块文件；
@@ -1048,142 +994,59 @@ export { requestBackfillEod } from "./admin/request-backfill-eod"; // 管理入�
 
 重新梳理文件结构，使模块边界清晰。
 
-5.2 单一功能模块原则（One Capability One Module，全项目适用）
-
-你给 index.ts 的例子，只是现象之一。真正的需求是一个通用概念：
-
-一个文件管一个功能（One File One Capability，一文件一功能）；
-
-一个功能对应前台的一个清晰能力点；
-
-不要把一堆互不相干的功能混在同一个文件里。
-本条是对整个项目（前端 + 后端）的通用约束，不仅限于云函数入口。
+5.2 单一功能模块原则（One Capability One Module）
 
 原则目标
-
-让项目中的每个“功能点”（Capability，功能能力）都有自己清晰的“家”：
+让项目中的每个“功能点”（Capability）都有自己清晰的“家”：
 
 一个对应的模块 / 文件；
 
 明确的输入输出；
 
 可独立调试、可独立替换；
-
-避免出现“巨石文件”（God File，巨石文件）和“巨石函数”（God Function，巨石函数），任何修改都牵扯整片系统。
+避免出现“巨石文件”（God File）和“巨石函数”，任何修改都牵扯整片系统。
 
 5.2.1 适用范围
 
-后端：
+后端：HTTP 接口、Pub/Sub 作业、管理指令等；
 
-Firebase Functions（云函数）项目中的 HTTP 接口、Pub/Sub 作业、管理指令等；
+前端：页面级能力、独立的功能区域、公共服务层。
 
-未来可能存在的 API 网关、微服务（Microservice，微服务）等；
+5.2.2 后端实现约束
 
-前端：
+每一个“对外能力”应当：
 
-页面级能力（Page-level Feature，页面级功能）；
+拥有一个清晰命名的 Handler 文件；
 
-独立的功能区域（如首页 M1/M3/M4 区块对应的容器组件）；
-
-公共服务层 / Domain Service（领域服务）层：
-
-例如“官方收盘价服务”、“实时价格服务”、“交易导入服务”等。
-
-5.2.2 后端实现约束（以云函数 / API 为例）
-
-每一个“对外能力”（例如：报价查询、提交补齐请求、触发 EOD 作业）应当：
-
-拥有一个清晰命名的 Handler 文件（例如 price-quote.ts、request-backfill-eod.ts）；
-
-Handler 文件内部只处理与该能力相关的逻辑：认证、参数校验、调用服务层、返回结果；
+Handler 文件内部只处理与该能力相关的逻辑；
 
 真正的业务细节尽量进一步下沉到服务层 / 算法层模块；
 
-禁止：
+禁止在同一个 Handler 文件里实现多个彼此独立的接口 / 作业。
 
-在同一个 Handler 文件里实现多个彼此独立的接口 / 作业；
+5.2.3 前后端能力一一对应（Feature Mapping）
 
-把与多个前台功能完全不相干的逻辑混在一个后端文件里仅仅因为“方便引用”；
-
-让任何一个文件成为“项目垃圾桶”，所有新逻辑都往里塞。
-
-5.2.3 前后端能力一一对应（Feature Mapping，一对一映射）
-
-对于重要的前台功能（特别是首页指标、关键操作流程）：
-
-应在蓝图中明确：
+对于重要的前台功能（特别是首页指标、关键操作流程），应在蓝图中明确：
 
 它依赖哪些后端函数（云函数 / API）；
 
 这些后端函数分别在哪些文件中实现；
 
-尽量形成“一前台功能 ↔ 一组可数清晰的后端函数”的映射关系；
-
-示例（仅示意）：
-
-首页 M1/M3/M4 区块：
-
-前端容器组件：DashboardMainMetrics；
-
-主要依赖后端能力：
-
-getDashboardSnapshot（获取仪表盘快照，单一职责）；
-
-priceQuote（若需要实时价）；
-
-对应文件：functions/src/http/dashboard-snapshot.ts、functions/src/http/price-quote.ts。
-
-目标：
-
-当你想排查某个前台功能的问题时，只需找到对应那几个后端文件，而不是翻遍整个仓库。
+尽量形成“一前台功能 ↔ 一组可数清晰的后端函数”的映射关系。
 
 5.2.4 公共服务与复用的边界
 
-允许存在“跨功能复用”的服务模块，例如：
+允许存在“跨功能复用”的服务模块（如 officialCloseService），但这些服务模块仍然应该遵循“一模块一职责”的约束，不要让某个服务模块既处理价格逻辑，又处理权限、又处理日志。
 
-officialCloseService（官方收盘价服务）；
+5.2.5 违规处理
 
-realtimePriceService（实时价格服务）；
-
-userHoldingsService（用户持仓服务）；
-
-但这些服务模块仍然应该遵循“一模块一职责”的约束：
-
-不要让某个服务模块既处理价格逻辑，又处理权限、又处理日志、又处理 UI 映射；
-
-需要拆分时，及时拆分为多个更聚焦的模块。
-
-5.2.5 与其他章节的关系
-
-与 3. 算法架构与隔离：
-
-3 章更多强调“算法本身”的拆分与纯计算；
-
-5.2 强调“一个功能点一个模块”的宏观组织方式，覆盖前后端与服务层；
-
-与 4. 计算与展示规则：
-
-4 章对“单元格级指标”的独立性做约束；
-
-5.2 则对“功能级模块”的独立性做约束。
-
-5.2.6 违规处理
-
-一旦发现某个文件：
-
-长度异常、修改极其频繁；
-
-负责多种完全无关的功能（例如既处理实时价又处理导入导出、还顺便算报表）；
-
-应视为触发本条规则：
+一旦发现某个文件长度异常、修改极其频繁或负责多种完全无关的功能：
 
 把文件按功能拆分为多个模块；
 
-在蓝图中补充“前台功能 ↔ 后端模块”的映射说明；
+在蓝图中补充“前台功能 ↔ 后端模块”的映射说明。
 
-后续新功能不得再往原“巨石文件”添砖加瓦，而是在新的模块中实现。
-
-6. 指标算法定义（Metric Algorithms，关键指标算法）
+6. 指标算法定义（Metric Algorithms）
 
 6.1 总持仓市值（GMV：Gross Market Value，绝对值口径）
 
@@ -1202,7 +1065,6 @@ qty：当前头寸数量（多头为正，空头为负）；
 price：当前市场价格（根据状态：live / ready / stale / close）；
 
 multiplier：合约乘数（股票为 1；期权、期货按合约规则填写）；
-
 注：价格状态的解释与来源遵循第 4.2 节“状态传递原则”。
 
 6.1.2 指标定义
@@ -1218,36 +1080,14 @@ multiplier：合约乘数（股票为 1；期权、期货按合约规则填写�
 6.1.3 单个标的的绝对市值计算
 
 对任意持仓记录，绝对市值计算公式为：
-
-MV_abs = |qty| × price × multiplier
-
-
-说明：
-
-使用绝对数量 |qty|，因此空头仓位也计为正向资产规模；
-
-price 为当前有效市场价格；
-
-multiplier 为合约乘数（股票视为 1）。
+$$ MV_{abs} = |qty| \times price \times multiplier $$
 
 6.1.4 总持仓市值的计算（合计公式）
 
-对所有 qty ≠ 0 的持仓记录，将其绝对市值累加：
-
-TotalMV_abs = Σ( |qty_i| × price_i × multiplier_i )
-
-
-其中：
-
-i 表示每一个独立标的；
-
-结果为账户整体的市场规模；
-
-多空一律视为规模，不区分方向。
+对所有 $qty \neq 0$ 的持仓记录，将其绝对市值累加：
+$$ TotalMV_{abs} = \sum (|qty_i| \times price_i \times multiplier_i) $$
 
 6.1.5 GMV 的用途
-
-GMV 可用于：
 
 评估账户整体承担的市场风险规模；
 
@@ -1255,9 +1095,7 @@ GMV 可用于：
 
 风险管理与保证金评估；
 
-监控各资产类别、各标的之间的敞口分布；
-
-在不同品种之间进行统一量化比较。
+监控各资产类别、各标的之间的敞口分布。
 
 6.1.6 GMV 不适用于的场景
 
@@ -1315,12 +1153,9 @@ SPY
 
 1,800
 
-总持仓市值为：
+总持仓市值为：20,000 + 12,500 + 1,800 = 34,300
 
-20,000 + 12,500 + 1,800 = 34,300
-
-
-6.2 净现金投入（NCI：Net Cash Invested，净现金投入）
+6.2 净现金投入（NCI：Net Cash Invested）
 
 大爷提出的核心思路完全正确：
 
@@ -1329,8 +1164,6 @@ GMV = |数量| × 实时价格 × 合约乘数
 NCI = |数量| × 成本价格 × 合约乘数
 
 本质上，NCI 就是“按照成本价版本的 GMV”。
-
-下述为正式的指标定义与项目级实现规则。
 
 6.2.1 指标定义
 
@@ -1345,11 +1178,7 @@ NCI = |数量| × 成本价格 × 合约乘数
 6.2.2 单标的 NCI 计算公式
 
 对任意持仓记录：
-
-NCI_single = |qty| × costPerUnit × multiplier
-
-
-说明：
+$$ NCI_{single} = |qty| \times costPerUnit \times multiplier $$
 
 qty：当前头寸数量（多头为正，空头为负，始终取绝对值）；
 
@@ -1361,18 +1190,8 @@ multiplier：股票=1；期权/期货按合约规则填写；
 
 6.2.3 总 NCI 计算（绝对值口径）
 
-对所有 qty ≠ 0 的持仓求和：
-
-NCI_total = Σ( |qty_i| × costPerUnit_i × multiplier_i )
-
-
-含义：
-
-代表账户目前持仓体系下的“总投入本金规模”；
-
-不考虑方向性，不管多头/空头；
-
-是一个规模指标，不等同于账户净值、也不包含现金余额。
+对所有 $qty \neq 0$ 的持仓求和：
+$$ NCI_{total} = \sum (|qty_i| \times costPerUnit_i \times multiplier_i) $$
 
 6.2.4 指标用途
 
@@ -1396,41 +1215,19 @@ GMV 用的是 实时价格（last）；
 
 NCI 用的是 成本价格（costPerUnit）。
 
-6.7 个股全生命周期总盈亏（Total Lifetime PnL） [v0.3.7 新增]
-
-本算法用于展示在单一标的上，从第一次交易至今的“总账”。
-
-6.7.1 定义
-
-它由两部分组成：
-
-1. **历史已落袋的钱（Realized PnL）**：无论中间进出多少次，只要是平掉的仓位，其盈亏都算在这里。
-2. **当前浮动的钱（Unrealized PnL）**：目前手里持仓的浮动盈亏。
-
-6.7.2 计算公式
-
-$$ \text{TotalLifetimePnL} = \text{AccRealizedPnL} + \text{UnrealizedPnL} $$
-
-**AccRealizedPnL（累计已实现盈亏）**：
-- 来源：必须由后端 FIFO 引擎基于全量交易历史计算得出。
-- 更新频率：仅在发生新交易（平仓动作）时更新，应作为字段持久化存储在标的快照中，避免实时重算。
-
-**UnrealizedPnL（未实现盈亏）**：
-- 来源：同 6.6 章节算法（即 4.1.8 持仓盈亏）。
-- 更新频率：随 refPrice 实时跳动。
-
-6.7.3 业务含义
-
-反映用户在该标的上的整体作战成绩。即使当前持仓是浮亏的，但如果历史赚得够多，总盈亏仍可能是正的。
+因此在代码层面：
 
 NCI 实际上是 GMV 模块的一个“变体指标”；
 
 只需在 GMV 的行处理逻辑上“换一个字段”即可，不需要新的算法体系；
 
-仍然遵守所有既有规则：
+仍然遵守所有既有规则（禁止托底、算法独立、状态传递）。
 
-1.2 禁止托底；
-若成本价缺失（极端情况），该标的行不参与 NCI 计算，整体状态为 degraded（与 GMV 状态规则保持一致）。
+6.2.6 状态规则（NCI）
+
+NCI 不依赖实时价格，因此默认使用状态 ok；
+
+若成本价缺失（极端情况），该标的行不参与 NCI 计算，整体状态为 degraded。
 
 6.2.7 示例（与 GMV 对照）
 
@@ -1478,48 +1275,329 @@ TSLA
 
 NCI_total = 15,000 + 9,000 = 24,000
 
-7. 计算分层与执行策略（Three-Tier Metric Execution，三层计算策略）
+6.3 当日盈亏（Today's PnL，综合算法） [v0.3.1 新增]
 
-目标：
+本算法用于计算单个标的及账户整体的“当日盈亏”。
+它采用了标准的“盯市盈亏（Mark-to-Market）”逻辑，并结合了“当日交易影响”的调整。
 
-你的前台有大量计算单元格（例如 ~20 个主指标 + 若干次级指标）；
+6.3.1 前置条件与输入数据
 
-不希望所有计算都堆在浏览器或某一个后端函数里；
+系统必须具备以下数据：
 
-希望形成清晰的“前端轻计算 + 后端实时汇总 + 后端批处理”三层架构，便于排查、扩展和性能控制。
+netQty: 当前净持仓数量（来自实时持仓快照）；
 
-本章定义：每一个指标应该在哪一层“有家”，每层能做什么 / 不能做什么，以及三层之间如何协作。
+refPrice: 结算参考价；
+
+选取逻辑：若市场状态为 Closed 且存在今日 EOD 收盘价，则取 EOD；否则取当前 Realtime 价格。
+
+prevClose: 昨日收盘价（必须来自官方 EOD 数据）；
+
+todaysTrades: 当日（按 NY Trading Date）该标的下的所有成交记录；
+
+multiplier: 合约乘数。
+
+约束：
+
+若 prevClose 缺失，则违反 1.2 禁止托底原则，必须返回“无法计算”。
+
+6.3.2 指标定义
+
+当日盈亏反映了今日内资产价值的变动，包含：
+
+持仓浮动盈亏：从昨日收盘到当前价格的变动；
+
+当日已实现盈亏：今日进行的交易产生的即时盈亏。
+
+6.3.3 核心公式
+
+步骤 1：计算当日交易影响（Trade Impact）
+$$ \text{TradeImpact} = \sum_{tx \in Today} (tx.price - prevClose) \times tx.qty $$
+解释：计算今日每一笔交易相对于“昨日收盘价”的偏离值。
+
+步骤 2：计算原始点数盈亏（Raw PnL Points）
+$$ \text{RawPnL} = netQty \times (refPrice - prevClose) - \text{TradeImpact} $$
+解释：先假设当前持仓全是今天从昨收价涨上来的，然后减去实际交易产生的成本差额。
+
+步骤 3：计算最终货币盈亏（Final PnL Value）
+$$ \text{TodayPnL} = \text{Round}(\text{RawPnL} \times multiplier, 2) $$
+解释：乘以合约乘数并将结果保留两位小数。
+
+6.3.4 算法逻辑验证
+
+场景 A（不动如山）：今日无交易（todaysTrades 为空，TradeImpact = 0）。
+
+TodayPnL = netQty * (refPrice - prevClose) * multiplier。
+
+符合直觉：盈亏纯粹来自持仓价格波动。
+
+场景 B（日内回转）：早晨买入 100 股 @ 100，下午卖出 100 股 @ 110，收盘空仓（netQty = 0）。假设 prevClose = 90。
+
+TradeImpact = (100-90)*100 + (110-90)*(-100) = 1000 - 2000 = -1000
+
+RawPnL = 0 * (...) - (-1000) = +1000
+
+TodayPnL = 1000。
+
+符合直觉：赚了 (110-100)*100 = 1000。
+
+6.3.5 状态与降级
+
+结果状态（Badge Status）遵循 4.2 最差状态原则：
+
+取决于 refPrice 的来源状态（live/stale/close）。
+
+若 prevClose 缺失，状态为 error / degraded。
+
+6.3.6 M6 当日盈亏归因（Attribution Analysis） [v0.3.13 精确重写]
+
+为了精准回答“今天账户净值增加了多少（Net Value Increase）”，并将所有仓位（含今日已清仓部分）的贡献一网打尽，我们采用全口径归因：
+
+$$ \text{M6 Total} = \sum (\text{M6.1}) + \sum (\text{M6.2}) - \text{Friction} $$
+
+1. M6.1 存量盈亏（Legacy PnL / Old Money）
+
+定义：昨晚结算后就在账上的所有仓位（Overnight Positions），在今天发生的总盈亏。
+
+覆盖范围：无论这些老仓位今天是被卖了、被减持了，还是留到了收盘，统统算在内。
+
+计算公式（逐笔/逐批次累加）：
+$$ \text{LegacyPnL} = \sum_{\text{All Overnight Batches}} \text{Qty} \times (\text{TodayEndPrice} - \text{PrevClose}) \times \text{Multiplier} $$
+
+TodayEndPrice 取值逻辑：
+
+若该批次今天已平仓：取 ExitPrice（卖出价）。
+
+若该批次未平仓：取 CurrentPrice（现价/收盘价）。
+
+2. M6.2 增量盈亏（New PnL / New Money）
+
+定义：今天新开的仓位（Intraday Opens），在今天发生的总盈亏。
+
+覆盖范围：含日内做T（已平仓）和新开持仓（未平仓）。
+
+计算公式：
+$$ \text{NewPnL} = \sum_{\text{All New Batches}} \text{Qty} \times (\text{TodayEndPrice} - \text{EntryPrice}) \times \text{Multiplier} $$
+
+3. M6.3/M6.4 摩擦与收支（Friction & Other）
+
+M6.3：交易佣金、规费、利息支出（负项）。
+
+M6.4：股息、利息收入（正项）。
+
+6.4 当日变动（Today's Change） [v0.3.4 新增]
+
+本算法定义了一个纯粹反映**“行情走势”及其对“当前持仓”影响**的独立列，与当日盈亏（6.3）彻底解耦。
+
+6.4.1 定义与目的（Asset Performance vs. Account PnL）
+
+当日变动：假设“如果今天不做任何交易，仅持有当前数量的货，会产生的盈亏”。
+
+核心目的：作为**基准（Benchmark）**来对比 6.3 的真实盈亏。
+
+若 当日盈亏 > 当日变动：说明您的日内交易（Alpha）产生了正向收益（跑赢了死拿不动）。
+
+若 当日盈亏 < 当日变动：说明交易产生了负向收益（跑输了死拿不动）。
+
+6.4.2 计算公式
+
+该指标包含两部分数据：比率（Rate）与数值（Value）。
+
+部分 A：变动比率（Official Rate）
+$$ \text{ChangeRate} = \frac{\text{refPrice} - \text{prevClose}}{\text{prevClose}} $$
+
+部分 B：变动市值（Change Value）
+$$ \text{ChangeValue} = (\text{refPrice} - \text{prevClose}) \times \text{netQty} \times \text{multiplier} $$
+
+6.4.3 前端展示规范（UI Presentation）
+
+格式：百分比 (数值)，例如 -10.11% (-500.00)。
+
+颜色：
+
+ChangeRate > 0：绿色（涨）。
+
+ChangeRate < 0：红色（跌）。
+
+ChangeRate = 0：灰色/平。
+
+6.4.4 对比示例（Alpha 验证）
+
+场景：昨收 100。早上 90 买入 100 股（抄底成功）。现价 90（当天跌了 10%）。当前持仓 100 股。
+
+6.3 当日盈亏：显示 +0（成本 90，现价 90，盈亏平衡）。
+
+6.4 当日变动：显示 -10.00% (-1000)（标的跌了 10%，100 股对应市值缩水 1000）。
+
+结论：0 > -1000，说明您的“抄底操作”帮您挽回了 1000 块的潜在损失。
+
+6.5 今日交易盈利（日内交易 M5） [v0.3.9 重写]
+
+本模块分为两个子视角，用于全面评估日内交易的表现。它是 M6.2 的一个子集。
+
+6.5.1 M5.1 交易视角（Trading Perspective）
+
+定义：只看今天发生的买和卖，在今天内部按 FIFO 配对。
+
+公式：$$ \text{M5.1} = \sum (\text{SellPrice} - \text{TodayBuyPrice}) \times \text{IntradayMatchedQty} $$
+
+含义：纯粹评估“今天买进再卖出”这波操作的价差收益，不考虑历史持仓成本。
+
+6.5.2 M5.2 FIFO 账本视角（FIFO Ledger Perspective）
+
+定义：针对 M5.1 中已配对的同一批数量，改用全局 FIFO 账本里的真实历史成本重算盈亏。
+
+公式：$$ \text{M5.2} = \sum (\text{SellPrice} - \text{HistoricalFifoCost}) \times \text{IntradayMatchedQty} $$
+
+含义：评估这笔日内交易对账户总盈亏（基于 FIFO）的实际贡献。
+
+6.6 持仓盈亏（Total Unrealized PnL） [v0.3.6 新增]
+
+本算法用于计算当前持仓的未实现盈亏（浮动盈亏）。
+
+6.6.1 核心逻辑
+
+基于 FIFO（先进先出） 队列，计算剩余持仓的加权平均成本，并与当前市场价格比较。
+
+6.6.2 计算公式
+
+公式一（单价法，推荐）：
+$$ \text{UnrealizedPnL} = (\text{refPrice} - \text{costPerShare}) \times \text{netQty} \times \text{multiplier} $$
+
+公式二（总额法，等价）：
+$$ \text{UnrealizedPnL} = \text{MarketValue} - \text{TotalCost} $$
+
+其中：
+
+costPerShare = TotalCost / netQty （由 FIFO 算法得出）。
+
+TotalCost：当前剩余持仓的原始买入总金额。
+
+6.6.3 边界条件
+
+当 netQty = 0 时，持仓盈亏强制为 0。
+
+6.7 个股全生命周期总盈亏（Total Lifetime PnL） [v0.3.7 新增]
+
+本算法用于展示在单一标的上，从第一次交易至今的“总账”。
+
+6.7.1 定义
+
+它由两部分组成：
+
+历史已落袋的钱（Realized PnL）：无论中间进出多少次，只要是平掉的仓位，其盈亏都算在这里。
+
+当前浮动的钱（Unrealized PnL）：目前手里持仓的浮动盈亏。
+
+6.7.2 计算公式
+
+$$ \text{TotalLifetimePnL} = \text{AccRealizedPnL} + \text{UnrealizedPnL} $$
+
+AccRealizedPnL（累计已实现盈亏）：
+
+来源：必须由后端 FIFO 引擎基于全量交易历史计算得出。
+
+更新频率：仅在发生新交易（平仓动作）时更新，应作为字段持久化存储在标的快照中，避免实时重算。
+
+UnrealizedPnL（未实现盈亏）：
+
+来源：同 6.6 章节算法。
+
+更新频率：随 refPrice 实时跳动。
+
+6.7.3 业务含义
+
+反映用户在该标的上的整体作战成绩。即使当前持仓是浮亏的，但如果历史赚得够多，总盈亏仍可能是正的。
+
+6.8 今日平仓盈利（历史仓位） [v0.3.8 新增]
+
+本算法用于统计“今天平掉的老仓位所带来的已实现盈亏”，用于区分“收割旧庄稼”和“日内短线搏杀”。
+
+6.8.1 核心逻辑（FIFO Traceback）
+
+对今日发生的每一笔平仓交易（SELL/COVER），通过 FIFO 队列追溯其对应的开仓日期。
+
+若 OpenDate < Today：纳入本指标。
+
+若 OpenDate == Today：剔除（视为日内交易）。
+
+6.8.2 计算公式
+
+$$ \text{TodayRealizedHistorical} = \sum (\text{ExitPrice} - \text{HistoricalCost}) \times \text{MatchedQty} \times \text{Multiplier} $$
+
+ExitPrice: 今日平仓价格。
+
+HistoricalCost: 对应历史开仓的成本价。
+
+Multiplier: 合约乘数（股票=1，期权=100）。
+
+6.8.3 架构位置
+
+属于“已实现盈亏”的子集。建议由后端交易处理服务在每笔成交确认后即时计算并推送到前端。
+
+6.9 滚动盈亏平衡价（Rolling Break-even Price） [v0.3.5 新增 -> v0.3.9 移动]
+
+本算法用于计算“当前持仓需要达到什么价格，才能使该标的的历史总盈亏归零”。
+
+6.9.1 核心逻辑
+
+它采用了**“滚动摊薄成本法（Rolling Adjusted Cost Basis）”。
+核心思想是将历史在该标的上赚的所有钱（已实现盈亏）**都用来抵扣当前的持仓成本。
+
+6.9.2 计算公式
+
+$$ J = \frac{\text{accTotalCost} - \text{accRealizedPNL}}{|\text{netAfter}|} $$
+
+accTotalCost：当前持有仓位的总成本金额。
+
+多头买入：+ Cost。
+
+多头卖出：- Cost（按 FIFO 规则扣除）。
+
+空头卖出：- Proceeds（作为负成本）。
+
+accRealizedPNL：该标的历史累计已实现盈亏。
+
+netAfter：当前净持仓数量。
+
+6.10 周期性盈亏（Period PnL: WTD/MTD/YTD） [v0.3.9 新增]
+
+6.10.1 算法逻辑（Flow + Delta）
+采用“流量累加 + 存量差值”混合算法：
+$$ \text{PeriodPnL} = \sum \text{RealizedFlow} + (\text{CurrentUnrealized} - \text{BaseUnrealized}) $$
+
+BaseUnrealized：基准日（如上周五收盘）那一刻的持仓未实现盈亏。
+
+当前策略：On-the-fly。每次计算时，实时回溯历史交易重建当时的 FIFO 状态。
+
+性能预警：当单用户交易量 > 50,000 笔时，需升级为“EOD 快照表”策略。
+
+7. 计算分层与执行策略（Three-Tier Metric Execution）
+
+目标：希望形成清晰的“前端轻计算 + 后端实时汇总 + 后端批处理”三层架构，便于排查、扩展和性能控制。
 
 7.1 总体分层概念
 
-前端轻计算层（Frontend Light Compute，前端轻计算）
+前端轻计算层（Frontend Light Compute）
 
 位置：React 组件 / Hooks 中的纯计算逻辑；
 
-职责：仅负责展示层面的轻量组合与格式化；
+职责：仅负责展示层面的轻量组合与格式化；不直接访问原始交易数据，不做重型统计。
 
-不直接访问原始交易数据，不做重型统计。
-
-后端实时汇总层（Online Aggregation，在线汇总）
+后端实时汇总层（Online Aggregation）
 
 位置：HTTP 云函数 / 实时服务 API；
 
-职责：基于当前最新的持仓、价格、官方收盘价等，实时算出“当前视角”的核心指标快照（例如 M1/M3/M4）；
+职责：基于当前最新的持仓、价格、官方收盘价等，实时算出“当前视角”的核心指标快照（例如 M1/M3/M4）。
 
-对应首页、仪表盘等对“当前状态”敏感的视图。
-
-后端批处理层（Batch Processing，批处理层）
+后端批处理层（Batch Processing）
 
 位置：定时触发的 Cloud Functions / Jobs，例如 EOD（日终作业）、周期性报表生成；
 
-职责：对历史数据做聚合、归档、缓存，形成日度 / 周度 / 月度等重型指标；
-
-减轻在线层的负担，并为前端提供“已算好的历史指标”。
+职责：对历史数据做聚合、归档、缓存，形成日度 / 周度 / 月度等重型指标。
 
 7.2 前端轻计算层：只能做“视图组合，不做重逻辑”
 
 职责范围
-
 对已经从后端拿到的“指标结果 / 快照对象”，做：
 
 简单加总 / 差值（在不破坏含义的前提下）；
@@ -1530,45 +1608,24 @@ NCI_total = 15,000 + 9,000 = 24,000
 
 禁止事项
 
-不直接基于原始交易列表做全量重算（例如前端自己算持仓、自己算 PnL）；
+不直接基于原始交易列表做全量重算；
 
 不在浏览器里重新实现 GMV / M1 / M3 / M4 等核心指标算法；
 
 不在前端私自“兜底”或“估算”缺失数据；
 
-不在前端绕开统一时间规则（所有“哪一天”的判断仍需依赖后端给出的 NY 交易日结果或公共时间工具）。
-
-目标效果
-
-前端主要扮演“指标消费方 + 轻量组合”角色，而不是重计算引擎；
-
-当某个指标出问题时，排查优先看后端指标服务，而不是在前端找大量重复公式。
+不在前端绕开统一时间规则。
 
 7.3 后端实时汇总层：面向“当前视角”的快照服务
 
 职责范围
-
-基于：
-
-当前 NY 交易日；
-
-当前持仓快照；
-
-最新价格（live / ready / stale / close）；
-
-官方收盘价等数据；
-
-实时计算并返回一组核心指标：
-
-如首页的 M1（总资产）、M3（当日盈亏）、M4（收益率）、今日交易次数、当前杠杆倍数等。
+基于当前 NY 交易日、当前持仓快照、最新价格等数据，实时计算并返回一组核心指标（如首页 M1/M3/M4）。
 
 输出形式（建议）
 
-通过单一或少数几个云函数 / API 提供“仪表盘快照”：
-
 type DashboardSnapshot = {
   asOfNyDay: string;  // NY 交易日，YYYY-MM-DD
-  // 若干核心指标（每个都是在 4.1 中有定义的单元格级指标）
+  // 若干核心指标
   metrics: {
     M1_TOTAL_EQUITY?: MetricValue;
     M3_TODAY_PNL?: MetricValue;
@@ -1578,311 +1635,109 @@ type DashboardSnapshot = {
 };
 
 
-其中 MetricValue 遵循：
-然后各个单元格依据自己的 ID（例如 M1_TOTAL_EQUITY）从中取值，
-
-自己只做轻量展示处理。
-
 禁止事项
 
 在一个实时汇总函数中塞入过多无关逻辑（例如同时做报表归档、历史重算）；
 
 在实时汇总里做“夜间批量任务”；
 
-直接修改原始交易记录（违反 1.1）。
+直接修改原始交易记录。
 
 7.4 后端批处理层：面向“历史与归档”的重计算
 
 职责范围
-
-处理以下类型任务：
-
-日终 EOD（日终收盘）结算与快照固化；
-
-长期历史指标的回算与更新（最大回撤、年度收益、滚动收益曲线等）；
-
-报表生成与归档（按天 / 周 / 月存储聚合后的结果）；
-
-这些任务允许耗时较长、对实时交互不敏感，但必须：
-
-遵守 NY 交易日与时间规则（第 2 章）；
-
-遵守禁止托底规则（第 1.2）；
-
-遵守算法隔离规则（第 3 章）。
+处理日终 EOD 结算、长期历史指标回算、报表生成与归档等任务。
 
 输出与前两层的关系
-
-批处理层的输出往往以“缓存文档 / 聚合表”的形式存在：
-
-例如：dailyMetrics[day].M1/M3/M4...；
-
-或 userSummary[year] 这种年度汇总；
-
-实时汇总层可以优先读取这些历史缓存，不必每次从原始交易重算全量历史。
+批处理层的输出往往以“缓存文档 / 聚合表”的形式存在（如 dailyMetrics[day]）。实时汇总层可以优先读取这些历史缓存。
 
 禁止事项
 
-将批处理逻辑嵌入前端触发的每次请求（导致用户等待时间不可控）；
+将批处理逻辑嵌入前端触发的每次请求；
 
-批处理任务直接修改原始交易记录（只能写派生层）；
+批处理任务直接修改原始交易记录；
 
-在批处理中悄悄“兜底填数”，破坏整体数据可信度。
+在批处理中悄悄“兜底填数”。
 
 7.5 三层之间的协作与边界
 
-原始事实层（Raw Fact Layer）：
+原始事实层：存交易记录，只读。
 
-存交易记录（见 0.1、1.1），任何层的计算都只能读取、不能反向改写事实。
+批处理层：读取事实层 + 历史行情，生成聚合结果，输出到派生存储。
 
-批处理层：
+实时汇总层：读取事实层 + 批处理输出 + 实时价格服务，计算“当前视角”快照。
 
-读取事实层 + 历史行情，生成日度 / 周度 / 月度聚合结果；
+前端轻计算层：只消费后两层结果，做轻量转换。
 
-输出到派生存储（如 dailyMetrics）；
+8. 徽章与状态系统（Badge & Status System）
 
-实时汇总层：
+目标：统一“内部状态（status）”与前台徽章（badge）之间的映射，确保 UI 看到的 LIVE / Ready / 已收盘 / 待更新 和底层真实状态完全一致。
 
-读取事实层 + 批处理输出 + 实时价格服务；
+8.1 交易时段定义（Market Session）
 
-计算“当前视角”的仪表盘快照和核心指标；
+统一按纽约时间（NY Time）划分市场时段：
 
-前端轻计算层：
+pre：NY 04:00:00 ≤ t < 09:30:00
 
-只消费实时汇总层和批处理层的结果，做轻量转换与展示；
+open：09:30:00 ≤ t < 16:00:00
 
-不直接面对事实层。
+post：16:00:00 ≤ t < 20:00:00
 
-7.6 与“20 个计算单元格”的映射
+closed：其他所有时间（含节假日与周末）。
 
-对于你提到的“大约 20 个计算单元格”：
-
-每一个单元格都应作为一个独立指标，在 第 4.1 与第 6 章 中有清晰定义；
-
-这些指标中的大部分应由“后端实时汇总层”输出（例如作为 DashboardSnapshot.metrics 字段的一部分）；
-
-前端只负责：
-
-渲染这些指标；
-
-做轻量比例换算 / 排版；
-
-对于特别重的历史类指标（如“近一年最大回撤”）：
-
-应归属于“批处理层”计算与缓存；
-
-前端与实时汇总层仅负责按需读取与展示。
-
-总结：
-
-所有复杂计算优先放在“后端实时汇总 + 后端批处理”两层；
-
-前端只保留轻量组合和展示逻辑；
-
-以此避免前端重复实现算法，也避免单一后端模块承载所有计算责任。
-
-8. 徽章与状态系统（Badge & Status System，徽章与状态系统）
-
-目标：统一“内部状态（status，状态）”与前台徽章（badge，徽章）之间的映射，
-确保首页、持仓、仪表盘等位置看到的 LIVE / Ready / 已收盘 / 待更新，和底层真实状态完全一致。
-
-本章从现有实现（RealTimePricesProvider、use-holdings 等）抽象出统一规则，
-并将你口头定义的 4 个前台状态上升为项目级规范。
-
-8.1 交易时段定义（Market Session，市场时段）
-
-统一按纽约时间（NY Time，纽约时间）划分市场时段，用于所有价格与徽章逻辑：
-
-pre（Pre-market，盘前扩展时段）：
-
-NY 04:00:00 ≤ t < 09:30:00；
-
-open（Regular session，常规盘中）：
-
-09:30:00 ≤ t < 16:00:00；
-
-post（Post-market，盘后扩展时段）：
-
-16:00:00 ≤ t < 20:00:00；
-
-closed（Closed，休市）：
-
-其他所有时间（包括夜间，以及非交易日全天）。
-
-节假日与周末：
-
-若 nyWeekdayIndex（纽约星期索引）为 0 或 6，或 US_MARKET_HOLIDAYS（美股假日表）中包含该日，则整体时段视为 closed；
-
-getMarketSession 与 getNyMarketSessionLocal 应统一语义，仅保留一个权威实现供全局使用。
-
-8.2 底层价格状态枚举（RtStatus，实时价格状态）
-
-在 RealTimePricesProvider 中已有内部状态：
-
-type RtStatus = 'live' | 'stale' | 'closed' | 'pending' | 'error';
-
+8.2 底层价格状态枚举（RtStatus）
 
 语义统一如下：
 
-live：
+live：市场在 open，成功获取最新价格（新鲜度内）；
 
-市场处于 open；
+stale：市场非 open 但有旧价格；或 open 时段超时未更新但有旧价格；
 
-成功获取到实时价格，且在 FRESHNESS_MS（新鲜度阈值，默认 15 秒）以内；
+closed：当前无有效价格，且市场不在 open；
 
-stale：
+pending：市场在 open，首次拉取中；
 
-非 open 时段但仍保留最后一次有效价格；或
+error：主动拉价出错且无可回退价格。
 
-open 时段中价格超过 FRESHNESS_MS 未更新但仍有 lastKnownPrice；
+8.3 前台徽章状态（PortfolioBadgeStatus）
 
-closed：
-
-当前没有有效价格，且市场不在 open，通常代表休市且未拿到价格；
-
-pending：
-
-市场在 open，尚未拿到任何价格（首次拉取中）；
-
-error：
-
-主动拉价出错且无可回退价格可用。
-
-现有 deriveStatus(price, ts) 的行为与上述语义基本一致，本章将其视为价格状态的统一来源。
-
-8.3 前台徽章状态（PortfolioBadgeStatus，前台组合徽章状态）
-
-你从用户视角明确了 4 个前台状态：
-
-盘中：显示 LIVE；
-
-开盘前 10 分钟：显示 Ready；
-
-收盘：显示 已收盘；
-
-实时价格获取异常：显示 待更新。
-
-为此定义前台统一徽章枚举（前台组件 StatusBadge 使用）：
+定义前台统一徽章枚举：
 
 type PortfolioBadgeStatus = 'live' | 'ready' | 'closed' | 'stale';
 
 
-UI 文案与含义：
+live（LIVE）：常规盘中且健康。
 
-live → 文案：LIVE
+ready（Ready）：开盘前 10 分钟内，已获取最新盘前价。
 
-常规盘中（open）且价格链路整体健康；
+closed（已收盘）：市场关闭，数据完整。
 
-ready → 文案：Ready
+stale（待更新）：任意关键链路异常或超时。
 
-开盘前 10 分钟内，系统已进入待命状态并获取到最新盘前价格；
+8.4 时间窗口与触发条件
 
-closed → 文案：已收盘
+Ready 窗口：09:20:00 ≤ NY < 09:30:00，价格正常且 EOD 数据就绪。
 
-市场处于 post 或 closed，且关键指标均基于收盘价/合法日终数据；
+LIVE（盘中）：市场 open，价格 live，EOD 无异常。
 
-stale → 文案：待更新
+已收盘（Closed）：市场 post/closed，EOD 链路正常。
 
-任意关键价格链路存在异常或超时，在当前应有实时/最新数据的场景下无法保证价格新鲜度。
+待更新（Stale）：应当显示 live/ready 时段内触发异常，或 EOD 数据缺失。
 
-注：stale 在 UI 层统一用“待更新”表示，避免直接暴露内部术语。
+8.5 状态优先级（Priority）
 
-8.4 时间窗口与触发条件（Trigger Rules，触发规则）
-
-1）Ready 窗口（开盘前 10 分钟）
-
-Ready 窗口定义为：
-
-09:20:00 ≤ NY 时刻 < 09:30:00
-
-
-在此窗口中：
-
-若关键标的价格状态均为 live 或 stale 且最近一次更新时间在 CACHE_TTL_MS（缓存有效期）内；
-
-且收盘数据 / EOD（End of Day，日终数据）已完成必要加载；
-
-则组合徽章状态为 ready。
-
-2）LIVE（盘中）
-
-条件：
-
-市场时段为 open；
-
-关键标的的 RtStatus 均为 live；
-
-日内盈亏状态 AggTodayStatus 为 live 或 closed，不处于 pending-eod-fetch、degraded 等降级状态；
-
-满足时：组合徽章 = live。
-
-3）已收盘（Closed）
-
-条件：
-
-市场时段为 post 或 closed；
-
-EOD 收盘价链路正常（无 missing-* 或 pending-eod-fetch）；
-
-满足时：组合徽章 = closed。
-
-4）待更新（Stale）
-
-条件：
-
-在应当显示 live 或 ready 的时段内，只要触发任一异常：
-
-任意关键标的的 RtStatus 为 stale / error；或
-
-AggTodayStatus 为 pending-eod-fetch / degraded；
-
-或：在 post / closed 时段，本应已有 EOD 数据但处于 pending-eod-fetch / missing-*；
-
-满足时：组合徽章 = stale（前台文案：待更新）。
-
-8.5 状态优先级（Priority，优先级规则）
-
-当多个条件同时满足时，采用以下优先级（从高到低）：
-
+当多个条件同时满足时，优先级从高到低：
 待更新（stale） > 已收盘（closed） > Ready（ready） > LIVE（live）
-
-
-解释：
-
-只要存在价格或 EOD 异常，就优先显示“待更新”，避免误导用户以为数据完全健康；
-
-收盘状态高于 Ready / LIVE，因为一旦确认收盘，整体视角从“盘中”转为“日终视角”；
-
-Ready 仅在开盘前 10 分钟窗口内生效（09:20–09:30），且不被异常覆盖时才显示；
-
-LIVE 是“最理想状态”，只有在盘中且无异常时才显示。
 
 8.6 实现与现有代码的对应关系
 
-RealTimePricesProvider：
+RealTimePricesProvider：价格状态唯一来源（SSOT）。
 
-继续作为价格状态的唯一来源（SSOT=Single Source of Truth，单一事实来源）；
+use-holdings：结合价格状态与 EOD 状态，推导 PortfolioBadgeStatus。
 
-对外暴露 PriceRecord（包含 price/ts/status）；
+StatusBadge 组件：只消费状态，不写逻辑。
 
-use-holdings：
-
-使用 PriceRecord.status 与 DayPlStatus/AggTodayStatus 共同推导组合级状态；
-
-新增一个纯计算函数（在算法层），根据 8.4 / 8.5 的规则生成 PortfolioBadgeStatus；
-
-首页 page.tsx：
-
-不再硬编码 const portfolioStatus: Status = 'closed'；
-
-改为从 useHoldings（或专门的组合状态 Hook）中读取 portfolioStatus；
-
-StatusBadge 组件只消费 PortfolioBadgeStatus，不自行重算逻辑。
-
-这样，徽章规则完成了从“散落在多处 if-else” → “统一在 8 章配置 + 算法层推导” → “前台单一消费”的闭环，
-同时完全对齐你提出的四个用户视角规则：盘中 LIVE、开盘前 Ready、收盘已收盘、异常待更新。
-
-9. 官方收盘价系统（Official Closes System，官方收盘价系统）
+9. 官方收盘价系统（Official Closes System）
 
 v0.3 修正核心：严格的时间轴分治，字段名统一为 tradingDate，增加人工维护介入流程。
 
@@ -1892,15 +1747,21 @@ v0.3 修正核心：严格的时间轴分治，字段名统一为 tradingDate，
 
 严格时间限制：仅允许在 NY 时间 16:00:00 之后 执行写入。
 
-盘中禁止：盘中（09:30 - 16:00）绝对禁止生成 EOD 记录。盘中就是盘中，没有“收盘价”。
+盘中禁止：盘中（09:30 - 16:00）绝对禁止生成 EOD 记录。
 
-演习例外：仅在使用带有 source: "manual_force_test" 标记的维护工具时，允许在盘中生成测试数据，且必须明确标记为测试源。
+演习例外：仅在 source: "manual_force_test" 时允许盘中生成，且必须标记。
 
 执行机制：收盘五连发
 
-文档 ID：${tradingDate}_${symbol}
+触发时间：NY 16:01 - 16:05（Cron Job）。
 
-字段定义
+逻辑：检查数据库，不存在则写入实时价，已存在则跳过。
+
+9.2 数据模型与存储结构 [v0.3 修正]
+
+Firestore 路径：集合 officialCloses，文档 ID ${tradingDate}_${symbol}
+
+字段定义：
 
 interface OfficialCloseDoc {
   symbol: string;
@@ -1916,61 +1777,60 @@ interface OfficialCloseDoc {
 
 9.3 补齐与回填策略（Historical Backfill）
 
-适用场景
+日期条件：Target Date < Today（只补历史）。
+
+触发条件：前端请求缺失数据。
+
+死锁解除：若存在 status: "error"，自动脚本不重试。必须通过维护工具清理后才能再次触发。
+
+9.4 异常处理
+
+Missing：触发自动回填。
+
+Error：前端显示占位符，不触发回填。
+
+9.5 维护与人工介入（Maintenance Protocol） [v0.3 新增]
+
+针对“数据污染”和“死锁”的官方解决方案。
 
 功能 A：垃圾清理 (Cleanup)
 
-必须支持双重扫描：同时检查旧字段 date 和新字段 tradingDate，确保彻底清除历史遗留的错误数据。
+支持双重扫描（旧字段 date 和新字段 tradingDate），彻底清除错误数据。
 
-用途：当 status: "error" 导致死锁时，使用此功能删除错误记录，重置回填状态。
+用途：解除死锁，重置回填状态。
 
 功能 B：强制演习 (Force Drill)
 
 允许绕过 16:00 时间锁，强制写入当前价格作为 EOD。
 
-必须标记 source: "manual_force_test"，以便区分正式数据和测试数据。
+必须标记 source: "manual_force_test"。
 
-6.5 今日交易盈利（日内交易） [v0.3.9 更新]
+10. 已知偏差与技术债务 (Known Deviations & Technical Debt)
 
-本模块分为两个子视角，用于全面评估日内交易的表现。
+本章记录了截至 v0.3.10 版本，系统代码中尚未合规的已知问题。这些问题不代表规则变更，而是代表必须修复的技术债务。
 
-6.5.1 M5.1 交易视角（Trading Perspective）
+10.1 数据字段违规（Critical）
 
-- **定义**：只看今天发生的买和卖，在今天内部按 FIFO 配对。
-- **公式**：$$ \text{M5.1} = \sum (\text{SellPrice} - \text{TodayBuyPrice}) \times \text{IntradayMatchedQty} $$
-- **含义**：纯粹评估“今天买进再卖出”这波操作的价差收益，不考虑历史持仓成本。
+违规项：date 字段与 tradingDate 混用。
 
-6.5.2 M5.2 FIFO 账本视角（FIFO Ledger Perspective）
+涉及文件：
 
-- **定义**：针对 M5.1 中已配对的**同一批数量**，改用全局 FIFO 账本里的真实历史成本重算盈亏。
-- **公式**：$$ \text{M5.2} = \sum (\text{SellPrice} - \text{HistoricalFifoCost}) \times \text{IntradayMatchedQty} $$
-- **含义**：评估这笔日内交易对账户总盈亏（基于 FIFO）的实际贡献。
+src/components/settings/eod-check.tsx (写入了 redundant date 字段)
 
-6.5.3 必记规则
+PnLEvent 接口定义 (使用了 date)
 
-1.  **配对优先**：今天买了但没卖出，不计入 M5。
-2.  **拆分原则**：一笔 SELL 若部分对上今天买入（进 M5），剩余部分对上历史持仓（进 M6.8）。
-3.  **展示要求**：页面必须同时展示 M5.1 和 M5.2。
+合规要求：参考 9.2 和 2.1.3，全站统一使用 tradingDate，彻底移除 date 字段以防止 Firestore 索引混乱。
 
-6.8 今日平仓盈利（历史仓位） [v0.3.8 新增]
+10.2 时间处理违规（Major）
 
-本算法用于统计“今天平掉的老仓位所带来的已实现盈亏”，用于区分“收割旧庄稼”和“日内短线搏杀”。
+违规项：直接调用 new Date()。
 
-6.8.1 核心逻辑（FIFO Traceback）
+涉及文件：
 
-对今日发生的每一笔平仓交易（SELL/COVER），通过 FIFO 队列追溯其对应的开仓日期。
+use-holdings.ts (多处)
 
-- **若 OpenDate < Today**：纳入本指标。
-- **若 OpenDate == Today**：剔除（视为日内交易）。
+eod-check.tsx
 
-6.8.2 计算公式
+合规要求：参考 2.4.1，必须替换为 nyTime.now() 或 nyTime.parse()，杜绝隐性时区 Bug。
 
-$$ \text{TodayRealizedHistorical} = \sum (\text{ExitPrice} - \text{HistoricalCost}) \times \text{MatchedQty} \times \text{Multiplier} $$
-
-- **ExitPrice**: 今日平仓价格。
-- **HistoricalCost**: 对应历史开仓的成本价。
-- **Multiplier**: 合约乘数（股票=1，期权=100）。
-
-6.8.3 架构位置
-
-属于“已实现盈亏”的子集。建议由后端交易处理服务在每笔成交确认后即时计算并推送到前端。前端若需自行计算，需具备全量交易历史。
+架构师注：所有新增代码必须严格遵守 1-9 章规则。第 10 章中的存量问题应在 v0.4.0 发布前完成“清零”修复。

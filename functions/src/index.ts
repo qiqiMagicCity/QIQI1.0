@@ -98,3 +98,4 @@ export {
 } from "./jobs/refresh-eod-symbols-from-transactions";
 
 export { manualRunEodForMetaSymbols } from "./jobs/manual-eod-from-meta";
+export { saveRealTimeEod } from "./admin/save-realtime-eod";
