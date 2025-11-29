@@ -15,9 +15,14 @@ import { Label } from '@/components/ui/label';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { useToast } from '@/hooks/use-toast';
-import { Loader2, CheckCircle2, XCircle, AlertCircle, Save, Filter } from 'lucide-react';
+import { Loader2, CheckCircle2, XCircle, AlertCircle, Save, Filter, Calendar as CalendarIcon } from 'lucide-react';
 import { getOfficialCloses, saveRealTimeAsEod } from '@/lib/data/official-close-repo';
 import { Switch } from '@/components/ui/switch';
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Calendar } from "@/components/ui/calendar";
+import { cn } from "@/lib/utils";
+import { format } from "date-fns";
+import { zhCN } from 'date-fns/locale';
 
 interface MissingSymbol {
     symbol: string;
@@ -364,12 +369,29 @@ export function EodCheck() {
                         <div className="flex items-end gap-4 flex-wrap">
                             <div className="grid w-full max-w-sm items-center gap-1.5">
                                 <Label htmlFor="date">日期</Label>
-                                <Input
-                                    type="date"
-                                    id="date"
-                                    value={date}
-                                    onChange={(e) => setDate(e.target.value)}
-                                />
+                                <Popover>
+                                    <PopoverTrigger asChild>
+                                        <Button
+                                            variant={"outline"}
+                                            className={cn(
+                                                "w-[240px] justify-start text-left font-normal",
+                                                !date && "text-muted-foreground"
+                                            )}
+                                        >
+                                            <CalendarIcon className="mr-2 h-4 w-4" />
+                                            {date ? date : <span>选择日期</span>}
+                                        </Button>
+                                    </PopoverTrigger>
+                                    <PopoverContent className="w-auto p-0" align="start">
+                                        <Calendar
+                                            mode="single"
+                                            selected={date ? new Date(date) : undefined}
+                                            onSelect={(d) => d && setDate(format(d, 'yyyy-MM-dd'))}
+                                            initialFocus
+                                            locale={zhCN}
+                                        />
+                                    </PopoverContent>
+                                </Popover>
                             </div>
                             <Button onClick={checkEod} disabled={checking || fixing}>
                                 {checking ? (
@@ -545,11 +567,29 @@ export function EodCheck() {
                         </div>
                         <div className="space-y-2">
                             <Label>日期 (YYYY-MM-DD)</Label>
-                            <Input
-                                type="date"
-                                value={saDate}
-                                onChange={e => setSaDate(e.target.value)}
-                            />
+                            <Popover>
+                                <PopoverTrigger asChild>
+                                    <Button
+                                        variant={"outline"}
+                                        className={cn(
+                                            "w-full justify-start text-left font-normal",
+                                            !saDate && "text-muted-foreground"
+                                        )}
+                                    >
+                                        <CalendarIcon className="mr-2 h-4 w-4" />
+                                        {saDate ? saDate : <span>选择日期</span>}
+                                    </Button>
+                                </PopoverTrigger>
+                                <PopoverContent className="w-auto p-0" align="start">
+                                    <Calendar
+                                        mode="single"
+                                        selected={saDate ? new Date(saDate) : undefined}
+                                        onSelect={(d) => d && setSaDate(format(d, 'yyyy-MM-dd'))}
+                                        initialFocus
+                                        locale={zhCN}
+                                    />
+                                </PopoverContent>
+                            </Popover>
                         </div>
                         <div className="space-y-2">
                             <Label>收盘价 (Price)</Label>

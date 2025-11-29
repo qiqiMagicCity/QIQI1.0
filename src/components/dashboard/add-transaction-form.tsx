@@ -39,6 +39,7 @@ import { Badge } from "@/components/ui/badge";
 import { useCopyToClipboard } from "@/hooks/use-copy-to-clipboard";
 import { useSearchParams, useRouter } from "next/navigation";
 import { doc, getDoc, updateDoc } from "firebase/firestore";
+import { TimePicker } from "@/components/ui/time-picker";
 
 
 const formSchema = z.object({
@@ -48,7 +49,7 @@ const formSchema = z.object({
   price: z.coerce.number().positive("价格必须为正数。"),
   date: z.date({ required_error: "请选择交易日期。" }),
   time: z.string()
-    .regex(/^([01]\d|2[0-3]):([0-5]\d):([0-5]\d)$/, "请输入形如 16:00:00 的时间。"),
+    .regex(/^([01]\d|2[0-3]):([0-5]\d)(:([0-5]\d))?$/, "请输入形如 16:00:00 的时间。"),
 });
 
 type AddTransactionFormProps = {
@@ -428,34 +429,6 @@ export function AddTransactionForm({ onSuccess, defaultValues }: AddTransactionF
 
         <FormField
           control={form.control}
-          name="symbol"
-          render={({ field }) => (
-            <FormItem>
-              <FormLabel>{assetType === 'stock' ? '股票代码' : '期权代码 (OCC, 自动生成)'}</FormLabel>
-              <FormControl>
-                <div className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2 md:gap-3">
-                  {assetType === 'stock' ? (
-                    <SymbolCombobox
-                      value={field.value ?? ''}
-                      onChange={(v) => field.onChange(v)}
-                      placeholder="输入代码/中文/英文查找"
-                      onSelected={() => priceRef.current?.focus()}
-                    />
-                  ) : (
-                    <Input readOnly {...field} placeholder="由上方期权要素自动生成" />
-                  )}
-                  <Button variant="ghost" size="icon" type="button" onClick={handleCopy} title="复制下单摘要" className="shrink-0">
-                    <Copy className="h-4 w-4" />
-                  </Button>
-                  {copied && <span className="text-xs text-muted-foreground animate-pulse absolute -bottom-5 right-0">已复制</span>}
-                </div>
-              </FormControl>
-              <FormMessage />
-            </FormItem>
-          )}
-        />
-        <FormField
-          control={form.control}
           name="type"
           render={({ field }) => (
             <FormItem className="space-y-3">
@@ -569,6 +542,34 @@ export function AddTransactionForm({ onSuccess, defaultValues }: AddTransactionF
             )}
           />
         </div>
+        <FormField
+          control={form.control}
+          name="symbol"
+          render={({ field }) => (
+            <FormItem>
+              <FormLabel>{assetType === 'stock' ? '股票代码' : '期权代码 (OCC, 自动生成)'}</FormLabel>
+              <FormControl>
+                <div className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2 md:gap-3">
+                  {assetType === 'stock' ? (
+                    <SymbolCombobox
+                      value={field.value ?? ''}
+                      onChange={(v) => field.onChange(v)}
+                      placeholder="输入代码/中文/英文查找"
+                      onSelected={() => priceRef.current?.focus()}
+                    />
+                  ) : (
+                    <Input readOnly {...field} placeholder="由上方期权要素自动生成" />
+                  )}
+                  <Button variant="ghost" size="icon" type="button" onClick={handleCopy} title="复制下单摘要" className="shrink-0">
+                    <Copy className="h-4 w-4" />
+                  </Button>
+                  {copied && <span className="text-xs text-muted-foreground animate-pulse absolute -bottom-5 right-0">已复制</span>}
+                </div>
+              </FormControl>
+              <FormMessage />
+            </FormItem>
+          )}
+        />
 
         {/* 3. Date and Time side-by-side */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-end">
@@ -623,7 +624,10 @@ export function AddTransactionForm({ onSuccess, defaultValues }: AddTransactionF
               <FormItem>
                 <FormLabel>时间</FormLabel>
                 <FormControl>
-                  <Input placeholder="16:00:00" {...field} />
+                  <TimePicker
+                    value={field.value}
+                    onChange={field.onChange}
+                  />
                 </FormControl>
                 <FormMessage />
               </FormItem>
