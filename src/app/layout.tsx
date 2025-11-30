@@ -8,6 +8,7 @@ import { RealTimePricesProvider } from '@/price/RealTimePricesProvider';
 import { EodAutoManager } from '@/components/eod-auto-manager';
 import { HoldingsProvider } from '@/contexts/holdings-provider';
 import { ThemeProvider } from '@/contexts/theme-provider';
+import { PwaRegister } from '@/components/pwa-register';
 
 export const metadata: Metadata = {
   title: {
@@ -39,6 +40,7 @@ export default function RootLayout({
         />
         <link rel="icon" href="/favicon.png" />
         <link rel="manifest" href="/manifest.json" />
+        <link rel="apple-touch-icon" href="/icons/icon-192.png" />
       </head>
       <body className="font-body antialiased">
         <FirebaseClientProvider>
@@ -58,6 +60,7 @@ export default function RootLayout({
           </ThemeProvider>
         </FirebaseClientProvider>
         <Toaster />
+        <PwaRegister />
       </body>
     </html>
   );
