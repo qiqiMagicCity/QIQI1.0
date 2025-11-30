@@ -1,10 +1,20 @@
 {
+    "id": "/",
     "name": "LuckyTrading777",
     "short_name": "Lucky777",
-    "start_url": ".",
+    "description": "LuckyTrading777 is a professional trading dashboard and portfolio management application designed for active traders.",
+    "start_url": "/",
+    "scope": "/",
     "display": "standalone",
+    "orientation": "portrait",
     "background_color": "#ffffff",
     "theme_color": "#000000",
+    "lang": "zh-CN",
+    "dir": "ltr",
+    "categories": [
+        "finance",
+        "productivity"
+    ],
     "icons": [
         {
             "src": "/icons/icon-192.png",
@@ -15,6 +25,22 @@
             "src": "/icons/icon-512.png",
             "sizes": "512x512",
             "type": "image/png"
+        }
+    ],
+    "screenshots": [
+        {
+            "src": "/icons/icon-512.png",
+            "sizes": "512x512",
+            "type": "image/png",
+            "form_factor": "wide",
+            "label": "Dashboard Overview"
+        },
+        {
+            "src": "/icons/icon-512.png",
+            "sizes": "512x512",
+            "type": "image/png",
+            "form_factor": "narrow",
+            "label": "Mobile View"
         }
     ]
 }
