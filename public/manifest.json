@@ -42,7 +42,8 @@
             "src": "/icons/icon-512.png",
             "sizes": "512x512",
             "type": "image/png",
-            "label": "Dashboard Overview"
+            "label": "Dashboard Overview",
+            "form_factor": "wide"
         },
         {
             "src": "/icons/icon-512.png",
