@@ -44,7 +44,12 @@ function CenterFloat({
   );
 }
 
+import { useUser } from '@/firebase';
+
+// ... existing imports
+
 export default function GlobalAddTransactionFab() {
+  const { user, isUserLoading: loading } = useUser();
   const [open, setOpen] = useState(false);
   const sp = useSearchParams();
   const router = useRouter();
@@ -58,7 +63,10 @@ export default function GlobalAddTransactionFab() {
     if (open !== nextOpen) setOpen(nextOpen);
   }, [tx, isValidId]);
 
+  if (loading || !user) return null;
+
   const openNewViaUrl = () => {
+    // ... existing logic
     const qs = new URLSearchParams(sp.toString());
     qs.set("tx", "new");
     qs.delete("id");
@@ -66,6 +74,7 @@ export default function GlobalAddTransactionFab() {
   };
 
   const closeAndCleanUrl = () => {
+    // ... existing logic
     const qs = new URLSearchParams(sp.toString());
     qs.delete("tx");
     qs.delete("id");

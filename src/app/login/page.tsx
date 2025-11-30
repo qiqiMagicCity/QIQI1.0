@@ -2,6 +2,7 @@
 
 import React, { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+import Image from "next/image";
 import {
   getAuth,
   setPersistence,
@@ -10,19 +11,18 @@ import {
   createUserWithEmailAndPassword,
   signInWithPopup,
   GoogleAuthProvider,
-  onAuthStateChanged,
 } from "firebase/auth";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Separator } from "@/components/ui/separator";
+import { CheckCircle2, TrendingUp, PieChart, BarChart3 } from "lucide-react";
+import { useAuth, useUser } from "@/firebase";
 
-/**
- * 登录/注册页：提供邮箱/密码登录与注册，以及 Google 登录。
- * 说明：
- * - 使用 browserLocalPersistence 确保会话持久化。
- * - 用户可以在登录和注册模式间切换。
- * - 已登录用户访问本页将自动重定向到首页（/）。
- */
 export default function LoginPage() {
   const router = useRouter();
-  const auth = getAuth();
+  const auth = useAuth();
+  const { user, isUserLoading } = useUser();
 
   const [mode, setMode] = useState<"login" | "signup">("login");
   const [email, setEmail] = useState("");
@@ -31,15 +31,10 @@ export default function LoginPage() {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    // 已登录用户直接跳转首页，避免重复登录
-    const unsub = onAuthStateChanged(auth, (user) => {
-      if (user) {
-        router.replace("/");
-      }
-    });
-    return () => unsub();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+    if (user && !isUserLoading) {
+      router.replace("/");
+    }
+  }, [user, isUserLoading, router]);
 
   async function ensurePersistence() {
     await setPersistence(auth, browserLocalPersistence);
@@ -58,15 +53,13 @@ export default function LoginPage() {
       }
       router.replace("/");
     } catch (err: any) {
-      // 常见错误：auth/invalid-credential, auth/email-already-in-use, etc.
       if (err.code === 'auth/email-already-in-use') {
         setError("该邮箱已被注册，请直接登录或使用其他邮箱。");
       } else if (err.code === 'auth/weak-password') {
         setError("密码太弱，请使用至少6位字符。");
       } else if (err.code === 'auth/invalid-credential') {
         setError("登录失败，请检查账户与密码。");
-      }
-       else {
+      } else {
         setError(err?.code || err?.message || "操作失败，请稍后再试。");
       }
     } finally {
@@ -83,12 +76,9 @@ export default function LoginPage() {
       await signInWithPopup(auth, provider);
       router.replace("/");
     } catch (err: any) {
-      // 常见错误：auth/popup-blocked, auth/popup-closed-by-user, auth/operation-not-allowed
-      if (err?.code === "auth/operation-not-allowed") {
-        setError("Google 登录未在 Firebase 控制台启用，请在“Authentication → 登录方式”中开启 Google。");
-      } else {
-        setError(err?.code || err?.message || "Google 登录失败。");
-      }
+      // 这里的错误提示已移除开发者相关信息
+      setError("Google 登录失败，请稍后重试。");
+      console.error("Google Sign-In Error:", err);
     } finally {
       setBusy(false);
     }
@@ -100,80 +90,169 @@ export default function LoginPage() {
   };
 
   return (
-    <div className="min-h-[70vh] flex items-center justify-center px-4">
-      <div className="w-full max-w-[420px] rounded-2xl shadow-lg p-6 md:p-8 bg-white dark:bg-neutral-900">
-        <h1 className="text-2xl font-semibold mb-2">{mode === 'login' ? '登录' : '注册新账户'}</h1>
-        <p className="text-sm text-neutral-500 mb-6">
-          使用邮箱密码或 Google 登录继续使用本应用。
-        </p>
+    <div className="min-h-screen w-full flex flex-col md:flex-row bg-background text-foreground">
+      {/* Left Side (Desktop) / Top (Mobile) - Branding */}
+      <div className="w-full md:w-1/2 lg:w-[55%] relative overflow-hidden flex flex-col justify-center p-8 md:p-12 bg-zinc-950">
 
-        <form onSubmit={handleEmailPasswordSubmit} className="space-y-4">
-          <div className="space-y-1">
-            <label className="block text-sm font-medium">邮箱</label>
-            <input
-              type="email"
-              required
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              className="w-full rounded-xl border px-3 py-2 outline-none focus:ring-2"
-              placeholder="you@example.com"
-              autoComplete="email"
-            />
-          </div>
+        {/* Dynamic Background Layers */}
+        <div className="absolute inset-0 w-full h-full">
+          {/* Base Gradient */}
+          <div className="absolute inset-0 bg-[radial-gradient(circle_at_0%_0%,_#2e1065_0%,_transparent_50%)] opacity-40" /> {/* Purple top-left */}
+          <div className="absolute inset-0 bg-[radial-gradient(circle_at_100%_100%,_#0891b2_0%,_transparent_50%)] opacity-40" /> {/* Cyan bottom-right */}
 
-          <div className="space-y-1">
-            <label className="block text-sm font-medium">密码</label>
-            <input
-              type="password"
-              required
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              className="w-full rounded-xl border px-3 py-2 outline-none focus:ring-2"
-              placeholder="••••••••"
-              autoComplete={mode === 'login' ? 'current-password' : 'new-password'}
-            />
-          </div>
+          {/* Circuit/Tech Pattern Overlay (CSS Grid) */}
+          <div className="absolute inset-0 opacity-[0.03]"
+            style={{
+              backgroundImage: `linear-gradient(#fff 1px, transparent 1px), linear-gradient(90deg, #fff 1px, transparent 1px)`,
+              backgroundSize: '40px 40px'
+            }}
+          />
 
-          {error && (
-            <div className="text-sm text-red-600 rounded-lg bg-red-50 dark:bg-red-900/30 p-2">
-              {String(error)}
+          {/* Glowing Orbs */}
+          <div className="absolute top-1/4 right-1/4 w-64 h-64 bg-purple-500/20 rounded-full blur-[100px]" />
+          <div className="absolute bottom-1/4 left-1/4 w-64 h-64 bg-cyan-500/20 rounded-full blur-[100px]" />
+        </div>
+
+        <div className="relative z-10 max-w-lg mx-auto md:mx-0">
+          {/* Logo Container - Frosted Glass to handle white background */}
+          <div className="mb-10 inline-block">
+            <div className="relative group">
+              {/* Glow effect behind logo */}
+              <div className="absolute -inset-1 bg-gradient-to-r from-purple-600 to-cyan-600 rounded-2xl blur opacity-25 group-hover:opacity-50 transition duration-1000"></div>
+
+              <div className="relative p-6 rounded-xl bg-white/5 backdrop-blur-xl border border-white/10 shadow-2xl">
+                <Image
+                  src="/login-logo-large.png"
+                  alt="LuckyTrading777"
+                  width={500}
+                  height={150}
+                  className="w-[260px] md:w-[320px] h-auto object-contain"
+                  priority
+                />
+              </div>
             </div>
-          )}
+          </div>
 
-          <button
-            type="submit"
-            disabled={busy}
-            className="w-full rounded-xl px-4 py-2 font-medium shadow-sm disabled:opacity-60
-                       bg-[hsl(var(--primary))] text-[hsl(var(--primary-foreground))]"
-          >
-            {busy ? "正在处理..." : (mode === 'login' ? "邮箱密码登录" : "创建账户")}
-          </button>
-        </form>
+          <h2 className="text-4xl md:text-5xl font-extrabold mb-6 leading-tight bg-clip-text text-transparent bg-gradient-to-r from-purple-400 via-cyan-400 to-emerald-400 animate-gradient-x">
+            更专业的<br />交易记录与分析系统
+          </h2>
 
-        <div className="mt-4 text-center">
-            <button onClick={toggleMode} className="text-sm text-primary hover:underline">
-                {mode === 'login' ? '还没有账户？立即注册' : '已有账户？直接登录'}
-            </button>
+          <p className="text-lg text-zinc-400 mb-10 leading-relaxed">
+            告别繁琐的 Excel，用数据驱动你的每一次交易决策。
+            LuckyTrading777 助你复盘、分析、进化。
+          </p>
+
+          <div className="space-y-5">
+            <div className="flex items-center gap-4 group">
+              <div className="p-3 rounded-xl bg-emerald-500/10 text-emerald-400 group-hover:bg-emerald-500/20 transition-colors border border-emerald-500/10">
+                <TrendingUp className="w-5 h-5" />
+              </div>
+              <span className="text-zinc-300 font-medium group-hover:text-white transition-colors">自动统计盈亏，实时掌握账户动态</span>
+            </div>
+            <div className="flex items-center gap-4 group">
+              <div className="p-3 rounded-xl bg-cyan-500/10 text-cyan-400 group-hover:bg-cyan-500/20 transition-colors border border-cyan-500/10">
+                <PieChart className="w-5 h-5" />
+              </div>
+              <span className="text-zinc-300 font-medium group-hover:text-white transition-colors">多维持仓分布，优化资产配置</span>
+            </div>
+            <div className="flex items-center gap-4 group">
+              <div className="p-3 rounded-xl bg-purple-500/10 text-purple-400 group-hover:bg-purple-500/20 transition-colors border border-purple-500/10">
+                <BarChart3 className="w-5 h-5" />
+              </div>
+              <span className="text-zinc-300 font-medium group-hover:text-white transition-colors">深度交易效率分析，提升胜率</span>
+            </div>
+          </div>
         </div>
+      </div>
 
-        <div className="my-4 text-center text-sm text-neutral-500 relative">
-            <span className="bg-white dark:bg-neutral-900 px-2 z-10 relative">或</span>
-            <div className="absolute left-0 top-1/2 w-full h-px bg-border -z-0"></div>
-        </div>
+      {/* Right Side (Desktop) / Bottom (Mobile) - Login Form */}
+      <div className="w-full md:w-1/2 lg:w-[45%] flex items-center justify-center p-4 md:p-8 bg-background">
+        <Card className="w-full max-w-md border-none shadow-none md:border md:shadow-xl bg-transparent md:bg-card">
+          <CardHeader className="space-y-1">
+            <CardTitle className="text-2xl font-bold tracking-tight">
+              {mode === 'login' ? '欢迎回来' : '创建账户'}
+            </CardTitle>
+            <CardDescription>
+              {mode === 'login'
+                ? '输入邮箱密码或使用 Google 登录'
+                : '注册以开始您的专业交易之旅'}
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <form onSubmit={handleEmailPasswordSubmit} className="space-y-4">
+              <div className="space-y-2">
+                <label className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70" htmlFor="email">
+                  邮箱
+                </label>
+                <Input
+                  id="email"
+                  type="email"
+                  placeholder="name@example.com"
+                  required
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  disabled={busy}
+                />
+              </div>
+              <div className="space-y-2">
+                <label className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70" htmlFor="password">
+                  密码
+                </label>
+                <Input
+                  id="password"
+                  type="password"
+                  placeholder="••••••••"
+                  required
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  disabled={busy}
+                />
+              </div>
 
-        <button
-          onClick={handleGoogleSignIn}
-          disabled={busy}
-          className="w-full rounded-xl px-4 py-2 font-medium border shadow-sm disabled:opacity-60
-                     bg-white dark:bg-neutral-800"
-          aria-label="使用 Google 登录"
-        >
-          使用 Google 登录
-        </button>
+              {error && (
+                <div className="text-sm text-destructive bg-destructive/10 p-3 rounded-md flex items-center gap-2">
+                  <CheckCircle2 className="w-4 h-4" />
+                  {error}
+                </div>
+              )}
 
-        <p className="mt-6 text-xs text-neutral-500">
-          提示：若 Google 登录报“operation-not-allowed”，请在 Firebase 控制台 → Authentication → 登录方式，启用 Google。
-        </p>
+              <Button type="submit" className="w-full" disabled={busy}>
+                {busy ? "请稍候..." : (mode === 'login' ? "登录" : "注册")}
+              </Button>
+            </form>
+
+            <div className="relative">
+              <div className="absolute inset-0 flex items-center">
+                <span className="w-full border-t" />
+              </div>
+              <div className="relative flex justify-center text-xs uppercase">
+                <span className="bg-background md:bg-card px-2 text-muted-foreground">
+                  或者
+                </span>
+              </div>
+            </div>
+
+            <Button variant="outline" type="button" disabled={busy} className="w-full" onClick={handleGoogleSignIn}>
+              <svg className="mr-2 h-4 w-4" aria-hidden="true" focusable="false" data-prefix="fab" data-icon="google" role="img" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 488 512">
+                <path fill="currentColor" d="M488 261.8C488 403.3 391.1 504 248 504 110.8 504 0 393.2 0 256S110.8 8 248 8c66.8 0 123 24.5 166.3 64.9l-67.5 64.9C258.5 52.6 94.3 116.6 94.3 256c0 86.5 69.1 156.6 153.7 156.6 98.2 0 135-70.4 140.8-106.9H248v-85.3h236.1c2.3 12.7 3.9 24.9 3.9 41.4z"></path>
+              </svg>
+              使用 Google 登录
+            </Button>
+
+            <div className="text-center text-sm">
+              <span className="text-muted-foreground">
+                {mode === 'login' ? "还没有账户？" : "已有账户？"}
+              </span>{" "}
+              <button
+                type="button"
+                onClick={toggleMode}
+                className="underline underline-offset-4 hover:text-primary font-medium"
+              >
+                {mode === 'login' ? "立即注册" : "直接登录"}
+              </button>
+            </div>
+          </CardContent>
+        </Card>
       </div>
     </div>
   );

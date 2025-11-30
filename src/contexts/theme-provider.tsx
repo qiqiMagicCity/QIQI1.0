@@ -15,7 +15,7 @@ interface ThemeContextValue {
 const ThemeContext = createContext<ThemeContextValue | null>(null);
 
 export function ThemeProvider({ children }: { children: React.ReactNode }) {
-    const [mode, setModeState] = useState<ThemeMode>('system');
+    const [mode, setModeState] = useState<ThemeMode>('dark');
     const [color, setColorState] = useState<ThemeColor>('green');
     const [mounted, setMounted] = useState(false);
 
