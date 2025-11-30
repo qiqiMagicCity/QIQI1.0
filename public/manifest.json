@@ -15,12 +15,14 @@
         "finance",
         "productivity"
     ],
+    "prefer_related_applications": false,
+    "related_applications": [],
+    "iarc_rating_id": "",
     "display_override": [
         "window-controls-overlay",
         "minimal-ui"
     ],
-    "prefer_related_applications": false,
-    "iarc_rating_id": "",
+    "scope_extensions": [],
     "icons": [
         {
             "src": "/icons/icon-192.png",

@@ -1,3 +1,4 @@
+// Version: 1.0.1
 const CACHE_NAME = 'lucky-trading-cache-v1';
 const urlsToCache = [
     '/',
