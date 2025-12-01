@@ -188,15 +188,31 @@ export const RealTimePricesProvider: React.FC<{ children: React.ReactNode }> = (
         return;
       }
 
-      const s = syms[idx % syms.length]; // 单请求轮询
-      idx++;
+      // 寻找下一个需要更新的 symbol (过期或未获取)
+      let candidate: string | null = null;
+      let attempts = 0;
 
-      // 缓存新鲜（TTL）就跳过主动拉（减少 API 压力）
-      const existing = mapRef.current.get(s);
-      if (existing && Date.now() - existing.ts < CACHE_TTL_MS) {
-        timer = setTimeout(tick, 100);
+      // 尝试遍历所有 symbol，直到找到一个需要更新的
+      while (attempts < syms.length) {
+        const s = syms[idx % syms.length];
+        idx++;
+        attempts++;
+
+        const existing = mapRef.current.get(s);
+        // 如果不存在或已过期，则选中
+        if (!existing || Date.now() - existing.ts >= CACHE_TTL_MS) {
+          candidate = s;
+          break;
+        }
+      }
+
+      // 如果所有 symbol 都很新鲜，则休息一下再检查 (避免空转)
+      if (!candidate) {
+        timer = setTimeout(tick, 1000);
         return;
       }
+
+      const s = candidate;
 
       // 开始拉取：设置 fetchingSymbol
       setFetchingSymbol(s);
@@ -261,6 +277,7 @@ export const RealTimePricesProvider: React.FC<{ children: React.ReactNode }> = (
       } finally {
         // 结束拉取：清除 fetchingSymbol
         setFetchingSymbol(null);
+        // 成功拉取一个后，稍作休息继续下一个 (遵守 QUEUE_GAP_MS)
         timer = setTimeout(tick, QUEUE_GAP_MS);
       }
     };
