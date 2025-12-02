@@ -367,6 +367,35 @@ export function AddTransactionForm({ onSuccess, defaultValues }: AddTransactionF
           </FormControl>
         </FormItem>
 
+        <FormField
+          control={form.control}
+          name="symbol"
+          render={({ field }) => (
+            <FormItem>
+              <FormLabel>{assetType === 'stock' ? '股票代码' : '期权代码 (OCC, 自动生成)'}</FormLabel>
+              <FormControl>
+                <div className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2 md:gap-3">
+                  {assetType === 'stock' ? (
+                    <SymbolCombobox
+                      value={field.value ?? ''}
+                      onChange={(v) => field.onChange(v)}
+                      placeholder="输入代码/中文/英文查找"
+                      onSelected={() => priceRef.current?.focus()}
+                    />
+                  ) : (
+                    <Input readOnly {...field} placeholder="由上方期权要素自动生成" />
+                  )}
+                  <Button variant="ghost" size="icon" type="button" onClick={handleCopy} title="复制下单摘要" className="shrink-0">
+                    <Copy className="h-4 w-4" />
+                  </Button>
+                  {copied && <span className="text-xs text-muted-foreground animate-pulse absolute -bottom-5 right-0">已复制</span>}
+                </div>
+              </FormControl>
+              <FormMessage />
+            </FormItem>
+          )}
+        />
+
         {assetType === 'option' && (
           <div className="space-y-6 p-4 border rounded-md bg-emerald-100/30 border-emerald-200 dark:bg-emerald-900/20 dark:border-emerald-800">
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -542,36 +571,7 @@ export function AddTransactionForm({ onSuccess, defaultValues }: AddTransactionF
             )}
           />
         </div>
-        <FormField
-          control={form.control}
-          name="symbol"
-          render={({ field }) => (
-            <FormItem>
-              <FormLabel>{assetType === 'stock' ? '股票代码' : '期权代码 (OCC, 自动生成)'}</FormLabel>
-              <FormControl>
-                <div className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2 md:gap-3">
-                  {assetType === 'stock' ? (
-                    <SymbolCombobox
-                      value={field.value ?? ''}
-                      onChange={(v) => field.onChange(v)}
-                      placeholder="输入代码/中文/英文查找"
-                      onSelected={() => priceRef.current?.focus()}
-                    />
-                  ) : (
-                    <Input readOnly {...field} placeholder="由上方期权要素自动生成" />
-                  )}
-                  <Button variant="ghost" size="icon" type="button" onClick={handleCopy} title="复制下单摘要" className="shrink-0">
-                    <Copy className="h-4 w-4" />
-                  </Button>
-                  {copied && <span className="text-xs text-muted-foreground animate-pulse absolute -bottom-5 right-0">已复制</span>}
-                </div>
-              </FormControl>
-              <FormMessage />
-            </FormItem>
-          )}
-        />
 
-        {/* 3. Date and Time side-by-side */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-end">
           <FormField
             control={form.control}
@@ -638,7 +638,7 @@ export function AddTransactionForm({ onSuccess, defaultValues }: AddTransactionF
           {form.formState.isSubmitting ? "正在保存..." : editingId ? "更新交易" : "保存交易"}
         </Button>
       </form>
-    </Form>
+    </Form >
   );
 }
 

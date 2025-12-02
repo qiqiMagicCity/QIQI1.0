@@ -380,7 +380,7 @@ function HoldingsOverview() {
 
                         {/* 持仓数量 */}
                         <TableCell className="text-center font-mono text-sm md:text-base px-2">
-                          {row.netQty}
+                          {row.netQty.toFixed(2)}
                           {row.assetType === 'option' && (
                             <span className="text-muted-foreground text-xs ml-1">
                               ×{row.multiplier}

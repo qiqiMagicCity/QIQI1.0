@@ -98,26 +98,26 @@ export function CalculationGrid() {
 
   // Helper to render Trade Counts Row
   const renderTradeCountsRow = (counts: { buy: number; sell: number; short: number; cover: number; total: number } | undefined, label: string) => (
-    <div className="flex items-center text-sm font-mono w-full">
-      <span className="w-10 text-muted-foreground shrink-0">{label}</span>
-      <div className="flex items-center justify-between flex-1 pr-1">
-        <span className="text-green-600 font-bold w-[3.2rem]">B/{counts?.buy ?? 0}</span>
-        <span className="text-red-600 font-bold w-[3.2rem]">S/{counts?.sell ?? 0}</span>
-        <span className="text-purple-600 font-bold w-[3.2rem]">P/{counts?.short ?? 0}</span>
-        <span className="text-blue-600 font-bold w-[3.2rem]">C/{counts?.cover ?? 0}</span>
-        <span className="text-foreground font-bold w-[3.5rem] text-right">【{counts?.total ?? 0}】</span>
+    <div className="flex items-center text-xs font-mono w-full">
+      <span className="w-8 text-muted-foreground shrink-0">{label}</span>
+      <div className="flex items-center justify-between flex-1 pr-0">
+        <span className="text-green-600 font-bold w-[2.8rem]">B/{counts?.buy ?? 0}</span>
+        <span className="text-red-600 font-bold w-[2.8rem]">S/{counts?.sell ?? 0}</span>
+        <span className="text-purple-600 font-bold w-[2.8rem]">P/{counts?.short ?? 0}</span>
+        <span className="text-blue-600 font-bold w-[2.8rem]">C/{counts?.cover ?? 0}</span>
+        <span className="text-foreground font-bold w-[3rem] text-right">【{counts?.total ?? 0}】</span>
       </div>
     </div>
   );
 
   // Helper to render Win Rate Row
   const renderWinRateRow = (stats: { winCount: number; lossCount: number; winRate: number } | undefined, label: string) => (
-    <div className="flex items-center text-sm font-mono w-full">
-      <span className="w-10 text-muted-foreground shrink-0">{label}</span>
-      <div className="flex items-center gap-4">
-        <span className="text-green-600 font-bold w-[3.5rem]">W/{stats?.winCount ?? 0}</span>
-        <span className="text-red-600 font-bold w-[3.5rem]">L/{stats?.lossCount ?? 0}</span>
-        <span className="text-foreground font-bold w-[4rem]">{(stats?.winRate ? (stats.winRate * 100).toFixed(1) : "0.0")}%</span>
+    <div className="flex items-center text-xs font-mono w-full">
+      <span className="w-8 text-muted-foreground shrink-0">{label}</span>
+      <div className="flex items-center gap-2">
+        <span className="text-green-600 font-bold w-[3rem]">W/{stats?.winCount ?? 0}</span>
+        <span className="text-red-600 font-bold w-[3rem]">L/{stats?.lossCount ?? 0}</span>
+        <span className="text-foreground font-bold w-[3.5rem]">{(stats?.winRate ? (stats.winRate * 100).toFixed(1) : "0.0")}%</span>
       </div>
     </div>
   );
