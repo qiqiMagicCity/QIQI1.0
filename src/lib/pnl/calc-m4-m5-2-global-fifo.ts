@@ -65,6 +65,7 @@ export function calcGlobalFifo(input: GlobalFifoInput): GlobalFifoResult {
         };
     }
 
+    // [REVERT] Use subtraction for numeric timestamps
     const sortedAllTx = [...transactions].sort((a, b) => a.transactionTimestamp - b.transactionTimestamp);
     const globalQueues = new Map<string, Array<{ qty: number; cost: number; date: string }>>();
 
@@ -77,7 +78,6 @@ export function calcGlobalFifo(input: GlobalFifoInput): GlobalFifoResult {
     const auditTrail: AuditEvent[] = [];
 
     for (const tx of sortedAllTx) {
-        // ... (existing loop logic) ...
         const key = tx.contractKey || normalizeSymbolForClient(tx.symbol);
         if (!globalQueues.has(key)) globalQueues.set(key, []);
         const queue = globalQueues.get(key)!;

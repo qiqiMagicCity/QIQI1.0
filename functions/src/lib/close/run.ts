@@ -3,6 +3,7 @@ import * as admin from "firebase-admin";
 import { getCloseWithFailover, buildDefaultCloseProviders } from "./priority";
 import { fmpProvider } from "../../providers/close/fmp";
 import { HttpsError } from "firebase-functions/v1/https";
+import { isNyTradingDay } from "../../lib/ny-time";
 
 export type CloseSecrets = {
   FMP_TOKEN: string;
@@ -52,7 +53,9 @@ export async function fetchAndSaveOfficialClose(
   symbol: string,
   date: string,
   secrets: CloseSecrets
-): Promise<{ status: "ok"; close: number }> {
+): Promise<{ status: string; close?: number }> {
+
+
   const upperSymbol = symbol.toUpperCase().trim();
   // 统一语义变量名：tradingDate (纽约交易日)
   const tradingDate = date;
@@ -126,6 +129,7 @@ export async function fetchAndSaveOfficialClose(
 
     const chain = buildDefaultCloseProviders([fmpProvider], {
       ...enabledProviders,
+      enableYahoo: true,
       targetYmd: tradingDate,
       nowNyYmd,
     });
@@ -198,23 +202,54 @@ export async function fetchAndSaveOfficialClose(
     }
 
     // —— 目标日 doc：保持原有结构，写当前 date 这一天
-    const successData = {
-      status: "ok" as const,
-      close: res.close,
-      currency: res.currency ?? "USD",
-      provider: res.provider,
-      tz: "America/New_York",
-      source: "official",
-      symbol: upperSymbol,
-      date: tradingDate,         // 兼容旧字段
-      tradingDate: tradingDate,  // 新增标准字段
-      retrievedAt: admin.firestore.FieldValue.serverTimestamp(),
-      runId,
-      latencyMs: res.latencyMs,
-    };
+    if (res.close !== undefined) {
+      const successData = {
+        status: "ok" as const,
+        close: res.close,
+        currency: res.currency ?? "USD",
+        provider: res.provider,
+        tz: "America/New_York",
+        source: "official",
+        symbol: upperSymbol,
+        date: tradingDate,
+        tradingDate: tradingDate,
+        retrievedAt: admin.firestore.FieldValue.serverTimestamp(),
+        runId,
+        latencyMs: res.latencyMs,
+      };
 
-    await docRef.set(deepStripUndefined(successData), { merge: true });
-    return { status: "ok", close: res.close };
+      await docRef.set(deepStripUndefined(successData), { merge: true });
+      return { status: "ok", close: res.close };
+    } else {
+      // 目标日缺失（API 返回的 bulk 有数据，但找不到 targetRow）
+      // 使用 isNyTradingDay 判断是“真的休市”还是“厂商漏数据”
+      const isTrading = isNyTradingDay(tradingDate);
+      const finalStatus = isTrading ? "missing_vendor" : "market_closed";
+
+      const missingData = {
+        status: finalStatus,
+        close: null, // explicitly null
+        currency: "USD",
+        provider: res.provider,
+        tz: "America/New_York",
+        source: "official",
+        symbol: upperSymbol,
+        date: tradingDate,
+        tradingDate: tradingDate,
+        retrievedAt: admin.firestore.FieldValue.serverTimestamp(),
+        runId,
+        latencyMs: res.latencyMs,
+        note: isTrading ? "Vendor missing data despite bulk fetch" : "Market closed (weekend/holiday)",
+      };
+
+      await docRef.set(deepStripUndefined(missingData), { merge: true });
+
+      console.warn(`[fetchAndSaveOfficialClose] Target date ${tradingDate} missing. Status: ${finalStatus}`, { docId });
+
+      // 返回结果：状态不再是 ok，close 为 undefined
+      // 上层 worker 只要看到没有 throw error，就会认为本次 job 执行完成
+      return { status: finalStatus, close: undefined };
+    }
   } catch (error: any) {
     // 这里同样仅做日志，不再把 attempts 写入 Firestore
     let rawAttempts: any[] = [];
@@ -255,6 +290,8 @@ export async function fetchAndSaveOfficialClose(
         (error as Error)?.message ?? "fetchAndSaveOfficialClose failed"
       ) as any;
       err.code = "unknown";
+      if ((error as any).cause) err.cause = (error as any).cause;
+      if ((error as any).attempts) err.attempts = (error as any).attempts;
       throw err;
     }
   }

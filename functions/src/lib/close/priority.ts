@@ -2,6 +2,7 @@
 import { CloseProvider } from "../../providers/close/interface";
 import { coversDate } from "./capabilities";
 import { fmpProvider } from "../../providers/close/fmp";
+import { yahooProvider } from "../../providers/close/yahoo";
 
 /** 调用尝试的记录（便于排障） */
 interface Attempt {
@@ -47,7 +48,7 @@ function sanitizeAttempt(input: Attempt): Attempt {
 }
 
 /* ---------------- Inlined Marketstack Provider ---------------- */
-const marketstackProvider: CloseProvider = {
+export const marketstackProvider: CloseProvider = {
   name: "marketstack",
   async getClose(symbol, dateYYYYMMDD, secrets) {
     const apiKey = (secrets as any)["MARKETSTACK_API_KEY"];
@@ -108,7 +109,7 @@ const marketstackProvider: CloseProvider = {
 };
 
 /* ---------------- Inlined StockData.org Provider ---------------- */
-const stockdataProvider: CloseProvider = {
+export const stockdataProvider: CloseProvider = {
   name: "stockdata",
   async getClose(symbol, dateYYYYMMDD, secrets) {
     const apiKey = (secrets as any)["STOCKDATA_API_KEY"];
@@ -187,11 +188,12 @@ export function buildDefaultCloseProviders(
   opts?: {
     enableMarketstack?: boolean;
     enableStockdata?: boolean;
+    enableYahoo?: boolean;
     targetYmd?: string; // 目标纽约日
     nowNyYmd?: string; // 当前纽约日
   }
 ): CloseProvider[] {
-  // 1) 基础顺序：FMP → Marketstack → StockData.org
+  // 1) 基础顺序：FMP → Marketstack → StockData.org → Yahoo
   const providers: CloseProvider[] = [
     ...existing,
     fmpProvider, // 始终先尝试 FMP
@@ -202,9 +204,12 @@ export function buildDefaultCloseProviders(
     opts?.enableMarketstack === undefined ? true : !!opts.enableMarketstack;
   const useStockdata =
     opts?.enableStockdata === undefined ? true : !!opts.enableStockdata;
+  const useYahoo =
+    opts?.enableYahoo === undefined ? true : !!opts.enableYahoo;
 
   if (useMarketstack) providers.push(marketstackProvider);
   if (useStockdata) providers.push(stockdataProvider);
+  if (useYahoo) providers.push(yahooProvider);
 
   // 2) 去重（按 name 保留首次出现）
   const uniqueProvidersMap = new Map<string, CloseProvider>();
@@ -232,6 +237,14 @@ export function buildDefaultCloseProviders(
  * 从当前版本开始，额外支持 ctx（上下文），用于把 db 等对象传给 provider：
  * - ctx 结构不做强约束，由调用方约定。
  */
+/**
+ * 失败转移（failover）：按 providers 顺序依次尝试获取某日 EOD。
+ * 任一成功即返回，并携带 attempts（尝试记录）方便排障。
+ * 
+ * [Robustness Fix]: 
+ * - Ensures the loop NEVER crashes due to a provider error.
+ * - Wraps logging and attempt recording in nested try/catch to prevent side-effect crashes.
+ */
 export async function getCloseWithFailover(
   providers: CloseProvider[],
   symbol: string,
@@ -245,30 +258,49 @@ export async function getCloseWithFailover(
   for (const provider of providers) {
     if (result) {
       // 已成功则后续标记为跳过
-      attempts.push(sanitizeAttempt({ p: provider.name, s: "skipped" }));
+      try {
+        attempts.push(sanitizeAttempt({ p: provider.name, s: "skipped" }));
+      } catch (_) { /* ignore */ }
       continue;
     }
 
     try {
+      console.log(`[Failover] Trying provider '${provider.name}' for ${symbol}...`);
       const closeData = await provider.getClose(symbol, date, secrets, ctx);
       result = closeData;
-      attempts.push(sanitizeAttempt({ p: provider.name, s: "ok" }));
+      console.log(`[Failover] Provider '${provider.name}' SUCCEEDED.`);
+
+      try {
+        attempts.push(sanitizeAttempt({ p: provider.name, s: "ok" }));
+      } catch (_) { /* ignore */ }
+
     } catch (e: any) {
-      const rawAttempt: Attempt = {
-        p: provider.name,
-        provider: provider.name,
-        symbol,
-        s: "error",
-        error: { message: e?.message ?? String(e), code: e?.code },
-        code: e?.code,
+      // [DIAGNOSISLESS] Log immediately when a provider fails, don't wait for the end.
+      const errMsg = e instanceof Error ? e.message : String(e);
+      console.warn(`[Failover] Provider '${provider.name}' THREW Error for ${symbol}@${date}. Recovering & Continuing...`, {
+        error: errMsg,
         httpStatus: e?.httpStatus,
-        endpoint: e?.endpoint,
-        providerCode: e?.providerCode,
-        hint: e?.hint,
-        rateLimitReset: e?.rateLimitReset,
-        ts: e?.ts ?? Date.now(),
-      };
-      attempts.push(sanitizeAttempt(rawAttempt));
+      });
+
+      try {
+        const rawAttempt: Attempt = {
+          p: provider.name,
+          provider: provider.name,
+          symbol,
+          s: "error",
+          error: { message: errMsg, code: e?.code },
+          code: e?.code,
+          httpStatus: e?.httpStatus,
+          endpoint: e?.endpoint,
+          providerCode: e?.providerCode,
+          hint: e?.hint,
+          rateLimitReset: e?.rateLimitReset,
+          ts: e?.ts ?? Date.now(),
+        };
+        attempts.push(sanitizeAttempt(rawAttempt));
+      } catch (recErr) {
+        console.error(`[Failover] Failed to record attempt for '${provider.name}'`, recErr);
+      }
     }
   }
 

@@ -12,7 +12,7 @@ import { doc, onSnapshot, type Unsubscribe } from 'firebase/firestore';
 import { getFunctions, httpsCallable } from 'firebase/functions';
 import { useFirestore } from '@/firebase';
 import { useUser } from '@/firebase/provider';
-import { nyWeekdayIndex, toNyCalendarDayString, toNyHmsString } from '@/lib/ny-time';
+import { nyWeekdayIndex, toNyCalendarDayString, toNyHmsString, US_MARKET_HOLIDAYS } from '@/lib/ny-time';
 
 // 实时价格状态 RtStatus（实时状态枚举）：用于标记价格的新鲜程度和会话状态
 type RtStatus = 'live' | 'stale' | 'closed' | 'pending' | 'error';
@@ -41,13 +41,8 @@ const QUEUE_GAP_MS = 7_000;    // 队列间隔 ≥7s（遵守全局规则）
 const TIMEOUT_MS = 6_000;    // 拉价超时（HTTP 超时）
 const CACHE_TTL_MS = 60_000;   // 主动拉价缓存有效期 60s
 
-// 2025/2026 交易日假期表（与 use-holdings 对齐）
-const US_MARKET_HOLIDAYS = new Set<string>([
-  '2025-01-01', '2025-01-20', '2025-02-17', '2025-04-18', '2025-05-26', '2025-06-19', '2025-07-04', '2025-09-01', '2025-11-27', '2025-12-25',
-  '2026-01-01', '2026-01-19', '2026-02-16', '2026-04-03', '2026-05-25', '2026-06-19', '2026-07-03', '2026-09-07', '2026-11-26', '2026-12-25',
-]);
-
 // 根据当前纽约时间判断市场会话（pre/open/post/closed）
+// [REFACTORED] Now uses unified ny-time utils (DRY + Correctness)
 function getMarketSession(now: Date): 'pre' | 'open' | 'post' | 'closed' {
   const wd = nyWeekdayIndex(now);
   const d = toNyCalendarDayString(now);
@@ -321,6 +316,7 @@ export const RealTimePricesProvider: React.FC<{ children: React.ReactNode }> = (
  */
 function deriveStatus(price: number | null, ts: number): RtStatus {
   const now = Date.now();
+  // [FIX] Use new Date() is only for current wall-clock, but getMarketSession now handles timezone correctly via ny-time utils
   const sess = getMarketSession(new Date());
 
   // （1）没有价格的场景：盘中/盘前视为等待返回，盘后/休市视为正常休市

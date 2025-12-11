@@ -21,3 +21,10 @@ export const formatNumber = (value: number | null | undefined) => {
     maximumFractionDigits: 4,
   });
 };
+
+export const normalizeSymbolClient = (s: string): string =>
+  (s ?? '')
+    .normalize('NFKC')
+    .trim()
+    .replace(/\s+/g, '')
+    .toUpperCase();

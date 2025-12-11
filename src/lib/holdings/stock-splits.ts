@@ -10,6 +10,12 @@ export interface SplitEvent {
 export const STOCK_SPLITS: SplitEvent[] = [
     // NFLX（Netflix 奈飞）：1 拆 10，自 2025-11-17（周一，美东开盘）起生效
     { symbol: 'NFLX', effectiveDate: '2025-11-17', splitRatio: 10 },
+    // NVDA (Nvidia): 10-for-1 split, effective June 7, 2024
+    { symbol: 'NVDA', effectiveDate: '2024-06-07', splitRatio: 10 },
+    // TSLA (Tesla): 3-for-1 split, effective August 25, 2022
+    { symbol: 'TSLA', effectiveDate: '2022-08-25', splitRatio: 3 },
+    // NFLX (Netflix): 7-for-1 split, effective July 15, 2015
+    { symbol: 'NFLX', effectiveDate: '2015-07-15', splitRatio: 7 },
 ];
 
 // —— 内部分组用 symbol 规范化：去空格，NFKC，统一大写 —— 

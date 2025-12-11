@@ -1,0 +1,40 @@
+
+❌ Execution Failed with Exception: All providers failed to get close price
+Cause (Attempts):
+[
+  {
+    "p": "fmp",
+    "provider": "fmp",
+    "symbol": "GGLL",
+    "s": "error",
+    "error": {
+      "message": "{\"Error Message\":\"Invalid API KEY. Feel free to create a Free API Key or visit https://site.financialmodelingprep.com/faqs?search=why-is-my-api-key-invalid for more information.\"}",
+      "code": "permission-denied"
+    },
+    "code": "permission-denied",
+    "httpStatus": 401,
+    "endpoint": "https://financialmodelingprep.com/stable/historical-price-eod/full?symbol=GGLL&from=2020-11-23&to=2025-11-24&apikey=dummy_token_force_fail",
+    "hint": "FMP API Key 无效或套餐权限不足",
+    "ts": 1765046652823
+  },
+  {
+    "p": "marketstack",
+    "provider": "marketstack",
+    "symbol": "GGLL",
+    "s": "error",
+    "error": {
+      "message": "Marketstack API 请求失败: Unauthorized (status: 401)"
+    },
+    "ts": 1765046653471
+  },
+  {
+    "p": "stockdata",
+    "provider": "stockdata",
+    "symbol": "GGLL",
+    "s": "error",
+    "error": {
+      "message": "StockData.org API 请求失败: Unauthorized (status: 401)"
+    },
+    "ts": 1765046654393
+  }
+]

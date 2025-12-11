@@ -10,6 +10,7 @@ export const getProviderCoverageDays = (): Record<string, number> => ({
   tiingo: 4000,              // 预留（即便当前未启用）
   polygon: 730,              // 约 2 年
   alphavantage: 365 * 20,    // 很长的历史
+  yahoo: 365 * 20,           // Yahoo 历史数据非常长
 });
 
 /**

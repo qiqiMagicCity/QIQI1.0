@@ -1,28 +1,30 @@
-import { PnLEvent } from './calc-m4-m5-2-global-fifo';
+import { DailyPnlResult } from './calc-m14-daily-calendar';
 
 /**
- * M12: MTD (Month-to-Date) Realized PnL
- * Formula: Sum(Realized PnL within period) + (Current Unrealized PnL - Base Unrealized PnL)
+ * M12: MTD (Month-to-Date) Total PnL
+ * Formula: Sum of Daily Total PnL (M6) from Month Start to Today.
  * 
- * @param events - List of realized PnL events
+ * @param dailyPnlMap - Map of daily PnL results (from M14 calculation)
  * @param mtdStartDate - Start date of the current month (YYYY-MM-DD)
- * @param currentUnrealized - Current Total Unrealized PnL
- * @param baseUnrealized - Total Unrealized PnL at the end of the previous month
+ * @param todayNy - Current NY trading day (YYYY-MM-DD)
  * @returns Total MTD PnL
  */
 export function calcM12_Mtd(
-    events: PnLEvent[],
+    dailyPnlMap: Record<string, DailyPnlResult>,
     mtdStartDate: string,
-    currentUnrealized: number | null,
-    baseUnrealized: number
-): number | null {
-    if (currentUnrealized === null) return null;
+    todayNy: string
+): number {
+    let total = 0;
+    const dates = Object.keys(dailyPnlMap).sort();
 
-    const realizedFlow = (events || [])
-        .filter(e => e.date >= mtdStartDate)
-        .reduce((sum, e) => sum + e.pnl, 0);
+    for (const date of dates) {
+        if (date >= mtdStartDate && date <= todayNy) {
+            const dayResult = dailyPnlMap[date];
+            if (dayResult && typeof dayResult.totalPnl === 'number') {
+                total += dayResult.totalPnl;
+            }
+        }
+    }
 
-    const unrealizedDelta = currentUnrealized - baseUnrealized;
-
-    return realizedFlow + unrealizedDelta;
+    return total;
 }

@@ -29,7 +29,10 @@ import {
   ChevronsUp,
   ChevronsDown,
   ArrowUpRight,
+  Tag,
 } from 'lucide-react';
+import { ActionBadge } from '@/components/common/action-badge';
+import { toNyCalendarDayString, toNyHmsString, nyWeekdayLabel } from '@/lib/ny-time';
 
 const formatCurrency = (value: number | null | undefined) => {
   if (value == null || typeof value !== 'number') return '—';
@@ -86,7 +89,7 @@ function mapRtStatusToUiStatus(status: string | null | undefined): UiStatus {
 
 // 注意：这里先定义函数，最后统一做默认导出 + 具名导出
 function HoldingsOverview() {
-  const { rows, loading } = useHoldings();
+  const { rows, loading, transactions } = useHoldings();
   const { fetchingSymbol } = usePriceCenterContext();
 
   type SortKey = 'symbol' | 'assetType' | 'last' | 'netQty' | 'avgCost' | 'costBasis' | 'todayPl' | 'dayChange' | 'dayChangePct';
@@ -113,9 +116,14 @@ function HoldingsOverview() {
   };
 
   const sortedRows = useMemo(() => {
-    if (!sortConfig.direction) return rows;
+    // [MODIFIED] Strict Filter: Active Positions Only
+    // We strictly filter out closed positions (Net Qty ~ 0), ignoring "floating point dust".
+    // Even if a closed position has Today PnL, we hide it from this view per user request.
+    const activeRows = rows.filter((row) => Math.abs(row.netQty) > 0.0001);
 
-    const sorted = [...rows].sort((a, b) => {
+    if (!sortConfig.direction) return activeRows;
+
+    const sorted = [...activeRows].sort((a, b) => {
       let aVal: any;
       let bVal: any;
 
@@ -226,293 +234,408 @@ function HoldingsOverview() {
   };
 
   return (
-    <section id="holdings" className="scroll-mt-20">
-      <Card>
-        <CardHeader className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
-          <CardTitle className="text-base md:text-lg">持仓概览</CardTitle>
-        </CardHeader>
+    <>
+      <section id="holdings" className="scroll-mt-20">
+        <Card>
+          <CardHeader className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+            <CardTitle className="text-base md:text-lg">持仓概览</CardTitle>
+          </CardHeader>
 
-        {/* 整个表格默认字体稍微放大：移动端 13px，桌面端 text-sm */}
-        <CardContent className="p-0 text-[13px] md:text-sm">
-          <div className="w-full overflow-x-auto">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead className="text-center px-2 w-[50px]">logo</TableHead>
-                  <SortableHeader sortKey="symbol" className="px-2">代码</SortableHeader>
-                  <TableHead className="px-2">中文名</TableHead>
-                  <SortableHeader sortKey="assetType" className="px-2">类型</SortableHeader>
-                  <SortableHeader sortKey="last" className="text-right px-2">
-                    现价
-                  </SortableHeader>
-                  <SortableHeader sortKey="netQty" className="text-right px-2">
-                    持仓
-                  </SortableHeader>
-                  <SortableHeader sortKey="avgCost" className="text-right px-2">
-                    成本
-                  </SortableHeader>
-                  <SortableHeader sortKey="costBasis" className="text-right px-2">
-                    <TooltipProvider>
-                      <Tooltip>
-                        <TooltipTrigger asChild>
-                          <span className="cursor-help border-b border-dotted border-muted-foreground/50">NCI</span>
-                        </TooltipTrigger>
-                        <TooltipContent>净现金投入 (Net Cash Invested)</TooltipContent>
-                      </Tooltip>
-                    </TooltipProvider>
-                  </SortableHeader>
-                  <TableHead className="text-right px-2">
-                    保本价
-                  </TableHead>
-                  <SortableHeader sortKey="todayPl" className="text-right px-2">
-                    日盈亏
-                  </SortableHeader>
-                  <SortableHeader sortKey="dayChangePct" className="text-right px-2">
-                    日变动
-                  </SortableHeader>
-                  <TableHead className="text-right px-2 text-muted-foreground">
-                    持仓盈亏
-                  </TableHead>
-                  <TableHead className="text-right px-2 text-muted-foreground">
-                    已实现
-                  </TableHead>
-                  <TableHead className="text-center px-2 text-muted-foreground w-[50px]">
-                    详情
-                  </TableHead>
-                </TableRow>
-              </TableHeader>
-
-              <TableBody>
-                {loading && (
+          {/* 整个表格默认字体稍微放大：移动端 13px，桌面端 text-sm */}
+          <CardContent className="p-0 text-[13px] md:text-sm">
+            <div className="w-full overflow-x-auto">
+              <Table>
+                <TableHeader>
                   <TableRow>
-                    <TableCell colSpan={15} className="h-24 text-center">
-                      加载中…
-                    </TableCell>
+                    <TableHead className="text-center px-2 w-[50px]">logo</TableHead>
+                    <SortableHeader sortKey="symbol" className="px-2">代码</SortableHeader>
+                    <TableHead className="px-2">中文名</TableHead>
+                    <SortableHeader sortKey="assetType" className="px-2">类型</SortableHeader>
+                    <SortableHeader sortKey="last" className="text-right px-2">
+                      现价
+                    </SortableHeader>
+                    <SortableHeader sortKey="netQty" className="text-right px-2">
+                      持仓
+                    </SortableHeader>
+                    <SortableHeader sortKey="avgCost" className="text-right px-2">
+                      成本
+                    </SortableHeader>
+                    <SortableHeader sortKey="costBasis" className="text-right px-2">
+                      <TooltipProvider>
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <span className="cursor-help border-b border-dotted border-muted-foreground/50">NCI</span>
+                          </TooltipTrigger>
+                          <TooltipContent>净现金投入 (Net Cash Invested)</TooltipContent>
+                        </Tooltip>
+                      </TooltipProvider>
+                    </SortableHeader>
+                    <TableHead className="text-right px-2">
+                      保本价
+                    </TableHead>
+                    <SortableHeader sortKey="todayPl" className="text-right px-2">
+                      日盈亏
+                    </SortableHeader>
+                    <SortableHeader sortKey="dayChangePct" className="text-right px-2">
+                      日变动
+                    </SortableHeader>
+                    <TableHead className="text-right px-2 text-muted-foreground">
+                      持仓盈亏
+                    </TableHead>
+                    <TableHead className="text-right px-2 text-muted-foreground">
+                      已实现
+                    </TableHead>
+                    <TableHead className="text-center px-2 text-muted-foreground w-[50px]">
+                      详情
+                    </TableHead>
                   </TableRow>
-                )}
+                </TableHeader>
 
-                {!loading && rows.length === 0 && (
-                  <TableRow>
-                    <TableCell colSpan={15} className="h-24 text-center">
-                      无持仓（请先录入交易）
-                    </TableCell>
-                  </TableRow>
-                )}
+                <TableBody>
+                  {loading && (
+                    <TableRow>
+                      <TableCell colSpan={15} className="h-24 text-center">
+                        加载中…
+                      </TableCell>
+                    </TableRow>
+                  )}
 
-                {!loading &&
-                  sortedRows.map((row) => {
-                    const costBasis =
-                      row.avgCost != null
-                        ? Math.abs(row.netQty) * (row.multiplier ?? 1) * row.avgCost
-                        : null;
+                  {!loading && sortedRows.length === 0 && (
+                    <TableRow>
+                      <TableCell colSpan={15} className="h-24 text-center">
+                        无持仓（请先录入交易）
+                      </TableCell>
+                    </TableRow>
+                  )}
 
-                    const isMissingEod =
-                      row.todayPlStatus === 'missing-ref-eod' ||
-                      row.todayPlStatus === 'missing-today-eod' ||
-                      row.todayPlStatus === 'pending-eod-fetch';
+                  {!loading &&
+                    sortedRows.map((row) => {
+                      const costBasis =
+                        row.avgCost != null
+                          ? Math.abs(row.netQty) * (row.multiplier ?? 1) * row.avgCost
+                          : null;
 
-                    const isMissingRealtime = row.todayPlStatus === 'degraded';
+                      const isMissingEod =
+                        row.todayPlStatus === 'missing-ref-eod' ||
+                        row.todayPlStatus === 'missing-today-eod' ||
+                        row.todayPlStatus === 'pending-eod-fetch';
 
-                    return (
-                      <TableRow
-                        key={`${row.symbol}-${row.assetType}-${row.multiplier ?? 1}`}
-                      >
-                        <TableCell className="text-[13px] md:text-sm text-center px-2">
-                          <CompanyLogo symbol={row.symbol} size={24} className="mx-auto" />
-                        </TableCell>
+                      const isMissingRealtime = row.todayPlStatus === 'degraded';
 
-                        <TableCell className="font-mono font-bold text-base md:text-lg px-2">
-                          {row.symbol}
-                        </TableCell>
+                      return (
+                        <TableRow
+                          key={`${row.symbol}-${row.assetType}-${row.multiplier ?? 1}`}
+                        >
+                          <TableCell className="text-[13px] md:text-sm text-center px-2">
+                            <CompanyLogo symbol={row.symbol} size={24} className="mx-auto" />
+                          </TableCell>
 
-                        <TableCell className="text-sm md:text-base px-2">
-                          <SymbolName symbol={row.symbol} />
-                        </TableCell>
+                          <TableCell className="font-mono font-bold text-base md:text-lg px-2">
+                            {row.symbol}
+                          </TableCell>
 
-                        <TableCell className="text-sm md:text-base px-2">
-                          <div className="flex flex-col gap-1">
-                            <Badge
-                              className={`border-none gap-1 w-fit ${row.assetType === 'option'
-                                ? 'bg-orange-600 text-white'
-                                : 'bg-slate-700 text-white'
-                                }`}
-                            >
-                              <AssetTypeIcon
-                                assetType={row.assetType as any}
-                                className="h-3 w-3"
-                              />
-                              <span>{row.assetType === 'option' ? '期权' : '股票'}</span>
-                            </Badge>
-                            {row.netQty > 0 && (
-                              <Badge className="bg-emerald-600 text-white border-none w-fit text-[10px] px-1.5 py-0 h-5">
-                                多头
+                          <TableCell className="text-sm md:text-base px-2">
+                            <SymbolName symbol={row.symbol} />
+                          </TableCell>
+
+                          <TableCell className="text-sm md:text-base px-2">
+                            <div className="flex flex-col gap-1">
+                              <Badge
+                                className={`border-none gap-1 w-fit ${row.assetType === 'option'
+                                  ? 'bg-orange-600 text-white'
+                                  : 'bg-slate-700 text-white'
+                                  }`}
+                              >
+                                <AssetTypeIcon
+                                  assetType={row.assetType as any}
+                                  className="h-3 w-3"
+                                />
+                                <span>{row.assetType === 'option' ? '期权' : '股票'}</span>
                               </Badge>
+                              {row.netQty > 0 && (
+                                <Badge className="bg-emerald-600 text-white border-none w-fit text-[10px] px-1.5 py-0 h-5">
+                                  多头
+                                </Badge>
+                              )}
+                              {row.netQty < 0 && (
+                                <Badge className="bg-red-600 text-white border-none w-fit text-[10px] px-1.5 py-0 h-5">
+                                  空头
+                                </Badge>
+                              )}
+                            </div>
+                          </TableCell>
+
+                          {/* 实时价格 + 实时价格状态徽章（来自价格中心）；颜色跟随当日盈亏 todayPl */}
+                          <TableCell className="text-right font-mono text-sm md:text-base px-2">
+                            <div className="flex items-center justify-end gap-2">
+                              <span className={getTodayPlClassName(row.todayPl)}>
+                                {fetchingSymbol === row.symbol ? (
+                                  <span className="mr-1 inline-block w-2 h-2 rounded-full bg-green-500 animate-ping" title="正在更新..."></span>
+                                ) : row.todayPlStatus === 'stale-last' ? (
+                                  <span className="mr-1 inline-block w-2 h-2 rounded-full bg-orange-500 animate-pulse" title="数据陈旧"></span>
+                                ) : row.priceStatus === 'live' ? (
+                                  <span className="mr-1 inline-block w-2 h-2 rounded-full bg-green-500" title="实时数据"></span>
+                                ) : null}
+                                {formatCurrencyNoSign(row.last)}
+                              </span>
+                              {row.priceStatus && (
+                                <StatusBadge
+                                  status={mapRtStatusToUiStatus(row.priceStatus)}
+                                  className="inline-flex items-center shrink-0 rounded-full px-2 text-[11px] h-5"
+                                />
+                              )}
+                            </div>
+                          </TableCell>
+
+                          {/* 持仓数量 */}
+                          <TableCell className="text-center font-mono text-sm md:text-base px-2">
+                            {row.netQty.toFixed(2)}
+                            {row.assetType === 'option' && (
+                              <span className="text-muted-foreground text-xs ml-1">
+                                ×{row.multiplier}
+                              </span>
                             )}
-                            {row.netQty < 0 && (
-                              <Badge className="bg-red-600 text-white border-none w-fit text-[10px] px-1.5 py-0 h-5">
-                                空头
-                              </Badge>
-                            )}
-                          </div>
-                        </TableCell>
+                          </TableCell>
 
-                        {/* 实时价格 + 实时价格状态徽章（来自价格中心）；颜色跟随当日盈亏 todayPl */}
-                        <TableCell className="text-right font-mono text-sm md:text-base px-2">
-                          <div className="flex items-center justify-end gap-2">
-                            <span className={getTodayPlClassName(row.todayPl)}>
-                              {fetchingSymbol === row.symbol ? (
-                                <span className="mr-1 inline-block w-2 h-2 rounded-full bg-green-500 animate-ping" title="正在更新..."></span>
-                              ) : row.todayPlStatus === 'stale-last' ? (
-                                <span className="mr-1 inline-block w-2 h-2 rounded-full bg-orange-500 animate-pulse" title="数据陈旧"></span>
-                              ) : row.priceStatus === 'live' ? (
-                                <span className="mr-1 inline-block w-2 h-2 rounded-full bg-green-500" title="实时数据"></span>
-                              ) : null}
-                              {formatCurrencyNoSign(row.last)}
-                            </span>
-                            {row.priceStatus && (
-                              <StatusBadge
-                                status={mapRtStatusToUiStatus(row.priceStatus)}
-                                className="inline-flex items-center shrink-0 rounded-full px-2 text-[11px] h-5"
-                              />
-                            )}
-                          </div>
-                        </TableCell>
+                          {/* 持仓单价 */}
+                          <TableCell className="text-right font-mono text-sm md:text-base px-2">
+                            {row.avgCost !== null ? row.avgCost.toFixed(4) : '—'}
+                          </TableCell>
 
-                        {/* 持仓数量 */}
-                        <TableCell className="text-center font-mono text-sm md:text-base px-2">
-                          {row.netQty.toFixed(2)}
-                          {row.assetType === 'option' && (
-                            <span className="text-muted-foreground text-xs ml-1">
-                              ×{row.multiplier}
-                            </span>
-                          )}
-                        </TableCell>
+                          {/* 净现金投入（NCI） */}
+                          <TableCell className="text-center font-mono text-sm md:text-base text-blue-600 px-2">
+                            {formatCurrencyNoSign(costBasis)}
+                          </TableCell>
 
-                        {/* 持仓单价 */}
-                        <TableCell className="text-right font-mono text-sm md:text-base px-2">
-                          {row.avgCost !== null ? row.avgCost.toFixed(4) : '—'}
-                        </TableCell>
+                          {/* 盈亏平衡点 */}
+                          <TableCell className="text-right font-mono text-sm md:text-base px-2">
+                            {row.breakEvenPrice != null ? formatCurrencyNoSign(row.breakEvenPrice) : '—'}
+                          </TableCell>
 
-                        {/* 净现金投入（NCI） */}
-                        <TableCell className="text-center font-mono text-sm md:text-base text-blue-600 px-2">
-                          {formatCurrencyNoSign(costBasis)}
-                        </TableCell>
-
-                        {/* 盈亏平衡点 */}
-                        <TableCell className="text-right font-mono text-sm md:text-base px-2">
-                          {row.breakEvenPrice != null ? formatCurrencyNoSign(row.breakEvenPrice) : '—'}
-                        </TableCell>
-
-                        {/* 当日盈亏：仅金额（关注人） */}
-                        <TableCell className="text-right font-mono text-sm md:text-base px-2">
-                          <div className="flex items-center justify-end gap-2">
-                            <TooltipProvider>
-                              <Tooltip>
-                                <TooltipTrigger asChild>
-                                  <div className="cursor-help flex items-center justify-end gap-2">
-                                    {showRowTodayPlNumber(row) ? (
-                                      <span className={getTodayPlClassName(row.todayPl)}>
-                                        {formatCurrency(row.todayPl)}
-                                      </span>
-                                    ) : (
-                                      <span className="text-xs text-muted-foreground">
-                                        {isMissingEod
-                                          ? '缺失EOD'
-                                          : isMissingRealtime
-                                            ? '缺实价'
-                                            : '—'}
-                                      </span>
-                                    )}
-                                  </div>
-                                </TooltipTrigger>
-                                <TooltipContent>
-                                  <div className="text-xs space-y-1 text-left">
-                                    <p className="font-bold">调试信息 (Debug)</p>
-                                    <div>Ref Price (实价): {row.refPrice ?? 'N/A'}</div>
-                                    <div>Prev Close (昨收): {row.prevClose ?? 'N/A'}</div>
-                                    <div>Ref Date (基准日): {row.refDateUsed ?? 'N/A'}</div>
-                                    <div>Status: {row.todayPlStatus}</div>
-                                    <div className="text-xs text-muted-foreground mt-1">
-                                      PnL = (Ref - Prev) * Qty
+                          {/* 当日盈亏：仅金额（关注人） */}
+                          <TableCell className="text-right font-mono text-sm md:text-base px-2">
+                            <div className="flex items-center justify-end gap-2">
+                              <TooltipProvider>
+                                <Tooltip>
+                                  <TooltipTrigger asChild>
+                                    <div className="cursor-help flex items-center justify-end gap-2">
+                                      {showRowTodayPlNumber(row) ? (
+                                        <span className={getTodayPlClassName(row.todayPl)}>
+                                          {formatCurrency(row.todayPl)}
+                                        </span>
+                                      ) : (
+                                        <span className="text-xs text-muted-foreground">
+                                          {isMissingEod
+                                            ? '缺失EOD'
+                                            : isMissingRealtime
+                                              ? '缺实价'
+                                              : '—'}
+                                        </span>
+                                      )}
                                     </div>
-                                  </div>
-                                </TooltipContent>
-                              </Tooltip>
-                            </TooltipProvider>
-                          </div>
-                        </TableCell>
+                                  </TooltipTrigger>
+                                  <TooltipContent>
+                                    <div className="text-xs space-y-1 text-left">
+                                      <p className="font-bold">调试信息 (Debug)</p>
+                                      <div>Ref Price (实价): {row.refPrice ?? 'N/A'}</div>
+                                      <div>Prev Close (昨收): {row.prevClose ?? 'N/A'}</div>
+                                      <div>Ref Date (基准日): {row.refDateUsed ?? 'N/A'}</div>
+                                      <div>Status: {row.todayPlStatus}</div>
+                                      <div className="text-xs text-muted-foreground mt-1">
+                                        PnL = (Ref - Prev) * Qty
+                                      </div>
+                                    </div>
+                                  </TooltipContent>
+                                </Tooltip>
+                              </TooltipProvider>
+                            </div>
+                          </TableCell>
 
-                        {/* 当日变动：百分比 + 市值变动金额（关注货） */}
-                        <TableCell className="text-right font-mono text-sm md:text-base px-2">
-                          {(() => {
-                            if (row.dayChange == null || row.dayChangePct == null) {
-                              return <span className="text-muted-foreground">—</span>;
-                            }
-                            // 计算持仓市值变动 = 单股变动 * 数量 * 倍数
-                            const positionChange = row.dayChange * row.netQty * (row.multiplier ?? 1);
+                          {/* 当日变动：百分比 + 市值变动金额（关注货） */}
+                          <TableCell className="text-right font-mono text-sm md:text-base px-2">
+                            {(() => {
+                              if (row.dayChange == null || row.dayChangePct == null) {
+                                return <span className="text-muted-foreground">—</span>;
+                              }
+                              // 计算持仓市值变动 = 单股变动 * 数量 * 倍数
+                              const positionChange = row.dayChange * row.netQty * (row.multiplier ?? 1);
 
-                            return (
-                              <span className={getTodayPlClassName(positionChange)}>
-                                {formatPercent(row.dayChangePct)}
-                                <span className="ml-1 text-[11px] md:text-xs">
-                                  ({formatCurrency(positionChange)})
+                              return (
+                                <span className={getTodayPlClassName(positionChange)}>
+                                  {formatPercent(row.dayChangePct)}
+                                  <span className="ml-1 text-[11px] md:text-xs">
+                                    ({formatCurrency(positionChange)})
+                                  </span>
                                 </span>
-                              </span>
-                            );
-                          })()}
-                        </TableCell>
+                              );
+                            })()}
+                          </TableCell>
 
-                        {/* 持仓盈亏 */}
-                        <TableCell className="text-right font-mono text-sm md:text-base px-2">
-                          {(() => {
-                            if (row.pnl == null || row.pnlPct == null) {
-                              return <span className="text-muted-foreground">—</span>;
-                            }
-                            return (
-                              <span className={getTodayPlClassName(row.pnl)}>
-                                {formatPercent(row.pnlPct)}
-                                <span className="ml-1 text-[11px] md:text-xs">
-                                  ({formatCurrency(row.pnl)})
+                          {/* 持仓盈亏 */}
+                          <TableCell className="text-right font-mono text-sm md:text-base px-2">
+                            {(() => {
+                              if (row.pnl == null || row.pnlPct == null) {
+                                return <span className="text-muted-foreground">—</span>;
+                              }
+                              return (
+                                <span className={getTodayPlClassName(row.pnl)}>
+                                  {formatPercent(row.pnlPct)}
+                                  <span className="ml-1 text-[11px] md:text-xs">
+                                    ({formatCurrency(row.pnl)})
+                                  </span>
                                 </span>
-                              </span>
-                            );
-                          })()}
-                        </TableCell>
+                              );
+                            })()}
+                          </TableCell>
 
-                        {/* 个股全生命周期总盈亏 */}
-                        <TableCell className="text-right font-mono text-sm md:text-base px-2">
-                          {(() => {
-                            if (row.totalLifetimePnL == null) {
-                              return <span className="text-muted-foreground">—</span>;
-                            }
-                            return (
-                              <span className={getTodayPlClassName(row.totalLifetimePnL)}>
-                                {formatCurrency(row.totalLifetimePnL)}
-                              </span>
-                            );
-                          })()}
-                        </TableCell>
+                          {/* 个股全生命周期总盈亏 */}
+                          <TableCell className="text-right font-mono text-sm md:text-base px-2">
+                            {(() => {
+                              if (row.totalLifetimePnL == null) {
+                                return <span className="text-muted-foreground">—</span>;
+                              }
+                              return (
+                                <span className={getTodayPlClassName(row.totalLifetimePnL)}>
+                                  {formatCurrency(row.totalLifetimePnL)}
+                                </span>
+                              );
+                            })()}
+                          </TableCell>
 
-                        {/* 详情 */}
-                        <TableCell className="text-center px-2">
-                          <Link
-                            href={`/symbol/${row.symbol}`}
-                            className="inline-flex items-center justify-center w-8 h-8 rounded-full hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors text-slate-400 hover:text-emerald-500"
-                            title="查看详情"
-                            prefetch={false}
-                          >
-                            <ArrowUpRight className="h-4 w-4" />
-                          </Link>
-                        </TableCell>
+                          {/* 详情 */}
+                          <TableCell className="text-center px-2">
+                            <Link
+                              href={`/symbol/${row.symbol}`}
+                              className="inline-flex items-center justify-center w-8 h-8 rounded-full hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors text-slate-400 hover:text-emerald-500"
+                              title="查看详情"
+                              prefetch={false}
+                            >
+                              <ArrowUpRight className="h-4 w-4" />
+                            </Link>
+                          </TableCell>
+                        </TableRow>
+                      );
+                    })}
+                </TableBody>
+              </Table>
+            </div>
+          </CardContent>
+        </Card>
+      </section>
+
+      {/* [NEW] Recent Transactions Section (Full Detail) */}
+      <section className="mt-8">
+        <Card>
+          <CardHeader>
+            <div className="flex items-center justify-between">
+              <CardTitle className="text-base md:text-lg">近期交易 (最新17条)</CardTitle>
+              <Link href="/?tab=history">
+                <Button variant="outline" size="sm" className="gap-1">
+                  查看全部
+                  <ArrowUpRight className="h-4 w-4" />
+                </Button>
+              </Link>
+            </div>
+          </CardHeader>
+          <CardContent className="p-0 text-[13px] md:text-sm">
+            <div className="w-full overflow-x-auto">
+              <div className="min-w-[800px]">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead className="w-[160px]">日期</TableHead>
+                      <TableHead className="w-[100px]">标的代码</TableHead>
+                      <TableHead className="hidden sm:table-cell w-[200px]">标的中文名</TableHead>
+                      <TableHead className="w-[80px]">类型</TableHead>
+                      <TableHead className="w-[80px]">操作</TableHead>
+                      <TableHead className="text-right w-[100px]">价格</TableHead>
+                      <TableHead className="text-right w-[100px]">数量</TableHead>
+                      <TableHead className="text-right w-[120px]">总计金额</TableHead>
+                      <TableHead className="text-center w-[50px]"> </TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {loading && rows.length === 0 ? (
+                      Array.from({ length: 3 }).map((_, i) => (
+                        <TableRow key={i}>
+                          <TableCell colSpan={9}>
+                            <div className="h-6 w-full animate-pulse bg-muted/50 rounded" />
+                          </TableCell>
+                        </TableRow>
+                      ))
+                    ) : (
+                      // Logic: Get transactions, Sort Descending, Slice 17
+                      (transactions || [])
+                        .slice() // Clone to avoid mutation
+                        .sort((a, b) => b.transactionTimestamp - a.transactionTimestamp)
+                        .slice(0, 17)
+                        .map((tx) => {
+                          const absQty = Math.abs(tx.qty);
+                          const amount = tx.qty * tx.price * tx.multiplier;
+                          const isOption = tx.assetType === 'option';
+
+                          return (
+                            <TableRow key={tx.id || Math.random()}>
+                              <TableCell>
+                                <div>
+                                  {tx.transactionTimestamp ? (
+                                    <>
+                                      {toNyCalendarDayString(tx.transactionTimestamp)}{' '}
+                                      <span className="hidden sm:inline">{toNyHmsString(tx.transactionTimestamp)}</span>
+                                    </>
+                                  ) : <span className="text-muted-foreground">—</span>}
+                                </div>
+                                <div className="text-xs text-muted-foreground -mt-1">
+                                  {tx.transactionTimestamp ? nyWeekdayLabel(tx.transactionTimestamp) : null}
+                                </div>
+                              </TableCell>
+                              <TableCell className="font-mono">{tx.symbol === 'UNKNOWN' ? '—' : tx.symbol}</TableCell>
+                              <TableCell className="hidden sm:table-cell">
+                                <SymbolName symbol={tx.symbol} />
+                              </TableCell>
+                              <TableCell>
+                                <Badge
+                                  className={`text-white border-none gap-1 ${isOption ? 'bg-orange-600' : 'bg-slate-700'
+                                    }`}
+                                >
+                                  <Tag className="w-3.5 h-3.5" />
+                                  {isOption ? '期权' : '股票'}
+                                </Badge>
+                              </TableCell>
+                              <TableCell>
+                                <ActionBadge opKind={tx.opKind} />
+                              </TableCell>
+                              <TableCell className="text-right font-mono">
+                                {Number(tx.price).toLocaleString(undefined, { minimumFractionDigits: 4, maximumFractionDigits: 4 })}
+                              </TableCell>
+                              <TableCell className="text-right font-mono">
+                                {Number(absQty).toLocaleString(undefined, { maximumFractionDigits: 0 })}
+                                {tx.multiplier !== 1 ? <span className="text-muted-foreground text-xs"> ×{tx.multiplier}</span> : null}
+                              </TableCell>
+                              <TableCell className={`text-right font-mono ${amount < 0 ? 'text-red-600' : 'text-emerald-600'}`}>
+                                {Number(amount).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                              </TableCell>
+                              <TableCell className="text-center w-[50px]">
+                                {/* Empty Action Column for visual parity */}
+                              </TableCell>
+                            </TableRow>
+                          );
+                        })
+                    )}
+                    {!loading && (transactions || []).length === 0 && (
+                      <TableRow>
+                        <TableCell colSpan={9} className="h-24 text-center">无记录。</TableCell>
                       </TableRow>
-                    );
-                  })}
-              </TableBody>
-            </Table>
-          </div>
-        </CardContent>
-      </Card>
-    </section>
+                    )}
+                  </TableBody>
+                </Table>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+        <div className="h-8"></div>
+      </section>
+    </>
   );
 }
 

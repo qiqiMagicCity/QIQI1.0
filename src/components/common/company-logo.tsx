@@ -41,6 +41,7 @@ export function CompanyLogo({ symbol, size = 32, className = '' }: CompanyLogoPr
     }
 
     return (
+        // eslint-disable-next-line @next/next/no-img-element
         <img
             src={logoUrl}
             alt={`${symbol} logo`}

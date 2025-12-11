@@ -9,17 +9,17 @@ export function DailyPnlChart() {
 
     if (loading) {
         return (
-            <Card className="h-[400px] flex items-center justify-center">
+            <div className="relative overflow-hidden rounded-xl border border-zinc-800 bg-zinc-950/50 backdrop-blur-xl shadow-2xl h-[400px] flex items-center justify-center">
                 <div className="text-muted-foreground">加载中...</div>
-            </Card>
+            </div>
         );
     }
 
     if (!dailyPnlList || dailyPnlList.length === 0) {
         return (
-            <Card className="h-[400px] flex items-center justify-center">
+            <div className="relative overflow-hidden rounded-xl border border-zinc-800 bg-zinc-950/50 backdrop-blur-xl shadow-2xl h-[400px] flex items-center justify-center">
                 <div className="text-muted-foreground">暂无每日盈亏数据</div>
-            </Card>
+            </div>
         );
     }
 
@@ -30,11 +30,15 @@ export function DailyPnlChart() {
     }));
 
     return (
-        <Card className="col-span-1 md:col-span-2 lg:col-span-3">
-            <CardHeader>
-                <CardTitle>每日盈亏情况</CardTitle>
-            </CardHeader>
-            <CardContent>
+        <div className="relative overflow-hidden rounded-xl border border-zinc-800 bg-zinc-950/50 backdrop-blur-xl shadow-2xl col-span-1 md:col-span-2 lg:col-span-3">
+            <div className="flex items-center justify-between border-b border-white/5 bg-white/5 px-4 py-3 backdrop-blur-md">
+                <div className="flex items-center gap-2">
+                    <div className="h-2 w-2 rounded-full bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.5)]" />
+                    <h3 className="text-sm font-medium tracking-wide text-zinc-100">每日盈亏情况</h3>
+                </div>
+            </div>
+
+            <div className="p-4">
                 <div className="h-[300px] w-full">
                     <ResponsiveContainer width="100%" height="100%">
                         <BarChart data={data} margin={{ top: 5, right: 30, left: 20, bottom: 5 }}>
@@ -93,7 +97,7 @@ export function DailyPnlChart() {
                         </BarChart>
                     </ResponsiveContainer>
                 </div>
-            </CardContent>
-        </Card>
+            </div>
+        </div>
     );
 }

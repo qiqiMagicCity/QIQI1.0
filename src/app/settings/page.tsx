@@ -20,6 +20,7 @@ import { DebugM6Breakdown } from '@/components/dashboard/debug-m6-breakdown';
 import { useTheme } from '@/contexts/theme-provider';
 import { cn } from '@/lib/utils';
 import { TransactionAnalysisLiveSelfCheck } from '@/components/debug/transaction-analysis-self-check';
+import { SymbolSplit } from '@/components/settings/symbol-split';
 
 export default function SettingsPage() {
   const { ready, user } = useRequireAuth();
@@ -28,6 +29,20 @@ export default function SettingsPage() {
   const { mode, setMode, color, setColor } = useTheme();
   const [displayName, setDisplayName] = useState(user?.displayName || '');
   const [isSaving, setIsSaving] = useState(false);
+
+  // Admin Lock State
+  const [isAdmin, setIsAdmin] = useState(false);
+  const [adminPass, setAdminPass] = useState('');
+
+  const handleAdminUnlock = () => {
+    if (adminPass === '13774477377') {
+      setIsAdmin(true);
+      toast({ title: '已解锁', description: '管理员权限已获取。' });
+      setAdminPass('');
+    } else {
+      toast({ variant: 'destructive', title: '密码错误', description: '无法获取管理员权限。' });
+    }
+  };
 
   const handleProfileUpdate = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -189,34 +204,65 @@ export default function SettingsPage() {
             </TabsContent>
 
             <TabsContent value="data-check">
-              <Card>
-                <CardHeader>
-                  <CardTitle>数据自检与修复</CardTitle>
-                  <CardDescription>检查数据完整性并验证计算结果。</CardDescription>
-                </CardHeader>
-                <CardContent>
-                  <Tabs defaultValue="eod">
-                    <TabsList className="grid w-full grid-cols-4">
-                      <TabsTrigger value="eod">EOD 数据检查</TabsTrigger>
-                      <TabsTrigger value="m6">M6 当日盈亏</TabsTrigger>
-                      <TabsTrigger value="m9">M9 累计盈亏</TabsTrigger>
-                      <TabsTrigger value="account-analysis">账户分析页面自检</TabsTrigger>
-                    </TabsList>
-                    <TabsContent value="eod" className="mt-4">
-                      <EodCheck />
-                    </TabsContent>
-                    <TabsContent value="m6" className="mt-4">
-                      <DebugM6Breakdown />
-                    </TabsContent>
-                    <TabsContent value="m9" className="mt-4">
-                      <DebugM9Breakdown />
-                    </TabsContent>
-                    <TabsContent value="account-analysis" className="mt-4">
-                      <TransactionAnalysisLiveSelfCheck />
-                    </TabsContent>
-                  </Tabs>
-                </CardContent>
-              </Card>
+              {!isAdmin ? (
+                <Card>
+                  <CardHeader>
+                    <CardTitle>需要管理员权限 (Admin Access Required)</CardTitle>
+                    <CardDescription>请输入管理员密码以访问数据自检功能。</CardDescription>
+                  </CardHeader>
+                  <CardContent className="space-y-4">
+                    <div className="space-y-2 max-w-sm">
+                      <Label htmlFor="admin-pass">密码</Label>
+                      <Input
+                        id="admin-pass"
+                        type="password"
+                        value={adminPass}
+                        placeholder="Enter password..."
+                        onChange={(e) => setAdminPass(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') handleAdminUnlock();
+                        }}
+                      />
+                    </div>
+                    <Button onClick={handleAdminUnlock}>
+                      解锁 (Unlock)
+                    </Button>
+                  </CardContent>
+                </Card>
+              ) : (
+                <Card>
+                  <CardHeader>
+                    <CardTitle>数据自检与修复</CardTitle>
+                    <CardDescription>检查数据完整性并验证计算结果。</CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    <Tabs defaultValue="eod">
+                      <TabsList className="grid w-full grid-cols-5">
+                        <TabsTrigger value="eod">EOD 数据检查</TabsTrigger>
+                        <TabsTrigger value="m6">M6 当日盈亏</TabsTrigger>
+                        <TabsTrigger value="m9">M9 累计盈亏</TabsTrigger>
+                        <TabsTrigger value="account-analysis">账户分析自检</TabsTrigger>
+                        <TabsTrigger value="split">标的拆分</TabsTrigger>
+                      </TabsList>
+                      <TabsContent value="eod" className="mt-4">
+                        <EodCheck />
+                      </TabsContent>
+                      <TabsContent value="m6" className="mt-4">
+                        <DebugM6Breakdown />
+                      </TabsContent>
+                      <TabsContent value="m9" className="mt-4">
+                        <DebugM9Breakdown />
+                      </TabsContent>
+                      <TabsContent value="account-analysis" className="mt-4">
+                        <TransactionAnalysisLiveSelfCheck />
+                      </TabsContent>
+                      <TabsContent value="split" className="mt-4">
+                        <SymbolSplit />
+                      </TabsContent>
+                    </Tabs>
+                  </CardContent>
+                </Card>
+              )}
             </TabsContent>
           </Tabs>
         </div>

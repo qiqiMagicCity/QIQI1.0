@@ -6,20 +6,25 @@ export interface TransactionStats {
     value: { weekly: any[]; monthly: any[]; yearly: any[] } | null;
     efficiency: { weekly: any[]; monthly: any[]; yearly: any[] } | null;
     scatter: any[];
+    daily: any[];
 }
 
 export function calculateTransactionStats(
-    dailyPnlList: { date: string; pnl: number }[] | undefined,
+    dailyPnlList: any[] | undefined, // Accepting DailyPnlResult objects now
     transactions: Tx[] | undefined
 ): TransactionStats {
     // 1. Prepare Daily Data Map (Date -> { pnl, tradingValue })
     const map = new Map<string, { pnl: number; tradingValue: number }>();
 
-    // Fill PnL
+    // Fill PnL (Using totalPnl for Combined View consistency)
     if (dailyPnlList) {
         dailyPnlList.forEach(item => {
+            // item is now DailyPnlResult { date, totalPnl, ... }
+            // We use item.totalPnl (which includes unrealized change)
+            // If item.pnl exists (old input), use it.
+            const val = typeof item.totalPnl === 'number' ? item.totalPnl : (item.pnl || 0);
             const current = map.get(item.date) || { pnl: 0, tradingValue: 0 };
-            map.set(item.date, { ...current, pnl: item.pnl });
+            map.set(item.date, { ...current, pnl: val });
         });
     }
 
@@ -36,7 +41,7 @@ export function calculateTransactionStats(
     }
 
     const dailyItems = Array.from(map.entries()).map(([date, d]) => ({ date, ...d }));
-    if (dailyItems.length === 0) return { pnl: null, value: null, efficiency: null, scatter: [] };
+    if (dailyItems.length === 0) return { pnl: null, value: null, efficiency: null, scatter: [], daily: [] };
 
     // Calculate Global Median Trading Value for Quadrant Threshold
     const allTradingValues = dailyItems.map(d => d.tradingValue).filter(v => v > 0).sort((a, b) => a - b);
@@ -112,6 +117,13 @@ export function calculateTransactionStats(
     }));
 
     return {
+        daily: dailyItems.map(item => ({
+            date: item.date,
+            pnl: item.pnl,
+            tradingValue: item.tradingValue,
+            // Calculate quadrant for daily items too if needed, or leave for UI
+            quadrant: ""
+        })),
         pnl: {
             weekly: format(weekly, 'avgPnl'),
             monthly: format(monthly, 'avgPnl'),
@@ -127,6 +139,8 @@ export function calculateTransactionStats(
             monthly: format(monthly, 'efficiency'),
             yearly: format(yearly, 'efficiency')
         },
-        scatter
+        scatter // Retain weekly scatter for backward compatibility if used elsewhere, or we can replace it.
+        // But for now, let's just add 'daily' and handle the logic in the component.
     };
 }
+

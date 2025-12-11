@@ -1,3 +1,5 @@
+"use client";
+
 import { useState, useMemo } from "react";
 import Link from "next/link";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -144,7 +146,7 @@ const renderActiveShape = (props: any) => {
 };
 
 export function StockDetails() {
-  const { rows: holdings, loading, historicalPnl, dailyPnlList, summary } = useHoldings();
+  const { rows: holdings, loading, historicalPnl, dailyPnlList, dailyPnlResults, summary, pnlEvents } = useHoldings();
   const { user } = useUser();
   const { data: transactions } = useUserTransactions(user?.uid);
   const [activeIndex, setActiveIndex] = useState(0);
@@ -187,9 +189,131 @@ export function StockDetails() {
   }, [historicalPnl, holdings]);
 
   // --- Aggregation Logic ---
+  // [PERFORMANCE] Memoize the input data for calculateTransactionStats to prevent unnecessary re-runs
+  const dailyPnlValues = useMemo(() => Object.values(dailyPnlResults || {}), [dailyPnlResults]);
+
   const stats = useMemo(() => {
-    return calculateTransactionStats(dailyPnlList, transactions);
-  }, [dailyPnlList, transactions]);
+    return calculateTransactionStats(dailyPnlValues, transactions);
+  }, [dailyPnlValues, transactions]);
+
+  const [statsMode, setStatsMode] = useState<'realized' | 'combined'>('realized');
+  const [scatterDimension, setScatterDimension] = useState<'symbol' | 'day'>('symbol');
+
+  const displayedWinRateStats = useMemo(() => {
+    const base = summary?.winRateStats;
+    if (statsMode === 'realized' || !base || !holdings) return base;
+
+    let { winCount, lossCount, avgWin, avgLoss } = base;
+    let totalWin = avgWin * winCount;
+    let totalLoss = avgLoss * lossCount;
+
+    holdings.forEach(h => {
+      // Use h.pnl (Unrealized PnL)
+      const pnl = h.pnl || 0;
+      if (Math.abs(pnl) < 0.01) return; // Ignore near-zero PnL
+
+      if (pnl > 0) {
+        totalWin += pnl;
+        winCount++;
+      } else {
+        totalLoss += Math.abs(pnl);
+        lossCount++;
+      }
+    });
+
+    const newAvgWin = winCount > 0 ? totalWin / winCount : 0;
+    const newAvgLoss = lossCount > 0 ? totalLoss / lossCount : 0;
+    const totalCount = winCount + lossCount;
+    const newWinRate = totalCount > 0 ? winCount / totalCount : 0;
+    const newPnlRatio = newAvgLoss > 0 ? newAvgWin / newAvgLoss : 0;
+    const newExpectancy = (newWinRate * newAvgWin) - ((1 - newWinRate) * newAvgLoss);
+
+    return {
+      winRate: newWinRate,
+      avgWin: newAvgWin,
+      avgLoss: newAvgLoss,
+      pnlRatio: newPnlRatio,
+      expectancy: newExpectancy,
+      winCount,
+      lossCount
+    };
+  }, [summary?.winRateStats, holdings, statsMode]);
+
+  // --- Dimension: By Symbol ---
+  const scatterBySymbol = useMemo(() => {
+    // 1. Get PnL Map (Symbol -> PnL)
+    const pnlMap = new Map<string, number>();
+
+    if (statsMode === 'combined') {
+      combinedPnl.forEach(item => pnlMap.set(item.symbol, item.pnl));
+    } else {
+      historicalPnl.forEach(h => pnlMap.set(h.symbol, h.pnl));
+    }
+
+    // 2. Get Trading Value Map (Symbol -> Total Value)
+    const valMap = new Map<string, number>();
+    if (transactions) {
+      transactions.forEach(tx => {
+        if (!['BUY', 'SELL', 'SHORT', 'COVER'].includes(tx.opKind)) return;
+        const val = Math.abs(tx.price * tx.qty * (tx.multiplier || 1));
+        const current = valMap.get(tx.symbol) || 0;
+        valMap.set(tx.symbol, current + val);
+      });
+    }
+
+    // 3. Merge
+    const result = [];
+    const allSymbols = new Set([...Array.from(pnlMap.keys()), ...Array.from(valMap.keys())]);
+
+    for (const sym of allSymbols) {
+      const val = valMap.get(sym) || 0;
+      const pnl = pnlMap.get(sym) || 0;
+      const isHolding = holdings?.some(h => h.symbol === sym);
+
+      if (val > 10 || Math.abs(pnl) > 10) { // Filter noise
+        result.push({
+          x: val,
+          y: pnl,
+          label: sym,
+          isHolding
+        });
+      }
+    }
+    return result;
+  }, [combinedPnl, historicalPnl, transactions, holdings, statsMode]);
+
+  // --- Dimension: By Day ---
+  const scatterByDay = useMemo(() => {
+    if (!stats.daily) return [];
+
+    if (statsMode === 'realized') {
+      const realizedMap = new Map<string, number>();
+      (pnlEvents || []).forEach(e => {
+        realizedMap.set(e.date, (realizedMap.get(e.date) || 0) + e.pnl);
+      });
+
+      return stats.daily.map((d: any) => ({
+        x: d.tradingValue,
+        y: realizedMap.get(d.date) || 0,
+        label: d.date,
+        isHolding: false
+      })).filter((d: any) => d.x > 0 || Math.abs(d.y) > 0.01);
+    }
+
+    return stats.daily.map((d: any) => ({
+      x: d.tradingValue,
+      y: d.pnl,
+      label: d.date,
+      isHolding: false
+    })).filter((d: any) => d.x > 0 || Math.abs(d.y) > 0.01);
+  }, [stats.daily, statsMode, pnlEvents]);
+
+  const displayedScatter = useMemo(() => {
+    if (scatterDimension === 'day') {
+      return scatterByDay;
+    }
+    return scatterBySymbol;
+  }, [scatterDimension, scatterByDay, scatterBySymbol]);
 
   if (loading) {
     return (
@@ -340,10 +464,17 @@ export function StockDetails() {
         </div>
       </section>
 
+      <section id="daily-pnl">
+        <div className="space-y-6">
+          <DailyPnlChart />
+          <DailyPnlCalendar />
+        </div>
+      </section>
+
       {/* Avg PnL */}
       <section id="avg-pnl">
         <AverageStatsChart
-          title="Avg. PnL / Day 平均每日盈亏"
+          title="Avg. PnL / Day 平均每日盈亏 (含持仓 / Total PnL)"
           data={stats.pnl || { weekly: [], monthly: [], yearly: [] }}
           type="pnl"
         />
@@ -352,7 +483,7 @@ export function StockDetails() {
       {/* Avg Trading Value (Replaces Volume) */}
       <section id="avg-value">
         <AverageStatsChart
-          title="Avg. Trading Value / Day 平均每日成交金额"
+          title="Avg. Trading Value / Day 平均每日成交金额 (成交额 / Turnover)"
           data={stats.value || { weekly: [], monthly: [], yearly: [] }}
           type="value"
         />
@@ -361,7 +492,7 @@ export function StockDetails() {
       {/* Funds Efficiency */}
       <section id="efficiency">
         <AverageStatsChart
-          title="PnL per 10,000 USD Traded 资金效率（每 1 万美元成交的平均盈亏）"
+          title="PnL per 10,000 USD Traded 资金效率 (含持仓 / Total PnL)"
           data={stats.efficiency || { weekly: [], monthly: [], yearly: [] }}
           type="efficiency"
         />
@@ -371,14 +502,18 @@ export function StockDetails() {
       <section id="correlation">
         <ScatterStatsChart
           title="PnL vs Trading Value 盈亏与成交金额对照图"
-          data={stats.scatter || []}
+          data={displayedScatter || []}
+          mode={statsMode}
+          onModeChange={setStatsMode}
+          dimension={scatterDimension}
+          onDimensionChange={setScatterDimension}
         />
       </section>
 
       {/* Profit / Loss Ratio */}
       <section id="pnl-ratio">
         <ProfitLossRatioChart
-          stats={summary?.winRateStats || {
+          stats={displayedWinRateStats || {
             winRate: 0,
             avgWin: 0,
             avgLoss: 0,
@@ -387,17 +522,10 @@ export function StockDetails() {
             winCount: 0,
             lossCount: 0
           }}
+          mode={statsMode}
+          onModeChange={setStatsMode}
         />
       </section>
-
-      <section id="daily-pnl">
-        <div className="space-y-6">
-          <DailyPnlChart />
-          <DailyPnlCalendar />
-        </div>
-      </section>
-
-
     </div>
   );
 }

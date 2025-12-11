@@ -11,6 +11,7 @@ import { StatusBadge } from "@/components/ui/status-badge";
 import { useRequireAuth } from "@/components/auth/guards";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useHoldings } from "@/hooks/use-holdings";
+import { useUser } from "@/firebase";
 import { DollarSign, Wallet, TrendingUp } from "lucide-react";
 
 const TransactionHistory = dynamic(
@@ -60,13 +61,38 @@ function formatSigned(value: number | null | undefined): string {
 
 export default function Home() {
   const { ready } = useRequireAuth();
+  const { user, isUserLoading } = useUser();
   const { summary, loading } = useHoldings();
 
   if (!ready) {
     // 守卫处理中：简单显示加载提示
+    // 守卫处理中：显示详细加载状态以辅助调试
     return (
-      <div className="flex items-center justify-center min-h-screen">
-        <p className="text-muted-foreground">正在验证身份...</p>
+      <div className="flex flex-col items-center justify-center min-h-screen space-y-4 p-4">
+        <div className="flex items-center space-x-2">
+          <div className="h-4 w-4 animate-spin rounded-full border-2 border-primary border-t-transparent"></div>
+          <p className="text-muted-foreground font-medium">正在验证身份...</p>
+        </div>
+
+        {/* 调试信息：帮助定位卡顿原因 */}
+        <div className="text-xs text-muted-foreground/50 font-mono bg-muted/20 p-2 rounded max-w-md break-all">
+          <p>Auth Status: {isUserLoading ? 'Verifying...' : 'Check Complete'}</p>
+          <p>Is Logged In: {user ? `Yes (${user.email})` : 'No'}</p>
+          <p>Page Ready: {ready ? 'Yes' : 'No'}</p>
+
+          <p className="mt-2 text-amber-500">
+            {!isUserLoading && !user ? '检测到未登录，正在尝试跳转至登录页...' : ''}
+            {isUserLoading && '正在连接认证服务...'}
+          </p>
+
+          {!ready && !loading && (
+            <div className="mt-4 pt-2 border-t border-dashed border-muted-foreground/30">
+              <a href="/login" className="text-primary underline hover:text-primary/80">
+                如果长时间未跳转，请点击此处登录 &rarr;
+              </a>
+            </div>
+          )}
+        </div>
       </div>
     );
   }

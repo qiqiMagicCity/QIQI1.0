@@ -280,6 +280,7 @@ export function AddTransactionForm({ onSuccess, defaultValues }: AddTransactionF
       }
 
       const yyyyMmDdNy = toNyCalendarDayString(originalDate); // 日期仍用 NY 日历
+      // 这里的 time 已经是 "HH:mm:ss" 格式
       const transactionTimestamp = nyLocalDateTimeToUtcMillis(yyyyMmDdNy, values.time);
       const transactionDate = new Date(transactionTimestamp).toISOString();
       const transactionDateNy = toNyCalendarDayString(transactionTimestamp);
@@ -297,32 +298,47 @@ export function AddTransactionForm({ onSuccess, defaultValues }: AddTransactionF
       delete (payload as any).date;
       delete (payload as any).time;
 
-      if (editingId) {
-        const docRef = doc(firestore, "users", user.uid, "transactions", editingId);
-        await updateDoc(docRef, payload);
-      } else {
-        const transactionsRef = collection(
-          firestore,
-          "users",
-          user.uid,
-          "transactions"
-        );
-        await addDocumentNonBlocking(transactionsRef, { ...payload, id: uuidv4() });
-      }
+      // -----------------------------------------------------------------------
+      // Optimization: Fire & Forget / Optimistic Update
+      // Don't await the server acknowledgment. Close UI immediately.
+      // -----------------------------------------------------------------------
 
+      const writePromise = editingId
+        ? updateDoc(doc(firestore, "users", user.uid, "transactions", editingId), payload)
+        : addDocumentNonBlocking(
+          collection(firestore, "users", user.uid, "transactions"),
+          { ...payload, id: uuidv4() }
+        );
+
+      // Handle background completion/error silently or via toast
+      writePromise
+        .then(() => {
+          console.log("[Transaction] Write acknowledged by server");
+        })
+        .catch((err) => {
+          console.error("Transaction write failed in background:", err);
+          toast({
+            variant: "destructive",
+            title: "同步失败",
+            description: "刚才的交易未能保存到服务器，请检查网络。",
+          });
+        });
+
+      // Immediate User Feedback
       toast({
-        title: "成功！",
-        description: editingId ? "您的交易已更新。" : "您的交易已记录。",
+        title: editingId ? "已更新" : "已添加",
+        description: "交易已记录 (后台同步中)。",
+        duration: 2000,
       });
 
       onSuccess?.();
 
     } catch (error) {
-      console.error(`Error ${isEditing ? 'updating' : 'adding'} transaction: `, error);
+      console.error(`Error preparing transaction: `, error);
       toast({
         variant: "destructive",
         title: `保存失败`,
-        description: `无法${isEditing ? '更新' : '保存'}您的交易记录，请稍后再试。`,
+        description: `数据准备阶段出错，请重试。`,
       });
     }
   }
@@ -367,34 +383,7 @@ export function AddTransactionForm({ onSuccess, defaultValues }: AddTransactionF
           </FormControl>
         </FormItem>
 
-        <FormField
-          control={form.control}
-          name="symbol"
-          render={({ field }) => (
-            <FormItem>
-              <FormLabel>{assetType === 'stock' ? '股票代码' : '期权代码 (OCC, 自动生成)'}</FormLabel>
-              <FormControl>
-                <div className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2 md:gap-3">
-                  {assetType === 'stock' ? (
-                    <SymbolCombobox
-                      value={field.value ?? ''}
-                      onChange={(v) => field.onChange(v)}
-                      placeholder="输入代码/中文/英文查找"
-                      onSelected={() => priceRef.current?.focus()}
-                    />
-                  ) : (
-                    <Input readOnly {...field} placeholder="由上方期权要素自动生成" />
-                  )}
-                  <Button variant="ghost" size="icon" type="button" onClick={handleCopy} title="复制下单摘要" className="shrink-0">
-                    <Copy className="h-4 w-4" />
-                  </Button>
-                  {copied && <span className="text-xs text-muted-foreground animate-pulse absolute -bottom-5 right-0">已复制</span>}
-                </div>
-              </FormControl>
-              <FormMessage />
-            </FormItem>
-          )}
-        />
+
 
         {assetType === 'option' && (
           <div className="space-y-6 p-4 border rounded-md bg-emerald-100/30 border-emerald-200 dark:bg-emerald-900/20 dark:border-emerald-800">
@@ -551,7 +540,14 @@ export function AddTransactionForm({ onSuccess, defaultValues }: AddTransactionF
               <FormItem>
                 <FormLabel>价格 (每份)</FormLabel>
                 <FormControl>
-                  <Input type="number" placeholder="150.25" step="0.01" {...field} value={field.value ?? ''} ref={priceRef} />
+                  <Input
+                    type="number"
+                    placeholder="150.25"
+                    step="0.01"
+                    {...field}
+                    value={field.value ?? ''}
+                    ref={priceRef}
+                  />
                 </FormControl>
                 <FormMessage />
               </FormItem>
@@ -564,13 +560,48 @@ export function AddTransactionForm({ onSuccess, defaultValues }: AddTransactionF
               <FormItem>
                 <FormLabel>{assetType === 'stock' ? '数量 (股)' : '数量 (合约)'}</FormLabel>
                 <FormControl>
-                  <Input type="number" placeholder="100" {...field} value={field.value ?? ''} ref={qtyRef} />
+                  <Input
+                    type="number"
+                    placeholder="100"
+                    {...field}
+                    value={field.value ?? ''}
+                    ref={qtyRef}
+                  />
                 </FormControl>
                 <FormMessage />
               </FormItem>
             )}
           />
         </div>
+
+        <FormField
+          control={form.control}
+          name="symbol"
+          render={({ field }) => (
+            <FormItem>
+              <FormLabel>{assetType === 'stock' ? '股票代码' : '期权代码 (OCC, 自动生成)'}</FormLabel>
+              <FormControl>
+                <div className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2 md:gap-3">
+                  {assetType === 'stock' ? (
+                    <SymbolCombobox
+                      value={field.value ?? ''}
+                      onChange={(v) => field.onChange(v?.toUpperCase())}
+                      placeholder="输入代码/中文/英文查找"
+                      onSelected={() => priceRef.current?.focus()}
+                    />
+                  ) : (
+                    <Input readOnly {...field} placeholder="由上方期权要素自动生成" />
+                  )}
+                  <Button variant="ghost" size="icon" type="button" onClick={handleCopy} title="复制下单摘要" className="shrink-0">
+                    <Copy className="h-4 w-4" />
+                  </Button>
+                  {copied && <span className="text-xs text-muted-foreground animate-pulse absolute -bottom-5 right-0">已复制</span>}
+                </div>
+              </FormControl>
+              <FormMessage />
+            </FormItem>
+          )}
+        />
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-end">
           <FormField

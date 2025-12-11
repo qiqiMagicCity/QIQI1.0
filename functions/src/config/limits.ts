@@ -5,4 +5,4 @@ export const MAX_DOCIDS_PER_QUERY = 30;                 // 前端 Firestore in �
 export const MAX_SYMBOLS_PER_SET_OPERATION = 500;       // setEodSymbols 单次上限（已存在的口径）
 export const MAX_TOTAL_EOD_SYMBOLS = 2000;              // eod 列表总量上限（已存在的口径）
 export const BACKFILL_WORKER_CHUNK_SIZE = 50;
-export const BACKFILL_WORKER_CONCURRENCY = 1;
+export const BACKFILL_WORKER_CONCURRENCY = 5;

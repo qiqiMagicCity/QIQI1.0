@@ -1,13 +1,13 @@
 'use client';
 
-import { useState, useMemo } from 'react';
-import { doc, getDoc, setDoc } from 'firebase/firestore';
+import { useState, useMemo, useEffect, useRef } from 'react';
+import { doc, getDoc, setDoc, collection, query, where, documentId, getDocs } from 'firebase/firestore';
 import { getFunctions, httpsCallable } from 'firebase/functions';
 import { initializeFirebase, useFirestore, useUser } from '@/firebase';
 import { useUserTransactions } from '@/hooks/use-user-transactions';
 import { useHoldings } from '@/hooks/use-holdings';
 import { useRealTimePrices } from '@/price/useRealTimePrices';
-import { prevNyTradingDayString, getEffectiveTradingDay } from '@/lib/ny-time';
+import { prevNyTradingDayString, getEffectiveTradingDay, isNyTradingDay } from '@/lib/ny-time';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -16,13 +16,15 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { useToast } from '@/hooks/use-toast';
 import { Loader2, CheckCircle2, XCircle, AlertCircle, Save, Filter, Calendar as CalendarIcon } from 'lucide-react';
-import { getOfficialCloses, saveRealTimeAsEod } from '@/lib/data/official-close-repo';
+import { getOfficialCloses, saveRealTimeAsEod, getSymbolCloses } from '@/lib/data/official-close-repo';
 import { Switch } from '@/components/ui/switch';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Calendar } from "@/components/ui/calendar";
 import { cn } from "@/lib/utils";
-import { format } from "date-fns";
+import { format, subDays } from "date-fns";
 import { zhCN } from 'date-fns/locale';
+import { Progress } from "@/components/ui/progress";
 
 interface MissingSymbol {
     symbol: string;
@@ -53,15 +55,15 @@ export function EodCheck() {
     // Snapshot State
     const [snapshotting, setSnapshotting] = useState(false);
 
-    // Debug State
-    const [debugSymbol, setDebugSymbol] = useState('');
-    const [debugResult, setDebugResult] = useState<any>(null);
-
-    // Bulk Check State
-    const [bulkChecking, setBulkChecking] = useState(false);
-    const [bulkFixing, setBulkFixing] = useState(false);
-    const [bulkMissing, setBulkMissing] = useState<Record<string, string[]>>({});
-    const [bulkProgress, setBulkProgress] = useState('');
+    // Symbol Check State
+    const [symbolInput, setSymbolInput] = useState({
+        symbol: '',
+        startDate: format(subDays(new Date(), 365), 'yyyy-MM-dd'),
+        endDate: format(new Date(), 'yyyy-MM-dd')
+    });
+    const [symbolResults, setSymbolResults] = useState<Array<{ date: string; status: string; message: string }>>([]);
+    const [symbolStats, setSymbolStats] = useState({ total: 0, closed: 0, missing: 0 });
+    const [symbolChecking, setSymbolChecking] = useState(false);
 
     // Derived Symbols
     const holdingSymbols = useMemo(() => holdings.map(h => h.symbol), [holdings]);
@@ -283,68 +285,71 @@ export function EodCheck() {
         }
     };
 
-    const handleDebugCheck = async () => {
-        if (!debugSymbol) return;
-        const sym = debugSymbol.trim().toUpperCase();
-        const eodId = `${date}_${sym}`;
-        const eodRef = doc(firestore, 'officialCloses', eodId);
-
-        try {
-            const snap = await getDoc(eodRef);
-            setDebugResult({
-                id: eodId,
-                exists: snap.exists(),
-                data: snap.exists() ? snap.data() : null,
-                path: eodRef.path
-            });
-        } catch (e: any) {
-            setDebugResult({
-                id: eodId,
-                error: e.message
-            });
+    const handleSymbolCheck = async () => {
+        if (!symbolInput.symbol) {
+            toast({ title: '请输入代码', description: '标的代码不能为空' });
+            return;
         }
-    };
 
-    const handleBulkCheck = async () => {
-        setBulkChecking(true);
-        setBulkMissing({});
-        setBulkProgress('开始扫描...');
+        setSymbolChecking(true);
+        setSymbolResults([]);
+        setSymbolStats({ total: 0, closed: 0, missing: 0 });
 
         try {
-            const symbols = getTargetSymbols();
+            const start = new Date(symbolInput.startDate);
+            const end = new Date(symbolInput.endDate);
+            const dates: string[] = [];
 
-            if (symbols.length === 0) {
-                toast({ title: '无代码', description: '未找到交易记录。' });
-                setBulkChecking(false);
-                return;
+            // Generate all dates in range
+            for (let d = start; d <= end; d.setDate(d.getDate() + 1)) {
+                dates.push(format(d, 'yyyy-MM-dd'));
             }
 
-            const missingMap: Record<string, string[]> = {};
-            let currentDate = getEffectiveTradingDay();
+            // Identify trading days
+            const tradingDates = dates.filter(d => isNyTradingDay(d));
 
-            // Scan last 5 years (approx 1825 days)
-            const MAX_DAYS = 1825;
+            // Fetch data for trading days
+            const symbol = symbolInput.symbol.trim().toUpperCase();
+            const closes = await getSymbolCloses(symbol, tradingDates);
 
-            for (let i = 0; i < MAX_DAYS; i++) {
-                setBulkProgress(`正在扫描 ${currentDate} (过去 ${i + 1}/${MAX_DAYS} 天)...`);
-                await getOfficialCloses(currentDate, symbols, { shouldAutoRequestBackfill: true });
-                currentDate = prevNyTradingDayString(currentDate);
-            }
+            // Build results
+            let missingCount = 0;
+            let closedCount = 0;
 
-            toast({
-                title: '扫描与自动修复已触发',
-                description: `已对过去 5 年 (${MAX_DAYS} 天) 的数据进行了扫描和自动修复请求。请稍后查看数据。`,
+            const results = dates.map(date => {
+                const isTrading = isNyTradingDay(date);
+                if (!isTrading) {
+                    closedCount++;
+                    return { date, status: 'closed', message: '休市日，不需要 EOD 数据' };
+                }
+
+                const record = closes[date];
+                if (record && record.status === 'ok') {
+                    return { date, status: 'ok', message: 'EOD 存在' };
+                } else {
+                    missingCount++;
+                    return { date, status: 'missing', message: 'EOD 缺失' };
+                }
+            });
+
+            // Sort by date descending
+            results.sort((a, b) => b.date.localeCompare(a.date));
+
+            setSymbolResults(results);
+            setSymbolStats({
+                total: dates.length,
+                closed: closedCount,
+                missing: missingCount
             });
 
         } catch (error: any) {
             toast({
                 variant: 'destructive',
-                title: '扫描失败',
-                description: error.message
+                title: '检查失败',
+                description: error.message,
             });
         } finally {
-            setBulkChecking(false);
-            setBulkProgress('');
+            setSymbolChecking(false);
         }
     };
 
@@ -552,9 +557,106 @@ export function EodCheck() {
 
             <Card>
                 <CardHeader>
+                    <CardTitle>按标的检查 (Check by Symbol)</CardTitle>
+                    <CardDescription>检查指定标的在一段时间内的 EOD 数据完整性。</CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-6">
+                    <div className="flex flex-wrap items-end gap-4">
+                        <div className="grid w-32 items-center gap-1.5">
+                            <Label htmlFor="symbol">标的代码</Label>
+                            <Input
+                                id="symbol"
+                                value={symbolInput.symbol}
+                                onChange={(e) => setSymbolInput({ ...symbolInput, symbol: e.target.value.toUpperCase() })}
+                                placeholder="NVDA"
+                            />
+                        </div>
+                        <div className="grid w-auto items-center gap-1.5">
+                            <Label>开始日期</Label>
+                            <Input
+                                type="date"
+                                value={symbolInput.startDate}
+                                onChange={(e) => setSymbolInput({ ...symbolInput, startDate: e.target.value })}
+                            />
+                        </div>
+                        <div className="grid w-auto items-center gap-1.5">
+                            <Label>结束日期</Label>
+                            <Input
+                                type="date"
+                                value={symbolInput.endDate}
+                                onChange={(e) => setSymbolInput({ ...symbolInput, endDate: e.target.value })}
+                            />
+                        </div>
+                        <Button onClick={handleSymbolCheck} disabled={symbolChecking}>
+                            {symbolChecking ? (
+                                <>
+                                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                                    检查中...
+                                </>
+                            ) : (
+                                '开始检查'
+                            )}
+                        </Button>
+                    </div>
+
+                    {symbolResults.length > 0 && (
+                        <div className="space-y-4">
+                            <div className="flex items-center gap-6 text-sm border p-3 rounded-md bg-muted/50">
+                                <div>
+                                    <span className="text-muted-foreground">总天数:</span>
+                                    <span className="ml-2 font-medium">{symbolStats.total}</span>
+                                </div>
+                                <div>
+                                    <span className="text-muted-foreground">休市:</span>
+                                    <span className="ml-2 font-medium text-muted-foreground">{symbolStats.closed}</span>
+                                </div>
+                                <div>
+                                    <span className="text-muted-foreground">缺失交易日:</span>
+                                    <span className={`ml-2 font-medium ${symbolStats.missing > 0 ? 'text-red-600' : 'text-green-600'}`}>
+                                        {symbolStats.missing}
+                                    </span>
+                                </div>
+                            </div>
+
+                            <div className="border rounded-md max-h-[500px] overflow-y-auto">
+                                <Table>
+                                    <TableHeader>
+                                        <TableRow>
+                                            <TableHead>日期</TableHead>
+                                            <TableHead>状态</TableHead>
+                                            <TableHead>说明</TableHead>
+                                        </TableRow>
+                                    </TableHeader>
+                                    <TableBody>
+                                        {symbolResults.map((res) => (
+                                            <TableRow key={res.date}>
+                                                <TableCell>{res.date}</TableCell>
+                                                <TableCell>
+                                                    <span className={`inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-semibold transition-colors focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 border-transparent shadow ${res.status === 'ok' ? 'bg-green-500 text-white' :
+                                                        res.status === 'missing' ? 'bg-red-500 text-white' :
+                                                            'bg-slate-200 text-slate-600'
+                                                        }`}>
+                                                        {res.status === 'ok' ? 'OK' :
+                                                            res.status === 'missing' ? 'Missing' :
+                                                                'Market Closed'}
+                                                    </span>
+                                                </TableCell>
+                                                <TableCell>{res.message}</TableCell>
+                                            </TableRow>
+                                        ))}
+                                    </TableBody>
+                                </Table>
+                            </div>
+                        </div>
+                    )}
+                </CardContent>
+            </Card>
+
+            <Card>
+                <CardHeader>
                     <CardTitle>手动补充 EOD 数据 (云函数)</CardTitle>
                     <CardDescription>强制写入指定日期的收盘价，绕过权限限制。适用于紧急修复。</CardDescription>
-                </CardHeader>
+                </CardHeader >
                 <CardContent className="space-y-4">
                     <div className="grid grid-cols-1 md:grid-cols-4 gap-4 items-end">
                         <div className="space-y-2">
@@ -613,60 +715,196 @@ export function EodCheck() {
                         </Button>
                     </div>
                 </CardContent>
-            </Card>
+            </Card >
 
-            <Card>
-                <CardHeader>
-                    <CardTitle>批量历史检查 (5年)</CardTitle>
-                    <CardDescription>扫描并自动修复过去 5 年 (1825 天) 的缺失数据。</CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                    <div className="flex items-center gap-4">
-                        <Button
-                            onClick={handleBulkCheck}
-                            disabled={bulkChecking || bulkFixing}
-                            variant="outline"
-                        >
-                            {bulkChecking ? (
-                                <>
-                                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                                    {bulkProgress || '正在扫描...'}
-                                </>
-                            ) : (
-                                '扫描并自动修复 5 年'
-                            )}
-                        </Button>
-                    </div>
-                </CardContent>
-            </Card>
+            <GlobalRebuildSection />
 
-            <Card>
-                <CardHeader>
-                    <CardTitle>调试单个代码</CardTitle>
-                    <CardDescription>手动获取特定文档以验证是否存在。</CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                    <div className="flex items-end gap-4">
-                        <div className="grid w-full max-w-sm items-center gap-1.5">
-                            <Label htmlFor="debugSymbol">代码</Label>
-                            <Input
-                                id="debugSymbol"
-                                value={debugSymbol}
-                                onChange={(e) => setDebugSymbol(e.target.value)}
-                                placeholder="例如 OKLO"
-                            />
-                        </div>
-                        <Button onClick={handleDebugCheck} variant="outline">
-                            调试获取
-                        </Button>
-                    </div>
-                    {debugResult && (
-                        <div className="bg-slate-950 text-slate-50 p-4 rounded-md text-xs font-mono overflow-auto">
-                            <pre>{JSON.stringify(debugResult, null, 2)}</pre>
+        </div >
+    );
+}
+
+
+
+function GlobalRebuildSection() {
+    const firestore = useFirestore();
+    const { toast } = useToast();
+    const [loading, setLoading] = useState(false);
+    const [result, setResult] = useState<any>(null);
+
+    // Progress Tracking
+    const [tracking, setTracking] = useState(false);
+    const [progress, setProgress] = useState({ total: 0, current: 0 });
+    const [unverifiedIds, setUnverifiedIds] = useState<string[]>([]);
+
+    // UseRef to hold latest IDs for polling interval to avoid stale closures
+    const idsRef = useRef<string[]>([]);
+    useEffect(() => {
+        idsRef.current = unverifiedIds;
+    }, [unverifiedIds]);
+
+    // Polling Effect
+    useEffect(() => {
+        if (!tracking) return;
+
+        const checkBatch = async () => {
+            const currentIds = idsRef.current;
+
+            // 1. Success Condition
+            if (currentIds.length === 0) {
+                // Only verify completion if we actually started (total > 0)
+                if (progress.total > 0) {
+                    setTracking(false);
+                    toast({
+                        title: "全量回填完成",
+                        description: "所有文档已确认写入数据库。"
+                    });
+                }
+                return;
+            }
+
+            // 2. Process Batch
+            // Check first 50 IDs (limit bandwidth)
+            const idsToCheck = currentIds.slice(0, 50);
+
+            // Firestore 'in' limit is 10
+            const chunks: string[][] = [];
+            for (let i = 0; i < idsToCheck.length; i += 10) {
+                chunks.push(idsToCheck.slice(i, i + 10));
+            }
+
+            const foundIds: string[] = [];
+
+            await Promise.all(chunks.map(async (chunk) => {
+                try {
+                    const q = query(
+                        collection(firestore, 'officialCloses'),
+                        where(documentId(), 'in', chunk)
+                    );
+                    const snap = await getDocs(q);
+                    snap.forEach(d => {
+                        if (d.exists()) {
+                            foundIds.push(d.id);
+                        }
+                    });
+                } catch (e) {
+                    console.error("Polling check failed", e);
+                }
+            }));
+
+            // 3. Update State
+            if (foundIds.length > 0) {
+                // Filter out found IDs from state
+                setUnverifiedIds(prev => prev.filter(id => !foundIds.includes(id)));
+                // Update progress count
+                setProgress(prev => ({ ...prev, current: prev.current + foundIds.length }));
+            }
+        };
+
+        // Run immediately then interval
+        checkBatch();
+        const intervalId = setInterval(checkBatch, 3000);
+
+        return () => clearInterval(intervalId);
+    }, [tracking, firestore, progress.total, toast]);
+
+    const handleRun = async () => {
+        setLoading(true);
+        setResult(null);
+        setTracking(false);
+        setProgress({ total: 0, current: 0 });
+        setUnverifiedIds([]);
+        idsRef.current = [];
+
+        try {
+            const { firebaseApp } = initializeFirebase();
+            const functions = getFunctions(firebaseApp, 'us-central1');
+            const rebuildFn = httpsCallable(functions, 'rebuildHistoricalEod');
+            const res = await rebuildFn({});
+            const data = res.data as any;
+
+            setResult(data);
+
+            if (data && Array.isArray(data.expectedDocIds) && data.expectedDocIds.length > 0) {
+                const ids = data.expectedDocIds as string[];
+                setUnverifiedIds(ids);
+                setProgress({ total: ids.length, current: 0 });
+                setTracking(true);
+                toast({
+                    title: "任务已触发",
+                    description: `开始追踪 ${ids.length} 个文档的写入进度...`
+                });
+            } else if (data?.stats?.triggered === 0) {
+                toast({ title: "无需回填", description: "没有发现缺失的 EOD 数据。" });
+            }
+
+        } catch (e: any) {
+            console.error(e);
+            setResult({ error: e.message });
+            toast({ variant: 'destructive', title: "调用失败", description: e.message });
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    const percent = progress.total > 0 ? Math.min(100, Math.round((progress.current / progress.total) * 100)) : 0;
+
+    return (
+        <Card>
+            <CardHeader>
+                <CardTitle>全局历史 EOD 自检与回填 (Global Rebuild)</CardTitle>
+                <CardDescription>
+                    扫描所有交易过的标的，自动检查并补齐过去 5 年的缺失数据。这是一个耗时操作。
+                </CardDescription>
+            </CardHeader>
+            <CardContent>
+                <div className="flex flex-col gap-4">
+                    <Button
+                        onClick={handleRun}
+                        disabled={loading || tracking}
+                        variant="destructive"
+                        className="w-full sm:w-auto"
+                    >
+                        {loading ? (
+                            <>
+                                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                                正在触发任务...
+                            </>
+                        ) : tracking ? (
+                            <>
+                                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                                正在回填中 ({percent}%)
+                            </>
+                        ) : (
+                            '开始全量自检 (Start Global Check)'
+                        )}
+                    </Button>
+
+                    {tracking && (
+                        <div className="space-y-2 border p-4 rounded-md bg-zinc-50 dark:bg-zinc-900/50">
+                            <div className="flex justify-between text-sm font-medium">
+                                <span>进度: {progress.current} / {progress.total}</span>
+                                <span>{percent}%</span>
+                            </div>
+                            <Progress value={percent} className="h-2" />
+                            <p className="text-xs text-muted-foreground animate-pulse">
+                                正在实时监听数据库写入... (每3秒刷新)
+                            </p>
                         </div>
                     )}
-                </CardContent>
-            </Card>
-        </div>
+
+                    {result && (
+                        <div className="bg-zinc-950 p-4 rounded-md font-mono text-xs overflow-x-auto border border-zinc-800 max-h-64">
+                            {result.error ? (
+                                <span className="text-red-400">Error: {result.error}</span>
+                            ) : (
+                                <pre className="text-emerald-400 whitespace-pre-wrap">
+                                    {JSON.stringify(result, null, 2)}
+                                </pre>
+                            )}
+                        </div>
+                    )}
+                </div>
+            </CardContent>
+        </Card>
     );
 }

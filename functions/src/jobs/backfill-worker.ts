@@ -48,11 +48,11 @@ function extractPayload(event: any): { date?: string; symbols?: unknown } | null
   try {
     const nested = event?.data?.message?.json;
     if (nested && typeof nested === "object") return nested;
-  } catch {}
+  } catch { }
   try {
     const direct = event?.data?.json;
     if (direct && typeof direct === "object") return direct;
-  } catch {}
+  } catch { }
   try {
     const rawMsg = event?.data?.message ?? {};
     const b64: string | undefined = rawMsg.data;
@@ -71,7 +71,7 @@ export const backfillWorker = onMessagePublished(
   {
     topic: "backfill-eod",
     secrets: [FMP_TOKEN, MARKETSTACK_API_KEY, STOCKDATA_API_KEY],
-    maxInstances: 1,
+    maxInstances: 10,
   },
   async (event) => {
     const db = getFirestore();
@@ -83,7 +83,7 @@ export const backfillWorker = onMessagePublished(
 
     const date = String(payload.date ?? "").trim();
     const symbolsRaw = Array.isArray(payload.symbols) ? payload.symbols : [];
-    
+
     // 清洗 symbols
     const symbols: string[] = Array.from(new Set(
       symbolsRaw
@@ -129,7 +129,7 @@ export const backfillWorker = onMessagePublished(
 
     for (let i = 0; i < chunks.length; i++) {
       const batchSyms = chunks[i];
-      
+
       // 工厂函数
       const factories = batchSyms.map((symbol) => async () => {
         try {

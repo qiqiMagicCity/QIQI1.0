@@ -9,24 +9,51 @@ interface ProfitLossRatioChartProps {
         pnlRatio: number;
         expectancy: number;
     };
+    mode: 'realized' | 'combined';
+    onModeChange: (m: 'realized' | 'combined') => void;
 }
 
-export function ProfitLossRatioChart({ stats }: ProfitLossRatioChartProps) {
+export function ProfitLossRatioChart({ stats, mode, onModeChange }: ProfitLossRatioChartProps) {
     const { winRate, avgWin, avgLoss, pnlRatio, expectancy } = stats;
 
     const chartData = [
         { name: 'Avg Win', value: avgWin },
-        { name: 'Avg Loss', value: avgLoss } // avgLoss is already positive in context
+        { name: 'Avg Loss', value: avgLoss }
     ];
 
     const formatCurrency = (val: number) => `$${val.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
     return (
-        <Card>
-            <CardHeader className="pb-2">
-                <CardTitle className="text-lg font-semibold">Profit / Loss Ratio 损益比</CardTitle>
-            </CardHeader>
-            <CardContent>
+        <div className="relative overflow-hidden rounded-xl border border-zinc-800 bg-zinc-950/50 backdrop-blur-xl shadow-2xl">
+            <div className="flex items-center justify-between border-b border-white/5 bg-white/5 px-4 py-3 backdrop-blur-md">
+                <div className="flex items-center gap-2">
+                    <div className="h-2 w-2 rounded-full bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.5)]" />
+                    <h3 className="text-sm font-medium tracking-wide text-zinc-100">Profit / Loss Ratio 损益比</h3>
+                </div>
+                {/* Toggle Switch */}
+                <div className="flex items-center bg-zinc-900/50 rounded-lg p-0.5 border border-white/10">
+                    <button
+                        onClick={() => onModeChange('realized')}
+                        className={`px-3 py-1 text-xs font-medium rounded-md transition-all ${mode === 'realized'
+                            ? 'bg-zinc-800 text-white shadow-sm'
+                            : 'text-zinc-500 hover:text-zinc-300'
+                            }`}
+                    >
+                        已平仓
+                    </button>
+                    <button
+                        onClick={() => onModeChange('combined')}
+                        className={`px-3 py-1 text-xs font-medium rounded-md transition-all ${mode === 'combined'
+                            ? 'bg-zinc-800 text-emerald-400 shadow-sm'
+                            : 'text-zinc-500 hover:text-zinc-300'
+                            }`}
+                    >
+                        含持仓
+                    </button>
+                </div>
+            </div>
+
+            <div className="p-4">
                 {/* Top Metrics Cards */}
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
                     <div className="bg-muted/30 p-3 rounded-lg border border-border/50">
@@ -89,7 +116,7 @@ export function ProfitLossRatioChart({ stats }: ProfitLossRatioChartProps) {
                     损益比 &gt; 1 表示平均盈利大于平均亏损；损益比 &lt; 1 表示平均亏损大于平均盈利。
                     <span className="ml-2 opacity-70">(Expectancy: {formatCurrency(expectancy)})</span>
                 </div>
-            </CardContent>
-        </Card>
+            </div>
+        </div>
     );
 }

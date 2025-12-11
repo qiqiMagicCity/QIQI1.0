@@ -112,6 +112,27 @@ export const FirebaseProvider: React.FC<FirebaseProviderProps> = ({
     return () => unsubscribe(); // Cleanup
   }, [auth]); // Depends on the auth instance
 
+  // Safety valve: Force loading to complete if Auth doesn't respond quickly.
+  // This prevents the application from getting stuck in an infinite "Verifying identity..." state
+  // if the network is slow or Firebase is blocked.
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setUserAuthState((prev) => {
+        if (prev.isUserLoading) {
+          console.warn("FirebaseProvider: Auth check timed out. Forcing isUserLoading to false.");
+          return {
+            ...prev,
+            isUserLoading: false,
+            userError: new Error("Auth check timed out"),
+          };
+        }
+        return prev;
+      });
+    }, 5000); // 5 seconds timeout
+
+    return () => clearTimeout(timer);
+  }, []);
+
   // Memoize the context value
   const contextValue = useMemo((): FirebaseContextState => {
     const servicesAvailable = !!(firebaseApp && firestore && auth);
@@ -156,7 +177,7 @@ export const useFirebase = (): FirebaseServicesAndUser => {
     firestore: context.firestore,
     auth: context.auth,
     user: context.user,
-isUserLoading: context.isUserLoading,
+    isUserLoading: context.isUserLoading,
     userError: context.userError,
     claims: context.claims,
     isAdmin: context.isAdmin,
@@ -181,14 +202,14 @@ export const useFirebaseApp = (): FirebaseApp => {
   return firebaseApp;
 };
 
-type MemoFirebase <T> = T & {__memo?: boolean};
+type MemoFirebase<T> = T & { __memo?: boolean };
 
 export function useMemoFirebase<T>(factory: () => T, deps: DependencyList): T | (MemoFirebase<T>) {
   const memoized = useMemo(factory, deps);
-  
-  if(typeof memoized !== 'object' || memoized === null) return memoized;
+
+  if (typeof memoized !== 'object' || memoized === null) return memoized;
   (memoized as MemoFirebase<T>).__memo = true;
-  
+
   return memoized;
 }
 

@@ -1,28 +1,32 @@
-import { PnLEvent } from './calc-m4-m5-2-global-fifo';
+import { DailyPnlResult } from './calc-m14-daily-calendar';
 
 /**
- * M11: WTD (Week-to-Date) Realized PnL
- * Formula: Sum(Realized PnL within period) + (Current Unrealized PnL - Base Unrealized PnL)
+ * M11: WTD (Week-to-Date) Total PnL
+ * Formula: Sum of Daily Total PnL (M6) from Week Start to Today.
  * 
- * @param events - List of realized PnL events
+ * @param dailyPnlMap - Map of daily PnL results (from M14 calculation)
  * @param wtdStartDate - Start date of the current week (YYYY-MM-DD)
- * @param currentUnrealized - Current Total Unrealized PnL
- * @param baseUnrealized - Total Unrealized PnL at the end of the previous week
+ * @param todayNy - Current NY trading day (YYYY-MM-DD)
  * @returns Total WTD PnL
  */
 export function calcM11_Wtd(
-    events: PnLEvent[],
+    dailyPnlMap: Record<string, DailyPnlResult>,
     wtdStartDate: string,
-    currentUnrealized: number | null,
-    baseUnrealized: number
-): number | null {
-    if (currentUnrealized === null) return null; // If current state is invalid, result is invalid
+    todayNy: string
+): number {
+    let total = 0;
+    const dates = Object.keys(dailyPnlMap).sort();
 
-    const realizedFlow = (events || [])
-        .filter(e => e.date >= wtdStartDate)
-        .reduce((sum, e) => sum + e.pnl, 0);
+    for (const date of dates) {
+        if (date >= wtdStartDate && date <= todayNy) {
+            const dayResult = dailyPnlMap[date];
+            // Only sum if we have valid data. 
+            // Note: In the Provider, we will ensure 'Today' has a value (injected M6) even if EOD is missing.
+            if (dayResult && typeof dayResult.totalPnl === 'number') {
+                total += dayResult.totalPnl;
+            }
+        }
+    }
 
-    const unrealizedDelta = currentUnrealized - baseUnrealized;
-
-    return realizedFlow + unrealizedDelta;
+    return total;
 }

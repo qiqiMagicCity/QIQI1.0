@@ -89,10 +89,10 @@ export const fmpProvider: CloseProvider = {
           status === 401 || status === 403
             ? "permission-denied"
             : status === 429
-            ? "resource-exhausted"
-            : status >= 400 && status < 500
-            ? "invalid-argument"
-            : "unavailable",
+              ? "resource-exhausted"
+              : status >= 400 && status < 500
+                ? "invalid-argument"
+                : "unavailable",
         httpStatus: status,
         endpoint: url,
         providerCode,
@@ -101,10 +101,10 @@ export const fmpProvider: CloseProvider = {
           status === 401 || status === 403
             ? "FMP API Key 无效或套餐权限不足"
             : status === 429
-            ? "FMP 已限速，查看 Retry-After / X-Rate-Limit-Reset"
-            : status >= 400 && status < 500
-            ? "symbol 或参数无效"
-            : "FMP 服务暂时不可用",
+              ? "FMP 已限速，查看 Retry-After / X-Rate-Limit-Reset"
+              : status >= 400 && status < 500
+                ? "symbol 或参数无效"
+                : "FMP 服务暂时不可用",
         rateLimitReset: retryAfter,
         ts: Date.now(),
       };
@@ -144,13 +144,14 @@ export const fmpProvider: CloseProvider = {
 
     // 找到“目标日”的那一条
     const targetRow = bulkEod.find((row) => row.date === dateYYYYMMDD);
-    if (!targetRow) {
-      throw new Error(`No EOD data for ${dateYYYYMMDD} from FMP`);
-    }
+    // [FIX] Do NOT throw if target date missing (e.g. weekend), as we want to save the bulk history.
+    // if (!targetRow) {
+    //   throw new Error(`No EOD data for ${dateYYYYMMDD} from FMP`);
+    // }
 
     // 返回给系统：目标日 EOD + meta.bulkEod（5 年历史）
     return {
-      close: targetRow.close,
+      close: targetRow?.close as number, // May be undefined if missing
       currency: "USD",
       provider: "fmp",
       latencyMs,

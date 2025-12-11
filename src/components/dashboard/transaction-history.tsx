@@ -58,7 +58,7 @@ import {
 import { doc, deleteDoc } from 'firebase/firestore';
 import { Skeleton } from '../ui/skeleton';
 import { SymbolName } from './symbol-name';
-import { toNyCalendarDayString, toNyHmsString, nyWeekdayLabel } from '@/lib/ny-time';
+import { toNyCalendarDayString, toNyHmsString, nyWeekdayLabel, getEffectiveTradingDay } from '@/lib/ny-time';
 import dynamic from 'next/dynamic';
 import { useRouter, useSearchParams, usePathname } from "next/navigation";
 import { useIsMobile } from '@/hooks/use-is-mobile';
@@ -107,8 +107,12 @@ import { ChevronLeft, ChevronRight } from 'lucide-react';
 // ... (keep existing imports)
 
 export function TransactionHistory() {
-  // 默认显示当前月
-  const [currentMonth, setCurrentMonth] = useState<Date>(new Date());
+  // 默认显示当前月 (基于 NY 时间，Rule 2.1)
+  const [currentMonth, setCurrentMonth] = useState<Date>(() => {
+    const todayNy = getEffectiveTradingDay();
+    const [y, m, d] = todayNy.split('-').map(Number);
+    return new Date(y, m - 1, d); // Midnight local time but represents correct NY date
+  });
   // 搜索状态
   const [searchSymbol, setSearchSymbol] = useState('');
   const [searchDate, setSearchDate] = useState<Date | undefined>(undefined);

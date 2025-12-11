@@ -124,10 +124,22 @@ export const requestBackfillEod = onCall(
 
       // 已在回填队列中 → 视为已排队
       const requestDoc = await backfillRequestsRef.doc(id).get();
-      if (requestDoc.exists) {
-        alreadyQueued.push(id);
-      } else {
+      if (!requestDoc.exists) {
+        // [New Request] Doc does not exist
         toQueue.push(symbol);
+      } else {
+        // [Existing Request] Check status
+        const reqData = requestDoc.data() as Record<string, any>; // Cast for safety
+        const status = reqData?.status;
+
+        // DEADLOCK FIX: Only block if truly queued/running or done.
+        // Allow 'error' to retry. 
+        if (['queued', 'running', 'done'].includes(status)) {
+          alreadyQueued.push(id);
+        } else {
+          // If status is 'error' or unknown, allow retry (re-queue)
+          toQueue.push(symbol);
+        }
       }
     }
 
