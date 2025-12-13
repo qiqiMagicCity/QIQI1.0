@@ -23,7 +23,7 @@ import {
 } from '@/lib/data/official-close-repo';
 import { useRealTimePrices } from '@/price/useRealTimePrices';
 import { calcM5_1_Trading } from '@/lib/pnl/calc-m5-1-trading';
-import { calcGlobalFifo } from '@/lib/pnl/calc-m4-m5-2-global-fifo';
+import { calcGlobalFifo, AuditEvent } from '@/lib/pnl/calc-m4-m5-2-global-fifo';
 import { calcM11_Wtd } from '@/lib/pnl/calc-m11-wtd';
 import { calcM12_Mtd } from '@/lib/pnl/calc-m12-mtd';
 import { calcM13_Ytd } from '@/lib/pnl/calc-m13-ytd';
@@ -322,6 +322,7 @@ export interface HoldingsSummary {
     mtdPnl: number | null;
     ytdPnl: number | null;
     m4_historicalRealized: number | null;
+    m4_auditTrail?: AuditEvent[];
     m5_1_trading: number | null;
     m5_2_ledger: number | null;
     m6_1_legacy: number | null;
@@ -1163,6 +1164,7 @@ export function HoldingsProvider({ children }: { children: React.ReactNode }) {
                 mtdPnl: m12,
                 ytdPnl: m13,
                 m4_historicalRealized: m4,
+                m4_auditTrail: auditTrail ? auditTrail.filter(e => e.closeDate === todayNy && e.openDate !== todayNy) : [],
                 m5_1_trading: m5_1,
                 m5_2_ledger: m5_2,
                 m6_1_legacy: m6_1,

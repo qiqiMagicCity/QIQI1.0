@@ -16,6 +16,13 @@ import {
   CalendarRange,
 } from 'lucide-react';
 import { cn, formatCurrency } from '@/lib/utils';
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from '@/components/ui/tooltip';
+import { ScrollArea } from '@/components/ui/scroll-area';
 
 interface MetricSubItem {
   label: string;
@@ -287,16 +294,65 @@ export function CalculationGrid() {
         </CardHeader>
         <CardContent>
           {/* Render Main Value if present */}
-          {(metric.formattedValue && metric.value !== undefined) && (
-            <div
-              className={cn(
-                "text-2xl font-bold font-mono tracking-tight mb-2",
-                metric.isPnl ? getPnLColor(metric.value) : "text-foreground"
-              )}
-            >
-              {metric.formattedValue}
-            </div>
-          )}
+          {(metric.formattedValue && metric.value !== undefined) ? (
+            metric.title.includes("历史仓位") && summary.m4_auditTrail && summary.m4_auditTrail.length > 0 ? (
+              <TooltipProvider delayDuration={0}>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <div
+                      className={cn(
+                        "text-2xl font-bold font-mono tracking-tight mb-2 cursor-help decoration-dashed underline-offset-4 decoration-muted-foreground/30",
+                        metric.isPnl ? getPnLColor(metric.value) : "text-foreground"
+                      )}
+                    >
+                      {metric.formattedValue}
+                    </div>
+                  </TooltipTrigger>
+                  <TooltipContent side="right" className="p-0 border-none bg-popover text-popover-foreground shadow-xl">
+                    <div className="w-[400px] rounded-md border bg-card text-card-foreground">
+                      <div className="p-3 border-b bg-muted/30">
+                        <h4 className="font-semibold text-sm">今日平仓详情 (历史仓位)</h4>
+                      </div>
+                      <ScrollArea className="h-[300px]">
+                        <div className="p-2 space-y-1">
+                          {summary.m4_auditTrail.map((event, idx) => (
+                            <div key={idx} className="flex items-center justify-between text-xs p-2 rounded-sm hover:bg-muted/50 transition-colors">
+                              <div className="flex flex-col gap-0.5">
+                                <div className="font-bold font-mono text-primary">{event.symbol}</div>
+                                <div className="text-[10px] text-muted-foreground">
+                                  {event.openDate} ➔ {event.closeDate}
+                                </div>
+                              </div>
+                              <div className="flex flex-col items-end gap-0.5">
+                                <div className={cn("font-bold font-mono", getPnLColor(event.pnl))}>
+                                  {formatCurrency(event.pnl)}
+                                </div>
+                                <div className="text-[10px] text-muted-foreground">
+                                  {event.qty}股 @ {event.openPrice} ➔ {event.closePrice}
+                                </div>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </ScrollArea>
+                      <div className="p-2 border-t bg-muted/10 text-[10px] text-center text-muted-foreground">
+                        共 {summary.m4_auditTrail.length} 笔交易
+                      </div>
+                    </div>
+                  </TooltipContent>
+                </Tooltip>
+              </TooltipProvider>
+            ) : (
+              <div
+                className={cn(
+                  "text-2xl font-bold font-mono tracking-tight mb-2",
+                  metric.isPnl ? getPnLColor(metric.value) : "text-foreground"
+                )}
+              >
+                {metric.formattedValue}
+              </div>
+            )
+          ) : null}
 
           {/* Render Sub Items if present */}
           {metric.subItems && (
