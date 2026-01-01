@@ -44,6 +44,7 @@ export function EodCheck() {
     const [fixing, setFixing] = useState(false);
     const [missingSymbols, setMissingSymbols] = useState<MissingSymbol[]>([]);
     const [checked, setChecked] = useState(false);
+    const [marketClosed, setMarketClosed] = useState(false);
     const [onlyHoldings, setOnlyHoldings] = useState(true); // Default to true
 
     // Manual Entry State
@@ -86,8 +87,17 @@ export function EodCheck() {
         setChecking(true);
         setMissingSymbols([]);
         setChecked(false);
+        setMarketClosed(false);
 
         try {
+            // 1. Pre-check: Holiday Rules
+            if (!isNyTradingDay(date)) {
+                setMarketClosed(true);
+                setChecked(true);
+                setChecking(false);
+                return;
+            }
+
             const symbols = getTargetSymbols();
 
             if (symbols.length === 0) {
@@ -432,123 +442,132 @@ export function EodCheck() {
 
                     {checked && (
                         <div className="space-y-4">
-                            <div className="flex items-center justify-between">
-                                <div className="flex items-center gap-2">
-                                    {missingSymbols.length === 0 ? (
-                                        <div className="flex items-center text-green-600">
-                                            <CheckCircle2 className="mr-2 h-5 w-5" />
-                                            <span>{date} 所有代码均有数据</span>
+                            {marketClosed ? (
+                                <div className="flex items-center gap-2 text-blue-600 bg-blue-50 p-3 rounded-md border border-blue-100">
+                                    <CalendarIcon className="h-5 w-5" />
+                                    <span className="font-medium">{date} 是美股休市日（周末或节假日），无需 EOD 数据。</span>
+                                </div>
+                            ) : (
+                                <>
+                                    <div className="flex items-center justify-between">
+                                        <div className="flex items-center gap-2">
+                                            {missingSymbols.length === 0 ? (
+                                                <div className="flex items-center text-green-600">
+                                                    <CheckCircle2 className="mr-2 h-5 w-5" />
+                                                    <span>{date} 所有代码均有数据</span>
+                                                </div>
+                                            ) : (
+                                                <div>
+                                                    <div className="flex items-center text-amber-600">
+                                                        <AlertCircle className="mr-2 h-5 w-5" />
+                                                        <span>发现 {missingSymbols.length} 条缺失或不完整记录</span>
+                                                    </div>
+                                                    <p className="text-xs text-muted-foreground mt-1 ml-7">
+                                                        调试: ID 格式示例: {date}_{missingSymbols[0]?.symbol}
+                                                    </p>
+                                                </div>
+                                            )}
                                         </div>
-                                    ) : (
-                                        <div>
-                                            <div className="flex items-center text-amber-600">
-                                                <AlertCircle className="mr-2 h-5 w-5" />
-                                                <span>发现 {missingSymbols.length} 条缺失或不完整记录</span>
-                                            </div>
-                                            <p className="text-xs text-muted-foreground mt-1 ml-7">
-                                                调试: ID 格式示例: {date}_{missingSymbols[0]?.symbol}
-                                            </p>
+                                        {missingSymbols.length > 0 && (
+                                            <Button
+                                                onClick={handleRetryCheck}
+                                                disabled={checking}
+                                                variant="secondary"
+                                                className="bg-emerald-600 hover:bg-emerald-700 text-white"
+                                            >
+                                                {checking ? (
+                                                    <>
+                                                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                                                        重试...
+                                                    </>
+                                                ) : (
+                                                    '重试检查 (自动修复中)'
+                                                )}
+                                            </Button>
+                                        )}
+                                    </div>
+
+                                    {missingSymbols.length > 0 && (
+                                        <div className="border rounded-md">
+                                            <Table>
+                                                <TableHeader>
+                                                    <TableRow>
+                                                        <TableHead>代码</TableHead>
+                                                        <TableHead>状态</TableHead>
+                                                        <TableHead className="text-right">操作</TableHead>
+                                                    </TableRow>
+                                                </TableHeader>
+                                                <TableBody>
+                                                    {missingSymbols.map((item) => (
+                                                        <TableRow key={item.symbol}>
+                                                            <TableCell className="font-medium">{item.symbol}</TableCell>
+                                                            <TableCell>
+                                                                <span className={`inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-semibold transition-colors focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 border-transparent shadow ${item.status === 'pending' ? 'bg-blue-500 text-white' :
+                                                                    item.status === 'stale' ? 'bg-yellow-500 text-white' :
+                                                                        'bg-destructive text-destructive-foreground hover:bg-destructive/80'
+                                                                    }`}>
+                                                                    {item.status === 'pending' ? '处理中' :
+                                                                        item.status === 'stale' ? '待更新 (Stale)' :
+                                                                            item.status}
+                                                                </span>
+                                                            </TableCell>
+                                                            <TableCell className="text-right">
+                                                                <Dialog open={isDialogOpen && selectedSymbol === item.symbol} onOpenChange={(open) => {
+                                                                    setIsDialogOpen(open);
+                                                                    if (!open) setSelectedSymbol(null);
+                                                                }}>
+                                                                    <DialogTrigger asChild>
+                                                                        <Button
+                                                                            variant="outline"
+                                                                            size="sm"
+                                                                            onClick={() => {
+                                                                                setSelectedSymbol(item.symbol);
+                                                                                setManualPrice('');
+                                                                                setIsDialogOpen(true);
+                                                                            }}
+                                                                        >
+                                                                            修复
+                                                                        </Button>
+                                                                    </DialogTrigger>
+                                                                    <DialogContent>
+                                                                        <DialogHeader>
+                                                                            <DialogTitle>{item.symbol} 手动录入</DialogTitle>
+                                                                            <DialogDescription>
+                                                                                输入 {date} 的官方收盘价。
+                                                                            </DialogDescription>
+                                                                        </DialogHeader>
+                                                                        <div className="grid gap-4 py-4">
+                                                                            <div className="grid grid-cols-4 items-center gap-4">
+                                                                                <Label htmlFor="price" className="text-right">
+                                                                                    价格
+                                                                                </Label>
+                                                                                <Input
+                                                                                    id="price"
+                                                                                    type="number"
+                                                                                    step="0.01"
+                                                                                    value={manualPrice}
+                                                                                    onChange={(e) => setManualPrice(e.target.value)}
+                                                                                    className="col-span-3"
+                                                                                    placeholder="0.00"
+                                                                                />
+                                                                            </div>
+                                                                        </div>
+                                                                        <DialogFooter>
+                                                                            <Button variant="outline" onClick={() => setIsDialogOpen(false)}>取消</Button>
+                                                                            <Button onClick={handleManualSave} disabled={saving}>
+                                                                                {saving ? '正在保存...' : '保存'}
+                                                                            </Button>
+                                                                        </DialogFooter>
+                                                                    </DialogContent>
+                                                                </Dialog>
+                                                            </TableCell>
+                                                        </TableRow>
+                                                    ))}
+                                                </TableBody>
+                                            </Table>
                                         </div>
                                     )}
-                                </div>
-                                {missingSymbols.length > 0 && (
-                                    <Button
-                                        onClick={handleRetryCheck}
-                                        disabled={checking}
-                                        variant="secondary"
-                                        className="bg-emerald-600 hover:bg-emerald-700 text-white"
-                                    >
-                                        {checking ? (
-                                            <>
-                                                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                                                重试...
-                                            </>
-                                        ) : (
-                                            '重试检查 (自动修复中)'
-                                        )}
-                                    </Button>
-                                )}
-                            </div>
-
-                            {missingSymbols.length > 0 && (
-                                <div className="border rounded-md">
-                                    <Table>
-                                        <TableHeader>
-                                            <TableRow>
-                                                <TableHead>代码</TableHead>
-                                                <TableHead>状态</TableHead>
-                                                <TableHead className="text-right">操作</TableHead>
-                                            </TableRow>
-                                        </TableHeader>
-                                        <TableBody>
-                                            {missingSymbols.map((item) => (
-                                                <TableRow key={item.symbol}>
-                                                    <TableCell className="font-medium">{item.symbol}</TableCell>
-                                                    <TableCell>
-                                                        <span className={`inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-semibold transition-colors focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 border-transparent shadow ${item.status === 'pending' ? 'bg-blue-500 text-white' :
-                                                            item.status === 'stale' ? 'bg-yellow-500 text-white' :
-                                                                'bg-destructive text-destructive-foreground hover:bg-destructive/80'
-                                                            }`}>
-                                                            {item.status === 'pending' ? '处理中' :
-                                                                item.status === 'stale' ? '待更新 (Stale)' :
-                                                                    item.status}
-                                                        </span>
-                                                    </TableCell>
-                                                    <TableCell className="text-right">
-                                                        <Dialog open={isDialogOpen && selectedSymbol === item.symbol} onOpenChange={(open) => {
-                                                            setIsDialogOpen(open);
-                                                            if (!open) setSelectedSymbol(null);
-                                                        }}>
-                                                            <DialogTrigger asChild>
-                                                                <Button
-                                                                    variant="outline"
-                                                                    size="sm"
-                                                                    onClick={() => {
-                                                                        setSelectedSymbol(item.symbol);
-                                                                        setManualPrice('');
-                                                                        setIsDialogOpen(true);
-                                                                    }}
-                                                                >
-                                                                    修复
-                                                                </Button>
-                                                            </DialogTrigger>
-                                                            <DialogContent>
-                                                                <DialogHeader>
-                                                                    <DialogTitle>{item.symbol} 手动录入</DialogTitle>
-                                                                    <DialogDescription>
-                                                                        输入 {date} 的官方收盘价。
-                                                                    </DialogDescription>
-                                                                </DialogHeader>
-                                                                <div className="grid gap-4 py-4">
-                                                                    <div className="grid grid-cols-4 items-center gap-4">
-                                                                        <Label htmlFor="price" className="text-right">
-                                                                            价格
-                                                                        </Label>
-                                                                        <Input
-                                                                            id="price"
-                                                                            type="number"
-                                                                            step="0.01"
-                                                                            value={manualPrice}
-                                                                            onChange={(e) => setManualPrice(e.target.value)}
-                                                                            className="col-span-3"
-                                                                            placeholder="0.00"
-                                                                        />
-                                                                    </div>
-                                                                </div>
-                                                                <DialogFooter>
-                                                                    <Button variant="outline" onClick={() => setIsDialogOpen(false)}>取消</Button>
-                                                                    <Button onClick={handleManualSave} disabled={saving}>
-                                                                        {saving ? '正在保存...' : '保存'}
-                                                                    </Button>
-                                                                </DialogFooter>
-                                                            </DialogContent>
-                                                        </Dialog>
-                                                    </TableCell>
-                                                </TableRow>
-                                            ))}
-                                        </TableBody>
-                                    </Table>
-                                </div>
+                                </>
                             )}
                         </div>
                     )}

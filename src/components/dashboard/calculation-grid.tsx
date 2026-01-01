@@ -26,8 +26,9 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 
 interface MetricSubItem {
   label: string;
-  value: number | null;
-  formattedValue: string | React.ReactNode;
+  value: string | number;
+  color?: string;
+  tooltipKey?: 'm5_1_breakdown' | 'm5_2_breakdown'; // [NEW] Sub-item specific tooltip
 }
 
 interface MetricItem {
@@ -38,6 +39,7 @@ interface MetricItem {
   formattedValue?: string | React.ReactNode;
   subItems?: MetricSubItem[];
   isPnl?: boolean;
+  tooltipKey?: 'm4_auditTrail' | 'm6_pnl_breakdown' | 'm5_1_breakdown' | 'm5_2_breakdown'; // [UPDATED] Re-added M5 keys
 }
 
 export function CalculationGrid() {
@@ -129,7 +131,7 @@ export function CalculationGrid() {
     </div>
   );
 
-  // Define the 10 metrics with their themes
+  // Define the 11 metrics with their themes
   const metricsData: MetricItem[] = [
     // 1. 今日平仓盈利(历史仓位)
     {
@@ -139,26 +141,29 @@ export function CalculationGrid() {
       icon: CheckCircle2,
       theme: 'emerald',
       isPnl: true,
+      tooltipKey: 'm4_auditTrail',
     },
-    // 2. 今日交易盈利(日内交易)
+    // 2. M5.1 日内交易 (交易视角)
     {
-      title: "今日交易盈利 (日内交易)",
+      title: "今日交易 (交易视角)",
+      value: summary.m5_1_trading,
+      formattedValue: summary.m5_1_trading != null ? formatCurrency(summary.m5_1_trading) : "—",
       icon: Activity,
       theme: 'blue',
-      subItems: [
-        {
-          label: "交易视角",
-          value: summary.m5_1_trading,
-          formattedValue: summary.m5_1_trading != null ? formatCurrency(summary.m5_1_trading) : "—",
-        },
-        {
-          label: "账本视角",
-          value: summary.m5_2_ledger,
-          formattedValue: summary.m5_2_ledger != null ? formatCurrency(summary.m5_2_ledger) : "—",
-        },
-      ],
+      isPnl: true,
+      tooltipKey: 'm5_1_breakdown',
     },
-    // 3. 当日盈亏情况 (Total Today PnL)
+    // 3. M5.2 日内交易 (账本视角)
+    {
+      title: "今日交易 (账本视角)",
+      value: summary.m5_2_ledger,
+      formattedValue: summary.m5_2_ledger != null ? formatCurrency(summary.m5_2_ledger) : "—",
+      icon: Activity,
+      theme: 'blue',
+      isPnl: true,
+      tooltipKey: 'm5_2_breakdown',
+    },
+    // 4. 当日盈亏情况 (Total Today PnL)
     {
       title: "当日盈亏情况",
       value: summary.m6_total,
@@ -169,17 +174,18 @@ export function CalculationGrid() {
       subItems: [
         {
           label: "存量盈亏",
-          value: summary.m6_1_legacy,
-          formattedValue: summary.m6_1_legacy != null ? formatCurrency(summary.m6_1_legacy) : "—",
+          value: summary.m6_1_legacy ?? 0,
+          color: getPnLColor(summary.m6_1_legacy),
         },
         {
           label: "增量盈亏",
-          value: summary.m6_2_new,
-          formattedValue: summary.m6_2_new != null ? formatCurrency(summary.m6_2_new) : "—",
+          value: summary.m6_2_new ?? 0,
+          color: getPnLColor(summary.m6_2_new),
         },
       ],
+      tooltipKey: 'm6_pnl_breakdown',
     },
-    // 4. 今日交易次数(分类统计)
+    // 5. 今日交易次数(分类统计)
     {
       title: "今日交易次数 (分类统计)",
       value: null,
@@ -200,7 +206,7 @@ export function CalculationGrid() {
       theme: 'orange',
       isPnl: false,
     },
-    // 5. 累计交易次数 (M8)
+    // 6. 累计交易次数 (M8)
     {
       title: "累计交易次数",
       value: null,
@@ -215,7 +221,7 @@ export function CalculationGrid() {
       theme: 'purple',
       isPnl: false,
     },
-    // 6. 累计已实现盈利 (M9)
+    // 7. 累计已实现盈利 (M9)
     {
       title: "累计已实现盈利",
       value: summary.totalHistoricalRealizedPnl,
@@ -224,7 +230,7 @@ export function CalculationGrid() {
       theme: 'amber',
       isPnl: true,
     },
-    // 7. 胜率 (M10)
+    // 8. 胜率 (M10)
     {
       title: "胜率",
       value: null,
@@ -239,7 +245,7 @@ export function CalculationGrid() {
       theme: 'rose',
       isPnl: false,
     },
-    // 8. WTD
+    // 9. WTD
     {
       title: "WTD (本周累计盈利)",
       value: summary.wtdPnl,
@@ -248,7 +254,7 @@ export function CalculationGrid() {
       theme: 'sky',
       isPnl: true,
     },
-    // 9. MTD
+    // 10. MTD
     {
       title: "MTD (本月累计盈利)",
       value: summary.mtdPnl,
@@ -257,7 +263,7 @@ export function CalculationGrid() {
       theme: 'indigo',
       isPnl: true,
     },
-    // 10. YTD
+    // 11. YTD
     {
       title: "YTD (本年累计盈利)",
       value: summary.ytdPnl,
@@ -268,10 +274,207 @@ export function CalculationGrid() {
     },
   ];
 
-  // Split metrics into rows: 4 - 3 - 3
+  // Split metrics into rows: 4 - 4 - 3
   const row1Metrics = metricsData.slice(0, 4);
-  const row2Metrics = metricsData.slice(4, 7);
-  const row3Metrics = metricsData.slice(7, 10);
+  const row2Metrics = metricsData.slice(4, 8);
+  const row3Metrics = metricsData.slice(8, 11);
+
+  const renderTooltipContent = (key: string, title: string) => {
+    if (key === 'm4_auditTrail' && summary.m4_auditTrail && summary.m4_auditTrail.length > 0) {
+      return (
+        <TooltipContent side="right" className="p-0 border-none bg-popover text-popover-foreground shadow-xl">
+          <div className="w-[400px] rounded-md border bg-card text-card-foreground">
+            <div className="p-3 border-b bg-muted/30">
+              <h4 className="font-semibold text-sm">{title}</h4>
+            </div>
+            <ScrollArea className="h-[300px]">
+              <div className="p-2 space-y-1">
+                {summary.m4_auditTrail.map((event, idx) => (
+                  <div key={idx} className="flex items-center justify-between text-xs p-2 rounded-sm hover:bg-muted/50 transition-colors">
+                    <div className="flex flex-col gap-0.5">
+                      <div className="font-bold font-mono text-primary">{event.symbol}</div>
+                      <div className="text-[10px] text-muted-foreground">
+                        {event.openDate} ➔ {event.closeDate}
+                      </div>
+                    </div>
+                    <div className="flex flex-col items-end gap-0.5">
+                      <div className={cn("font-bold font-mono", getPnLColor(event.pnl))}>
+                        {formatCurrency(event.pnl)}
+                      </div>
+                      <div className="text-[10px] text-muted-foreground">
+                        {event.qty}股 @ {event.openPrice} ➔ {event.closePrice}
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </ScrollArea>
+            <div className="p-2 border-t bg-muted/10 text-[10px] text-center text-muted-foreground">
+              共 {summary.m4_auditTrail.length} 笔交易
+            </div>
+          </div>
+        </TooltipContent>
+      );
+    }
+    if (key === 'm5_1_breakdown' && summary.m5_1_breakdown) {
+      // Calculate Totals for Footer
+      const totalRealized = summary.m5_1_breakdown.reduce((acc, curr) => acc + curr.realized, 0);
+      const totalUnrealized = summary.m5_1_breakdown.reduce((acc, curr) => acc + curr.unrealized, 0);
+
+      return (
+        <TooltipContent side="right" className="p-0 border-none bg-popover text-popover-foreground shadow-xl">
+          <div className="w-[420px] rounded-md border bg-card text-card-foreground">
+            <div className="p-3 border-b bg-muted/30 flex justify-between items-center">
+              <h4 className="font-semibold text-sm">{title} (盈亏明细)</h4>
+              <span className="text-[10px] text-muted-foreground">单位: USD</span>
+            </div>
+
+            {/* Header Row */}
+            <div className="grid grid-cols-12 gap-2 px-3 py-2 text-[10px] font-bold text-muted-foreground bg-muted/10">
+              <div className="col-span-4">标的</div>
+              <div className="col-span-4 text-right">已平仓 (Realized)</div>
+              <div className="col-span-4 text-right">持仓浮动 (Floating)</div>
+            </div>
+
+            <ScrollArea className="h-[250px]">
+              <div className="py-1">
+                {summary.m5_1_breakdown.length === 0 && (
+                  <div className="text-center py-4 text-xs text-muted-foreground">暂无数据</div>
+                )}
+                {summary.m5_1_breakdown.map((item, idx) => (
+                  <div key={idx} className="grid grid-cols-12 gap-2 px-3 py-1.5 hover:bg-muted/50 transition-colors text-xs items-center border-b border-border/40 last:border-0">
+                    <div className="col-span-4 font-bold font-mono text-primary">{item.symbol}</div>
+                    <div className={cn("col-span-4 text-right font-mono", getPnLColor(item.realized))}>
+                      {item.realized !== 0 ? formatCurrency(item.realized) : '-'}
+                    </div>
+                    <div className={cn("col-span-4 text-right font-mono", getPnLColor(item.unrealized))}>
+                      {item.unrealized !== 0 ? formatCurrency(item.unrealized) : '-'}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </ScrollArea>
+
+            {/* Summary Footer */}
+            <div className="p-3 border-t bg-muted/20">
+              <div className="grid grid-cols-12 gap-2 text-xs font-bold">
+                <div className="col-span-4 text-muted-foreground">合计 (Total)</div>
+                <div className={cn("col-span-4 text-right font-mono", getPnLColor(totalRealized))}>
+                  {formatCurrency(totalRealized)}
+                </div>
+                <div className={cn("col-span-4 text-right font-mono", getPnLColor(totalUnrealized))}>
+                  {formatCurrency(totalUnrealized)}
+                </div>
+              </div>
+              <div className="mt-2 text-[10px] text-center text-muted-foreground font-normal">
+                M5.1 = 当日闭环盈亏 + 新开仓浮动盈亏<br />
+                (三桶模型：单纯减底仓不计入)
+              </div>
+            </div>
+          </div>
+        </TooltipContent>
+      );
+    }
+    if (key === 'm5_2_breakdown' && summary.m5_2_breakdown) {
+      // Calculate Totals for Footer
+      const totalRealized = summary.m5_2_breakdown.reduce((acc, curr) => acc + curr.realized, 0);
+      const totalUnrealized = summary.m5_2_breakdown.reduce((acc, curr) => acc + curr.unrealized, 0);
+
+      return (
+        <TooltipContent side="right" className="p-0 border-none bg-popover text-popover-foreground shadow-xl">
+          <div className="w-[420px] rounded-md border bg-card text-card-foreground">
+            <div className="p-3 border-b bg-muted/30 flex justify-between items-center">
+              <h4 className="font-semibold text-sm">{title} (账本视角明细)</h4>
+              <span className="text-[10px] text-muted-foreground">单位: USD</span>
+            </div>
+
+            {/* Header Row */}
+            <div className="grid grid-cols-12 gap-2 px-3 py-2 text-[10px] font-bold text-muted-foreground bg-muted/10">
+              <div className="col-span-4">标的</div>
+              <div className="col-span-4 text-right">已平仓 (Realized)</div>
+              <div className="col-span-4 text-right">持仓浮动 (Floating)</div>
+            </div>
+
+            <ScrollArea className="h-[250px]">
+              <div className="py-1">
+                {summary.m5_2_breakdown.length === 0 && (
+                  <div className="text-center py-4 text-xs text-muted-foreground">暂无数据</div>
+                )}
+                {summary.m5_2_breakdown.map((item, idx) => (
+                  <div key={idx} className="grid grid-cols-12 gap-2 px-3 py-1.5 hover:bg-muted/50 transition-colors text-xs items-center border-b border-border/40 last:border-0">
+                    <div className="col-span-4 font-bold font-mono text-primary">{item.symbol}</div>
+                    <div className={cn("col-span-4 text-right font-mono", getPnLColor(item.realized))}>
+                      {item.realized !== 0 ? formatCurrency(item.realized) : '-'}
+                    </div>
+                    <div className={cn("col-span-4 text-right font-mono", getPnLColor(item.unrealized))}>
+                      {item.unrealized !== 0 ? formatCurrency(item.unrealized) : '-'}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </ScrollArea>
+
+            {/* Summary Footer */}
+            <div className="p-3 border-t bg-muted/20">
+              <div className="grid grid-cols-12 gap-2 text-xs font-bold">
+                <div className="col-span-4 text-muted-foreground">合计 (Total)</div>
+                <div className={cn("col-span-4 text-right font-mono", getPnLColor(totalRealized))}>
+                  {formatCurrency(totalRealized)}
+                </div>
+                <div className={cn("col-span-4 text-right font-mono", getPnLColor(totalUnrealized))}>
+                  {formatCurrency(totalUnrealized)}
+                </div>
+              </div>
+              <div className="mt-2 text-[10px] text-center text-muted-foreground font-normal">
+                M5.2 = 今日总已实现 + 今日新开仓浮动<br />
+                (Global FIFO 账本口径)
+              </div>
+            </div>
+          </div>
+        </TooltipContent>
+      );
+    }
+    if (key === 'm6_pnl_breakdown' && summary.m6_pnl_breakdown) {
+      return (
+        <TooltipContent side="right" className="p-0 border-none bg-popover text-popover-foreground shadow-xl">
+          <div className="w-[420px] rounded-md border bg-card text-card-foreground">
+            <div className="p-3 border-b bg-muted/30 flex justify-between items-center">
+              <h4 className="font-semibold text-sm">{title} (盈亏明细)</h4>
+              <span className="text-[10px] text-muted-foreground">单位: USD</span>
+            </div>
+
+            {/* Header Row */}
+            <div className="grid grid-cols-12 gap-2 px-3 py-2 text-[10px] font-bold text-muted-foreground bg-muted/10">
+              <div className="col-span-3">标的</div>
+              <div className="col-span-6 text-center">盈亏构成 (已平 | 浮动)</div>
+              <div className="col-span-3 text-right">总盈亏</div>
+            </div>
+
+            <ScrollArea className="h-[300px]">
+              <div className="py-1">
+                {summary.m6_pnl_breakdown.map((item, idx) => (
+                  <div key={idx} className="grid grid-cols-12 gap-2 px-3 py-2 hover:bg-muted/50 transition-colors text-xs items-center border-b border-border/40 last:border-0">
+                    <div className="col-span-3 font-bold font-mono text-primary">{item.symbol}</div>
+
+                    <div className="col-span-6 flex justify-center gap-1 text-[10px] text-muted-foreground">
+                      <span className={cn(getPnLColor(item.realized))}>已平:{formatCurrency(item.realized)}</span>
+                      <span className="text-muted-foreground/30">|</span>
+                      <span className={cn(getPnLColor(item.unrealized))}>浮动:{formatCurrency(item.unrealized)}</span>
+                    </div>
+
+                    <div className={cn("col-span-3 text-right font-bold font-mono", getPnLColor(item.total))}>
+                      {item.total > 0 ? '+' : ''}{formatCurrency(item.total)}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </ScrollArea>
+          </div>
+        </TooltipContent >
+      );
+    }
+    return null;
+  };
 
   const renderMetricCard = (metric: MetricItem, idx: number) => {
     const styles = getThemeStyles(metric.theme);
@@ -294,85 +497,49 @@ export function CalculationGrid() {
         </CardHeader>
         <CardContent>
           {/* Render Main Value if present */}
+          {/* Render Main Value if present */}
           {(metric.formattedValue && metric.value !== undefined) ? (
-            metric.title.includes("历史仓位") && summary.m4_auditTrail && summary.m4_auditTrail.length > 0 ? (
-              <TooltipProvider delayDuration={0}>
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <div
-                      className={cn(
-                        "text-2xl font-bold font-mono tracking-tight mb-2 cursor-help decoration-dashed underline-offset-4 decoration-muted-foreground/30",
-                        metric.isPnl ? getPnLColor(metric.value) : "text-foreground"
-                      )}
-                    >
-                      {metric.formattedValue}
-                    </div>
-                  </TooltipTrigger>
-                  <TooltipContent side="right" className="p-0 border-none bg-popover text-popover-foreground shadow-xl">
-                    <div className="w-[400px] rounded-md border bg-card text-card-foreground">
-                      <div className="p-3 border-b bg-muted/30">
-                        <h4 className="font-semibold text-sm">今日平仓详情 (历史仓位)</h4>
-                      </div>
-                      <ScrollArea className="h-[300px]">
-                        <div className="p-2 space-y-1">
-                          {summary.m4_auditTrail.map((event, idx) => (
-                            <div key={idx} className="flex items-center justify-between text-xs p-2 rounded-sm hover:bg-muted/50 transition-colors">
-                              <div className="flex flex-col gap-0.5">
-                                <div className="font-bold font-mono text-primary">{event.symbol}</div>
-                                <div className="text-[10px] text-muted-foreground">
-                                  {event.openDate} ➔ {event.closeDate}
-                                </div>
-                              </div>
-                              <div className="flex flex-col items-end gap-0.5">
-                                <div className={cn("font-bold font-mono", getPnLColor(event.pnl))}>
-                                  {formatCurrency(event.pnl)}
-                                </div>
-                                <div className="text-[10px] text-muted-foreground">
-                                  {event.qty}股 @ {event.openPrice} ➔ {event.closePrice}
-                                </div>
-                              </div>
-                            </div>
-                          ))}
-                        </div>
-                      </ScrollArea>
-                      <div className="p-2 border-t bg-muted/10 text-[10px] text-center text-muted-foreground">
-                        共 {summary.m4_auditTrail.length} 笔交易
-                      </div>
-                    </div>
-                  </TooltipContent>
-                </Tooltip>
-              </TooltipProvider>
-            ) : (
-              <div
-                className={cn(
-                  "text-2xl font-bold font-mono tracking-tight mb-2",
-                  metric.isPnl ? getPnLColor(metric.value) : "text-foreground"
-                )}
-              >
-                {metric.formattedValue}
-              </div>
-            )
+            <TooltipProvider delayDuration={0}>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <div
+                    className={cn(
+                      "text-2xl font-bold font-mono tracking-tight mb-2 cursor-help decoration-dashed underline-offset-4 decoration-muted-foreground/30",
+                      metric.isPnl ? getPnLColor(metric.value) : "text-foreground"
+                    )}
+                  >
+                    {metric.formattedValue}
+                  </div>
+                </TooltipTrigger>
+                {metric.tooltipKey && renderTooltipContent(metric.tooltipKey, metric.title)}
+              </Tooltip>
+            </TooltipProvider>
           ) : null}
 
           {/* Render Sub Items if present */}
           {metric.subItems && (
-            <div className={cn(
-              "grid grid-cols-2 gap-4 pt-1",
-              (metric.formattedValue && metric.value !== undefined) && "border-t border-border/50 mt-1"
-            )}>
-              {metric.subItems.map((subItem) => (
-                <div key={subItem.label} className="space-y-1">
-                  <div className="text-[10px] uppercase tracking-wider text-muted-foreground/80 font-bold">
-                    {subItem.label}
-                  </div>
-                  <div
-                    className={cn(
-                      "text-lg font-bold font-mono tracking-tight",
-                      getPnLColor(subItem.value)
-                    )}
-                  >
-                    {subItem.formattedValue}
-                  </div>
+            <div className="flex justify-between items-center text-xs mt-3 pt-3 border-t border-dashed border-zinc-800">
+              {metric.subItems.map((sub, idx) => (
+                <div key={idx} className="flex flex-col">
+                  <span className="text-[10px] text-muted-foreground scale-90 origin-left">{sub.label}</span>
+
+                  {/* [NEW] Sub-item Tooltip Wrapper */}
+                  {sub.tooltipKey ? (
+                    <TooltipProvider delayDuration={0}>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <span className={cn("font-mono font-medium cursor-help decoration-dotted underline hover:text-primary transition-colors", sub.color)}>
+                            {metric.isPnl ? formatCurrency(Number(sub.value)) : sub.value}
+                          </span>
+                        </TooltipTrigger>
+                        {renderTooltipContent(sub.tooltipKey, sub.label)}
+                      </Tooltip>
+                    </TooltipProvider>
+                  ) : (
+                    <span className={cn("font-mono font-medium", sub.color)}>
+                      {metric.isPnl ? formatCurrency(Number(sub.value)) : sub.value}
+                    </span>
+                  )}
                 </div>
               ))}
             </div>
@@ -389,14 +556,14 @@ export function CalculationGrid() {
         {row1Metrics.map((metric, i) => renderMetricCard(metric, i))}
       </div>
 
-      {/* Row 2: 3 items, centered */}
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 lg:w-3/4 lg:mx-auto">
+      {/* Row 2: 4 items */}
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
         {row2Metrics.map((metric, i) => renderMetricCard(metric, i + 4))}
       </div>
 
       {/* Row 3: 3 items, centered */}
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 lg:w-3/4 lg:mx-auto">
-        {row3Metrics.map((metric, i) => renderMetricCard(metric, i + 7))}
+        {row3Metrics.map((metric, i) => renderMetricCard(metric, i + 8))}
       </div>
     </div>
   );

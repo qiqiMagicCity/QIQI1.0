@@ -10,6 +10,7 @@ import { ChevronLeft, ChevronRight, Loader2, AlertTriangle, RefreshCcw } from "l
 import { getEffectiveTradingDay } from "@/lib/ny-time";
 import { triggerManualBackfill } from "@/lib/data/official-close-repo";
 import { toast } from "sonner";
+import { DailyPnlBreakdownDialog } from '@/components/dashboard/daily-pnl-breakdown-dialog';
 
 export function DailyPnlCalendar() {
     const todayNy = getEffectiveTradingDay();
@@ -19,6 +20,7 @@ export function DailyPnlCalendar() {
         const [y, m, d] = todayNy.split('-').map(Number);
         return new Date(y, m - 1, d);
     });
+    const [selectedDate, setSelectedDate] = React.useState<string | null>(null);
 
     // Check if the viewed month is the current NY month
     const isCurrentMonth = isSameMonth(currentMonth, new Date(Number(todayNy.substring(0, 4)), Number(todayNy.substring(5, 7)) - 1, 1));
@@ -39,7 +41,7 @@ export function DailyPnlCalendar() {
         Object.values(dailyPnlResults).forEach(res => {
             if (res.date.startsWith(format(currentMonth, 'yyyy-MM'))) {
                 // For current month, providerResults already has Today's M6 injected and status='ok'
-                if (res.status === 'ok') {
+                if (res.status === 'ok' || res.status === 'partial') {
                     total += res.totalPnl;
                 }
             }
@@ -52,14 +54,15 @@ export function DailyPnlCalendar() {
         const items: { date: string, symbols: string[] }[] = [];
         Object.values(dailyPnlResults).forEach(res => {
             // Only care about this month's missing data to keep list relevant
-            if (res.date.startsWith(format(currentMonth, 'yyyy-MM'))) {
+            // [FIX] Ignore future dates (e.g. 2026-01-02) as they are naturally missing EOD
+            if (res.date.startsWith(format(currentMonth, 'yyyy-MM')) && res.date <= todayNy) {
                 if (res.status === 'missing-data' && res.missingSymbols && res.missingSymbols.length > 0) {
                     items.push({ date: res.date, symbols: res.missingSymbols });
                 }
             }
         });
         return items.sort((a, b) => a.date.localeCompare(b.date));
-    }, [dailyPnlResults, currentMonth]);
+    }, [dailyPnlResults, currentMonth, todayNy]);
 
     const handleManualBackfill = async (date: string, symbols: string[]) => {
         try {
@@ -190,6 +193,12 @@ export function DailyPnlCalendar() {
                         let isMissingData = res?.status === 'missing-data';
                         let isMarketClosed = res?.status === 'market-closed';
                         let isToday = dateKey === todayNy;
+                        const isFuture = dateKey > todayNy; // [NEW] Identify future dates
+
+                        // [FIX] Do not flag future dates as missing data
+                        if (isFuture) {
+                            isMissingData = false;
+                        }
 
                         // Fallback injection for Today if Provider logic missed it (redundant if Provider is fixed)
                         if (isToday && isMissingData && summary.m6_total != null) {
@@ -232,8 +241,10 @@ export function DailyPnlCalendar() {
                                     isMarketClosed && "bg-zinc-900/10 opacity-75 border-transparent",
 
                                     // Hover Lift
-                                    !isToday && "hover:-translate-y-1 hover:shadow-lg hover:z-10"
+                                    !isToday && "hover:-translate-y-1 hover:shadow-lg hover:z-10",
+                                    "cursor-pointer" // [NEW] Make interactive
                                 )}
+                                onClick={() => setSelectedDate(dateKey)}
                                 title={isMissingData ? "EOD数据待更新" :
                                     isMarketClosed ? "市场休市" :
                                         (hasData ? `Total: ${fmtFull(total)}\n存量(Stock): ${fmtFull(unrealizedChange)}\n增量(Incr): ${fmtFull(realized)}` : undefined)}
@@ -265,10 +276,16 @@ export function DailyPnlCalendar() {
                                         </div>
                                     </div>
                                 ) : (
-                                    isMissingData && (
+                                    isMissingData ? (
                                         <div className="flex items-center justify-center flex-1">
                                             <span className="text-[10px] font-medium text-zinc-700">待更新</span>
                                         </div>
+                                    ) : (
+                                        isFuture ? (
+                                            <div className="flex items-center justify-center flex-1">
+                                                <span className="text-[10px] font-medium text-zinc-800/50">未开盘</span>
+                                            </div>
+                                        ) : null
                                     )
                                 ))}
 
@@ -277,7 +294,7 @@ export function DailyPnlCalendar() {
                                     <div className="grid grid-cols-3 gap-0.5 border-t border-white/10 pt-1.5 mt-1">
                                         {/* Pos (Left) */}
                                         <div className="flex flex-col items-start min-w-0">
-                                            <span className="text-[9px] font-bold text-zinc-500 uppercase tracking-wider leading-none mb-0.5" title="Position PnL">POS</span>
+                                            <span className="text-[9px] font-bold text-zinc-500 uppercase tracking-wider leading-none mb-0.5" title="持仓盈亏 (Unrealized + Overnight Realized)">持仓</span>
                                             <span className={cn(
                                                 "text-sm font-extrabold tracking-tighter leading-none truncate w-full",
                                                 ((unrealizedChange || 0) + (res?.realizedPnlPosition || 0)) >= 0 ? "text-emerald-400" : "text-rose-400"
@@ -288,7 +305,7 @@ export function DailyPnlCalendar() {
 
                                         {/* Bk (Center) */}
                                         <div className="flex flex-col items-center min-w-0 border-l border-r border-white/5">
-                                            <span className="text-[9px] font-bold text-indigo-400/70 uppercase tracking-wider leading-none mb-0.5" title="Book Intraday">BK</span>
+                                            <span className="text-[9px] font-bold text-indigo-400/70 uppercase tracking-wider leading-none mb-0.5" title="日内账本 (Intraday Realized via FIFO)">账本</span>
                                             <span className={cn(
                                                 "text-sm font-extrabold tracking-tighter leading-none truncate w-full text-center",
                                                 (res?.realizedPnlDay || 0) >= 0 ? "text-indigo-300" : "text-rose-300"
@@ -299,7 +316,7 @@ export function DailyPnlCalendar() {
 
                                         {/* Tr (Right) */}
                                         <div className="flex flex-col items-end min-w-0">
-                                            <span className="text-[9px] font-bold text-amber-500/70 uppercase tracking-wider leading-none mb-0.5" title="Trading Intraday">TR</span>
+                                            <span className="text-[9px] font-bold text-amber-500/70 uppercase tracking-wider leading-none mb-0.5" title="日内交易 (Intraday Isolated Match)">交易</span>
                                             <span className={cn(
                                                 "text-sm font-extrabold tracking-tighter leading-none truncate w-full text-right",
                                                 (res?.m5_1 || 0) >= 0 ? "text-amber-400" : "text-rose-400"
@@ -332,6 +349,9 @@ export function DailyPnlCalendar() {
                     </ul>
                 </div>
             )}
+
+            {/* Inspector Dialog */}
+            <DailyPnlBreakdownDialog date={selectedDate} onClose={() => setSelectedDate(null)} />
         </div>
     );
 }

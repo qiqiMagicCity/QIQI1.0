@@ -15,7 +15,6 @@ export function EodAutoManager() {
 
     // Refs to prevent duplicate runs in strict mode or rapid re-renders
     const hasRunBackfill = useRef(false);
-    const hasRunImport = useRef(false);
     const lastSnapshotDate = useRef<string | null>(null);
 
     // 1. Auto Backfill (Historical Data)
@@ -46,32 +45,6 @@ export function EodAutoManager() {
         const timer = setTimeout(runBackfill, 3000);
         return () => clearTimeout(timer);
     }, [holdings, toast]);
-
-    // 2. Auto Local Import
-    useEffect(() => {
-        if (hasRunImport.current) return;
-
-        const runImport = async () => {
-            hasRunImport.current = true;
-            try {
-                const res = await fetch('/api/eod/import-local', { method: 'POST' });
-                if (res.ok) {
-                    const data = await res.json();
-                    if (data.totalImported > 0) {
-                        toast({
-                            title: '本地数据导入完成',
-                            description: `已自动从 biaodi 目录导入 ${data.totalImported} 条新记录。`,
-                        });
-                    }
-                }
-            } catch (e) {
-                console.error('[EodAutoManager] Import failed', e);
-            }
-        };
-
-        // Run once on mount
-        runImport();
-    }, [toast]);
 
     // 3. Auto Snapshot (Today's Close)
     useEffect(() => {

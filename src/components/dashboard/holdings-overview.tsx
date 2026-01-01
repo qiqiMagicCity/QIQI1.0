@@ -1,5 +1,5 @@
 'use client';
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useRef, useEffect } from 'react';
 import { useHoldings } from '@/hooks/use-holdings';
 import { usePriceCenterContext } from '@/price/RealTimePricesProvider';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -86,6 +86,45 @@ function mapRtStatusToUiStatus(status: string | null | undefined): UiStatus {
       return 'stale';
   }
 }
+
+// 动画数值组件
+const AnimatedNumber = ({ value, children, className = '' }: { value: number | null | undefined, children: React.ReactNode, className?: string }) => {
+  const [flash, setFlash] = useState<'green' | 'red' | null>(null);
+  const prevValue = useRef(value);
+
+  // 这里的 useEffect 逻辑：
+  // 1. 只有当 value 真的变了（且都不是 null），才触发闪烁
+  // 2. 闪烁后 1s 自动清除
+  useEffect(() => {
+    if (value == null || prevValue.current == null) {
+      prevValue.current = value;
+      return;
+    }
+    if (value === prevValue.current) return;
+
+    if (value > prevValue.current) {
+      setFlash('green');
+    } else if (value < prevValue.current) {
+      setFlash('red');
+    }
+
+    prevValue.current = value;
+
+    const timer = setTimeout(() => {
+      setFlash(null);
+    }, 1000);
+
+    return () => clearTimeout(timer);
+  }, [value]);
+
+  const flashClass = flash === 'green' ? 'flash-green rounded px-1' : flash === 'red' ? 'flash-red rounded px-1' : '';
+
+  return (
+    <span className={`${className} ${flashClass} transition-colors duration-300`}>
+      {children}
+    </span>
+  );
+};
 
 // 注意：这里先定义函数，最后统一做默认导出 + 具名导出
 function HoldingsOverview() {
@@ -255,10 +294,10 @@ function HoldingsOverview() {
                       现价
                     </SortableHeader>
                     <SortableHeader sortKey="netQty" className="text-right px-2">
-                      持仓
+                      <span className="text-sky-400">持仓</span>
                     </SortableHeader>
                     <SortableHeader sortKey="avgCost" className="text-right px-2">
-                      成本
+                      <span className="text-amber-400">成本</span>
                     </SortableHeader>
                     <SortableHeader sortKey="costBasis" className="text-right px-2">
                       <TooltipProvider>
@@ -270,7 +309,7 @@ function HoldingsOverview() {
                         </Tooltip>
                       </TooltipProvider>
                     </SortableHeader>
-                    <TableHead className="text-right px-2">
+                    <TableHead className="text-right px-2 text-violet-400">
                       保本价
                     </TableHead>
                     <SortableHeader sortKey="todayPl" className="text-right px-2">
@@ -376,20 +415,48 @@ function HoldingsOverview() {
                                 ) : row.priceStatus === 'live' ? (
                                   <span className="mr-1 inline-block w-2 h-2 rounded-full bg-green-500" title="实时数据"></span>
                                 ) : null}
-                                {formatCurrencyNoSign(row.last)}
+                                <AnimatedNumber value={row.last} className="inline-block">
+                                  {formatCurrencyNoSign(row.last)}
+                                </AnimatedNumber>
                               </span>
                               {row.priceStatus && (
-                                <StatusBadge
-                                  status={mapRtStatusToUiStatus(row.priceStatus)}
-                                  className="inline-flex items-center shrink-0 rounded-full px-2 text-[11px] h-5"
-                                />
+                                <TooltipProvider>
+                                  <Tooltip>
+                                    <TooltipTrigger asChild>
+                                      <div className="cursor-help">
+                                        <StatusBadge
+                                          status={mapRtStatusToUiStatus(row.priceStatus)}
+                                          className="inline-flex items-center shrink-0 rounded-full px-2 text-[11px] h-5"
+                                        />
+                                      </div>
+                                    </TooltipTrigger>
+                                    <TooltipContent>
+                                      <div className="text-xs space-y-1">
+                                        <p className="font-bold">
+                                          {row.priceStatus === 'stale' ? '数据陈旧 (Stale)' :
+                                            row.priceStatus === 'pending' ? '等待更新 (Pending)' :
+                                              row.priceStatus === 'live' ? '实时数据 (Live)' :
+                                                row.priceStatus === 'closed' ? '已收盘 (Closed)' : '未知状态'}
+                                        </p>
+                                        {row.lastUpdatedTs ? (
+                                          <p>上次更新: {toNyHmsString(row.lastUpdatedTs)}</p>
+                                        ) : (
+                                          <p className="opacity-70">无更新时间记录</p>
+                                        )}
+                                        {row.priceStatus === 'stale' && (
+                                          <p className="text-orange-400">数据超过60秒未更新</p>
+                                        )}
+                                      </div>
+                                    </TooltipContent>
+                                  </Tooltip>
+                                </TooltipProvider>
                               )}
                             </div>
                           </TableCell>
 
                           {/* 持仓数量 */}
-                          <TableCell className="text-center font-mono text-sm md:text-base px-2">
-                            {row.netQty.toFixed(2)}
+                          <TableCell className="text-center font-mono text-sm md:text-base px-2 text-sky-400">
+                            {Number.isInteger(row.netQty) ? row.netQty : row.netQty.toFixed(2)}
                             {row.assetType === 'option' && (
                               <span className="text-muted-foreground text-xs ml-1">
                                 ×{row.multiplier}
@@ -398,7 +465,7 @@ function HoldingsOverview() {
                           </TableCell>
 
                           {/* 持仓单价 */}
-                          <TableCell className="text-right font-mono text-sm md:text-base px-2">
+                          <TableCell className="text-right font-mono text-sm md:text-base px-2 text-amber-400">
                             {row.avgCost !== null ? row.avgCost.toFixed(4) : '—'}
                           </TableCell>
 
@@ -408,7 +475,7 @@ function HoldingsOverview() {
                           </TableCell>
 
                           {/* 盈亏平衡点 */}
-                          <TableCell className="text-right font-mono text-sm md:text-base px-2">
+                          <TableCell className="text-right font-mono text-sm md:text-base px-2 text-violet-400">
                             {row.breakEvenPrice != null ? formatCurrencyNoSign(row.breakEvenPrice) : '—'}
                           </TableCell>
 
@@ -421,7 +488,9 @@ function HoldingsOverview() {
                                     <div className="cursor-help flex items-center justify-end gap-2">
                                       {showRowTodayPlNumber(row) ? (
                                         <span className={getTodayPlClassName(row.todayPl)}>
-                                          {formatCurrency(row.todayPl)}
+                                          <AnimatedNumber value={row.todayPl}>
+                                            {formatCurrency(row.todayPl)}
+                                          </AnimatedNumber>
                                         </span>
                                       ) : (
                                         <span className="text-xs text-muted-foreground">
@@ -451,7 +520,7 @@ function HoldingsOverview() {
                             </div>
                           </TableCell>
 
-                          {/* 当日变动：百分比 + 市值变动金额（关注货） */}
+                          {/* 当日变动：金额放上面，百分比放下面括号内 */}
                           <TableCell className="text-right font-mono text-sm md:text-base px-2">
                             {(() => {
                               if (row.dayChange == null || row.dayChangePct == null) {
@@ -461,12 +530,14 @@ function HoldingsOverview() {
                               const positionChange = row.dayChange * row.netQty * (row.multiplier ?? 1);
 
                               return (
-                                <span className={getTodayPlClassName(positionChange)}>
-                                  {formatPercent(row.dayChangePct)}
-                                  <span className="ml-1 text-[11px] md:text-xs">
-                                    ({formatCurrency(positionChange)})
+                                <div className={`flex flex-col items-end ${getTodayPlClassName(positionChange)}`}>
+                                  <AnimatedNumber value={positionChange}>
+                                    <span>{formatCurrency(positionChange)}</span>
+                                  </AnimatedNumber>
+                                  <span className="text-[11px] md:text-xs opacity-80">
+                                    ({formatPercent(row.dayChangePct)})
                                   </span>
-                                </span>
+                                </div>
                               );
                             })()}
                           </TableCell>
@@ -481,22 +552,28 @@ function HoldingsOverview() {
                                 <span className={getTodayPlClassName(row.pnl)}>
                                   {formatPercent(row.pnlPct)}
                                   <span className="ml-1 text-[11px] md:text-xs">
-                                    ({formatCurrency(row.pnl)})
+                                    <AnimatedNumber value={row.pnl}>
+                                      ({formatCurrency(row.pnl)})
+                                    </AnimatedNumber>
                                   </span>
                                 </span>
                               );
                             })()}
                           </TableCell>
 
-                          {/* 个股全生命周期总盈亏 */}
+                          {/* 个股已实现盈亏 (Strictly Realized) */}
                           <TableCell className="text-right font-mono text-sm md:text-base px-2">
                             {(() => {
-                              if (row.totalLifetimePnL == null) {
-                                return <span className="text-muted-foreground">—</span>;
-                              }
+                              // Use strict realized PnL. If null/undef, default to 0.
+                              const val = row.realizedPnl ?? 0;
+                              // Optional: Hide if 0 and user prefers clean look? 
+                              // But usually 0.00 is better for explicit "no realized".
+                              // Given previous logic used checking null, we stick to similar pattern but default 0 is fine for realized.
                               return (
-                                <span className={getTodayPlClassName(row.totalLifetimePnL)}>
-                                  {formatCurrency(row.totalLifetimePnL)}
+                                <span className={getTodayPlClassName(val)}>
+                                  <AnimatedNumber value={val}>
+                                    {formatCurrency(val)}
+                                  </AnimatedNumber>
                                 </span>
                               );
                             })()}

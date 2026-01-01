@@ -247,6 +247,8 @@ export interface HoldingRow {
     refPrice?: number | null;
     prevClose?: number | null;
     refDateUsed?: string;
+    realizedPnl?: number | null;
+    lastUpdatedTs?: number; // [NEW] Timestamp of the price
 }
 
 export interface HoldingsSummary {
@@ -323,11 +325,15 @@ export interface HoldingsSummary {
     ytdPnl: number | null;
     m4_historicalRealized: number | null;
     m4_auditTrail?: AuditEvent[];
+    m5_auditTrail?: AuditEvent[]; // [NEW] Detail for M5.1/M5.2
+    m5_1_breakdown?: { symbol: string; realized: number; unrealized: number; total: number }[]; // [NEW] Detail for M5.1
+    m5_2_breakdown?: { symbol: string; realized: number; unrealized: number; total: number }[]; // [NEW] Detail for M5.2
     m5_1_trading: number | null;
     m5_2_ledger: number | null;
     m6_1_legacy: number | null;
     m6_2_new: number | null;
     m6_total: number | null;
+    m6_pnl_breakdown?: { symbol: string; realized: number; unrealized: number; total: number }[]; // [NEW] Detail for M6
     totalHistoricalRealizedPnl: number | null;
 }
 
@@ -341,6 +347,7 @@ interface HoldingsContextValue {
     loading: boolean;
     isCalculating: boolean; // [NEW] Explicit calculation state
     transactions: Tx[];     // [NEW] Raw Transactions exposed
+    fullEodMap: Record<string, OfficialCloseResult>; // [NEW] Exposed for forensic tools
 }
 
 
@@ -407,7 +414,7 @@ export function HoldingsProvider({ children }: { children: React.ReactNode }) {
         return Array.from(s).filter(Boolean);
     }, [baseHoldings, transactions]);
 
-    const { get: getPriceRecord } = useRealTimePrices(uniqueSymbols);
+    const { get: getPriceRecord, snapshot: priceSnapshot } = useRealTimePrices(uniqueSymbols);
 
     const [refEodMap, setRefEodMap] = useState<Record<string, OfficialCloseResult>>({});
     const [todayEodMap, setTodayEodMap] = useState<Record<string, OfficialCloseResult>>({});
@@ -507,18 +514,15 @@ export function HoldingsProvider({ children }: { children: React.ReactNode }) {
     }, [uniqueSymbols]);
 
     // [PERFORMANCE FIX] Phase 1: Isolate M14 Heavy Calculation
-    // This hook ONLY depends on stable EOD data and transactions.
-    // It DOES NOT depend on real-time prices (getPriceRecord).
-    // This prevents the heavy "365-day loop" from running on every price tick.
-    const memoizedM14BaseResults = useMemo(() => {
+
+    // 1. Construct Full EOD Map (Hoisted for external use)
+    const fullEodMap = useMemo(() => {
         const todayNy = getEffectiveTradingDay();
         const refDateUsed = prevNyTradingDayString(todayNy);
         const periodBaseDates = getPeriodBaseDates(todayNy);
 
-        // 1. Start with Bulk Range Data (Lowest Priority)
         let combinedEod = { ...mtdEodMap };
 
-        // 2. Overlay Specific Fetch Data (High Priority) using Safe Merge
         const specificMaps = [
             rekeyEodMap(ytdBaseEodMap, periodBaseDates.ytd),
             rekeyEodMap(mtdBaseEodMap, periodBaseDates.mtd),
@@ -530,9 +534,19 @@ export function HoldingsProvider({ children }: { children: React.ReactNode }) {
         for (const map of specificMaps) {
             combinedEod = safeMergeEodMaps(combinedEod, map);
         }
+        return combinedEod;
+    }, [
+        mtdEodMap,
+        ytdBaseEodMap,
+        mtdBaseEodMap,
+        wtdBaseEodMap,
+        refEodMap,
+        todayEodMap
+    ]);
 
-        const fullEodMap = combinedEod;
-
+    // 2. Perform M14 Calculation
+    const memoizedM14BaseResults = useMemo(() => {
+        const todayNy = getEffectiveTradingDay();
         // [FIX] Consistent Date Generation (Noon UTC)
         const { ytd: ytdStartStr } = getPeriodStartDates(todayNy);
         const ytdRange = eachDayOfInterval({
@@ -541,15 +555,23 @@ export function HoldingsProvider({ children }: { children: React.ReactNode }) {
         });
         const ytdTargetDates = ytdRange.map(d => toNyCalendarDayString(d));
 
-        return calcM14DailyCalendar(transactions || [], ytdTargetDates, fullEodMap);
+        // Ensure we explicitly include the "Base Dates"
+        const periodBaseDates = getPeriodBaseDates(todayNy);
+        const refDateUsed = prevNyTradingDayString(todayNy);
+
+        const extraDates = [
+            periodBaseDates.ytd,
+            periodBaseDates.mtd,
+            periodBaseDates.wtd,
+            refDateUsed
+        ].filter(d => !ytdTargetDates.includes(d) && d < todayNy).sort();
+
+        const allTargets = Array.from(new Set([...extraDates, ...ytdTargetDates])).sort();
+
+        return calcM14DailyCalendar(transactions || [], allTargets, fullEodMap);
     }, [
         transactions,
-        mtdEodMap,
-        ytdBaseEodMap,
-        mtdBaseEodMap,
-        wtdBaseEodMap,
-        refEodMap,
-        todayEodMap
+        fullEodMap
     ]);
 
     const { rows, summary, historicalPnl, dailyPnlList, dailyPnlResults, pnlEvents } = useMemo(
@@ -629,6 +651,8 @@ export function HoldingsProvider({ children }: { children: React.ReactNode }) {
                     priceRecord && typeof priceRecord.status === 'string'
                         ? (priceRecord.status as RtStatus)
                         : undefined;
+
+                const lastUpdatedTs = priceRecord?.ts;
 
                 const mv = last !== null ? netQty * multiplier * last : null;
                 const costBasis =
@@ -741,6 +765,7 @@ export function HoldingsProvider({ children }: { children: React.ReactNode }) {
                     pnl,
                     pnlPct,
                     totalLifetimePnL,
+                    realizedPnl,
                     todayPl,
                     todayPlPct,
                     todayPlStatus,
@@ -753,6 +778,7 @@ export function HoldingsProvider({ children }: { children: React.ReactNode }) {
                     refPrice,
                     prevClose,
                     refDateUsed,
+                    lastUpdatedTs, // [NEW]
                 };
             }).filter((r) => {
                 if (r.netQty !== 0) return true;
@@ -845,40 +871,63 @@ export function HoldingsProvider({ children }: { children: React.ReactNode }) {
             const periodStarts = getPeriodStartDates(todayNy);
             const periodBaseDates = getPeriodBaseDates(todayNy);
 
-            const calcHistoricalUnrealized = (
-                baseDate: string,
-                priceMap: Record<string, OfficialCloseResult>
-            ): number => {
-                const txsUpToDate = (transactions || []).filter(tx => {
-                    const txDay = toNyCalendarDayString(tx.transactionTimestamp);
-                    return txDay <= baseDate;
-                });
-
-                const { holdings } = buildHoldingsSnapshot(txsUpToDate);
-
-                let totalUnrealized = 0;
-                for (const h of holdings) {
-                    const sym = normalizeSymbolForClient(h.symbol);
-                    const closeRes = priceMap[sym];
-                    const price = closeRes?.status === 'ok' ? closeRes.close : null;
-
-                    if (price != null && h.netQty !== 0) {
-                        const mv = h.netQty * price * h.multiplier;
-                        const cost = h.costBasis;
-                        totalUnrealized += (mv - cost);
-                    }
+            // [PERFORMANCE FIX] Use pre-calculated Unrealized PnL from M14 (dailyPnlResults)
+            // instead of running buildHoldingsSnapshot 3 times.
+            const getCachedUnrealized = (date: string): number => {
+                const res = memoizedM14BaseResults[date];
+                if (res && typeof res.eodUnrealized === 'number') {
+                    return res.eodUnrealized;
                 }
-                return totalUnrealized;
+                // Fallback: If date is not in our calendar range (e.g. very old), assume 0 or negligible for now.
+                // Or if needed, we could fetch it, but that causes the lag.
+                // Given we look back to YTD Base, returning 0 if missing is effectively saying "start from 0".
+                return 0;
             };
 
-            const wtdBaseUnrealized = calcHistoricalUnrealized(periodBaseDates.wtd, wtdBaseEodMap);
-            const mtdBaseUnrealized = calcHistoricalUnrealized(periodBaseDates.mtd, mtdBaseEodMap);
-            const ytdBaseUnrealized = calcHistoricalUnrealized(periodBaseDates.ytd, ytdBaseEodMap);
+            const wtdBaseUnrealized = getCachedUnrealized(periodBaseDates.wtd);
+            const mtdBaseUnrealized = getCachedUnrealized(periodBaseDates.mtd);
+            const ytdBaseUnrealized = getCachedUnrealized(periodBaseDates.ytd);
 
             const currentUnrealized = totalPnl;
 
-            const { m5_1 } = calcM5_1_Trading({ transactions: transactions || [], todayNy });
-            const { m4, m5_2, pnlEvents, totalRealizedPnl: m9_totalRealized, winCount, lossCount, auditTrail } = calcGlobalFifo({ transactions: transactions || [], todayNy });
+            // [FIX] Pass real-time prices to M5.1 to capture UNREALIZED intraday PnL
+            const { m5_1, breakdown: m5_1_breakdown_map } = calcM5_1_Trading({
+                transactions: transactions || [],
+                todayNy,
+                currentPrices: priceSnapshot
+            });
+
+            const { m4, m5_2: m5_2_realized, pnlEvents, totalRealizedPnl: m9_totalRealized, winCount, lossCount, auditTrail, openPositions } = calcGlobalFifo({ transactions: transactions || [], todayNy });
+
+            // [FIX] Calculate Unrealized PnL for M5.2 (Ledger View) for positions opened today
+            let m5_2_unrealized = 0;
+            if (priceSnapshot && openPositions) {
+                openPositions.forEach((queue, key) => {
+                    // key is either contractKey or normalized symbol
+                    // priceSnapshot is keyed by normalized symbol.
+                    // Simplified matching:
+                    const symbol = normalizeSymbolForClient(key.split(' ')[0]);
+                    const priceRec = priceSnapshot.get(symbol);
+
+                    if (priceRec && typeof priceRec.price === 'number') {
+                        const currentPrice = priceRec.price;
+                        queue.forEach(pos => {
+                            // Only consider positions established TODAY for M5.2 Unrealized
+                            if (pos.date === todayNy) {
+                                let pnl = 0;
+                                if (pos.qty > 0) { // Long
+                                    pnl = (currentPrice - pos.cost) * pos.qty * pos.multiplier;
+                                } else { // Short
+                                    pnl = (pos.cost - currentPrice) * Math.abs(pos.qty) * pos.multiplier;
+                                }
+                                m5_2_unrealized += pnl;
+                            }
+                        });
+                    }
+                });
+            }
+
+            const m5_2 = m5_2_realized + m5_2_unrealized;
 
             // [NEW] Calculate All-Time Win Rate Stats
             let totalWinPnl = 0;
@@ -903,21 +952,29 @@ export function HoldingsProvider({ children }: { children: React.ReactNode }) {
             }
             const historicalPnl = Array.from(historicalPnlMap.entries()).map(([symbol, pnl]) => ({ symbol, pnl }));
 
-            const dailyPnlMap = new Map<string, number>();
-            for (const event of auditTrail) {
-                const date = event.closeDate;
-                const current = dailyPnlMap.get(date) || 0;
-                dailyPnlMap.set(date, current + event.pnl);
-            }
-            const dailyPnlList = Array.from(dailyPnlMap.entries())
-                .map(([date, pnl]) => ({ date, pnl }))
-                .sort((a, b) => a.date.localeCompare(b.date));
+            // [MOVED DOWN] dailyPnlList calculation moved after dailyPnlResults is finalized
+
+            // [FIX] Extract a Robust Reference Map from the Full EOD Map
+            // This ensures M6 (Homepage) uses the exact same data source as M14 (Calendar/Dialog),
+            // covering cases where the simple 'refEodMap' fetch failed but 'mtd/ytd' bulk fetch succeeded.
+            const robustRefMap: Record<string, OfficialCloseResult> = {};
+            const refDateKey = prevNyTradingDayString(todayNy);
+
+            allSymbols.forEach(sym => {
+                const key = `${refDateKey}_${normalizeSymbolForClient(sym)}`;
+                if (fullEodMap[key]) {
+                    robustRefMap[sym] = fullEodMap[key];
+                } else if (refEodMap[sym]) {
+                    // Fallback to specific fetch if somehow missing in full map (unlikely due to merge logic)
+                    robustRefMap[sym] = refEodMap[sym];
+                }
+            });
 
             // [MOVED UP] Calculate M6 Total first so we can inject it into M14
             const m6Results = calcM6Attribution(
                 transactions || [],
                 todayNy,
-                refEodMap
+                robustRefMap // <--- USE ROBUST MAP
             );
 
             let m6_1 = 0;
@@ -933,7 +990,7 @@ export function HoldingsProvider({ children }: { children: React.ReactNode }) {
 
                 if (currentPrice !== null) {
                     if (res.remainingLegacyQty !== 0 && res.status === 'ok') {
-                        const prevClose = refEodMap[normalizeSymbolForClient(sym)]?.close ?? 0;
+                        const prevClose = robustRefMap[normalizeSymbolForClient(sym)]?.close ?? 0;
                         m6_1 += res.remainingLegacyQty * (currentPrice - prevClose) * res.multiplier;
                     }
 
@@ -996,9 +1053,13 @@ export function HoldingsProvider({ children }: { children: React.ReactNode }) {
                     realizedPnlDay: todayRealizedDay,
                     m5_1: m5_1,
                     unrealizedPnlChange: todayUnrealizedChange,
-                    status: 'ok' // Force OK so it gets summed
                 };
             }
+
+            // [FIXED LOCATION] Calculate dailyPnlList from the FINAL dailyPnlResults (Total PnL)
+            const dailyPnlList = Object.values(dailyPnlResults)
+                .map(res => ({ date: res.date, pnl: res.totalPnl }))
+                .sort((a, b) => a.date.localeCompare(b.date));
 
             // Calculate WTD/MTD using Sum of Dailies
             // Calculate WTD/MTD using Sum of Dailies
@@ -1076,7 +1137,7 @@ export function HoldingsProvider({ children }: { children: React.ReactNode }) {
             // winRate is already calculated above
 
             const calcWinRateStats = (startDate: string) => {
-                const { winCount, lossCount, pnlEvents } = calcGlobalFifo({
+                const { winCount, lossCount, pnlEvents, openPositions: globalOpenPositions } = calcGlobalFifo({
                     transactions: (transactions || []).filter(tx => toNyCalendarDayString(tx.transactionTimestamp) >= startDate),
                     todayNy
                 });
@@ -1165,11 +1226,107 @@ export function HoldingsProvider({ children }: { children: React.ReactNode }) {
                 ytdPnl: m13,
                 m4_historicalRealized: m4,
                 m4_auditTrail: auditTrail ? auditTrail.filter(e => e.closeDate === todayNy && e.openDate !== todayNy) : [],
+                m5_auditTrail: auditTrail ? auditTrail.filter(e => e.closeDate === todayNy && e.openDate === todayNy) : [],
+                m5_1_breakdown: m5_1_breakdown_map ? Array.from(m5_1_breakdown_map.entries()).map(([sym, val]) => ({
+                    symbol: sym,
+                    realized: val.realized,
+                    unrealized: val.unrealized,
+                    total: val.realized + val.unrealized
+                })).sort((a, b) => (a.total - b.total)) : [],
+                m5_2_breakdown: (() => {
+                    // Calculate M5.2 Breakdown (Ledger View)
+                    const breakdownMap = new Map<string, { realized: number; unrealized: number }>();
+
+                    // 1. Realized (Audit Trail: Open Today & Close Today)
+                    if (auditTrail) {
+                        auditTrail.forEach(e => {
+                            if (e.closeDate === todayNy && e.openDate === todayNy) {
+                                const item = breakdownMap.get(e.symbol) || { realized: 0, unrealized: 0 };
+                                item.realized += e.pnl;
+                                breakdownMap.set(e.symbol, item);
+                            }
+                        });
+                    }
+
+                    // 2. Unrealized (Global Open Positions: Opened Today)
+                    if (openPositions && priceSnapshot) {
+                        openPositions.forEach((queue, contractKey) => {
+                            // contractKey is usually just symbol, or 'SYMBOL'
+                            const symbol = normalizeSymbolForClient(contractKey.split(' ')[0]);
+                            const priceRec = priceSnapshot.get(symbol);
+
+                            if (priceRec && typeof priceRec.price === 'number') {
+                                const currentPrice = priceRec.price;
+                                queue.forEach(pos => {
+                                    // Only consider positions established TODAY for M5.2 Unrealized
+                                    if (pos.date === todayNy) {
+                                        let pnl = 0;
+                                        if (pos.qty > 0) { // Long
+                                            pnl = (currentPrice - pos.cost) * pos.qty * pos.multiplier;
+                                        } else { // Short
+                                            pnl = (pos.cost - currentPrice) * Math.abs(pos.qty) * pos.multiplier;
+                                        }
+
+                                        const item = breakdownMap.get(symbol) || { realized: 0, unrealized: 0 };
+                                        item.unrealized += pnl;
+                                        breakdownMap.set(symbol, item);
+                                    }
+                                });
+                            }
+                        });
+                    }
+
+                    return Array.from(breakdownMap.entries()).map(([sym, val]) => ({
+                        symbol: sym,
+                        realized: val.realized,
+                        unrealized: val.unrealized,
+                        total: val.realized + val.unrealized
+                    })).sort((a, b) => (a.total - b.total));
+                })(),
                 m5_1_trading: m5_1,
                 m5_2_ledger: m5_2,
                 m6_1_legacy: m6_1,
                 m6_2_new: m6_2,
                 m6_total: m6_total,
+                m6_pnl_breakdown: (() => {
+                    // Calculate M6 PnL breakdown per symbol using consistent Day Attribution (M6) logic
+                    // This ensures Realized PnL matches Day Realized (vs Prev Close), not Historical (vs Cost).
+
+                    const breakdown: { symbol: string; realized: number; unrealized: number; total: number }[] = [];
+
+                    for (const [sym, res] of Object.entries(m6Results)) {
+                        const realized = res.m6_1_realized + res.m6_2_realized;
+
+                        let unrealized = 0;
+                        const priceRec = getPriceRecord(normalizeSymbolForClient(sym));
+                        const currentPrice = (priceRec && typeof priceRec.price === 'number') ? priceRec.price : null;
+
+                        if (currentPrice !== null) {
+                            // Legacy Unrealized: RemQty * (Curr - PrevClose)
+                            if (res.remainingLegacyQty !== 0 && res.status === 'ok') {
+                                const prevClose = robustRefMap[normalizeSymbolForClient(sym)]?.close ?? 0;
+                                unrealized += res.remainingLegacyQty * (currentPrice - prevClose) * res.multiplier;
+                            }
+
+                            // New Unrealized: RemQty * (Curr - Entry)
+                            for (const batch of res.remainingNewBatches) {
+                                unrealized += batch.qty * (currentPrice - batch.price) * res.multiplier;
+                            }
+                        }
+
+                        if (Math.abs(realized) > 0.01 || Math.abs(unrealized) > 0.01) {
+                            breakdown.push({
+                                symbol: sym,
+                                realized,
+                                unrealized,
+                                total: realized + unrealized
+                            });
+                        }
+                    }
+
+                    return breakdown.sort((a, b) => b.total - a.total);
+                })(),
+
                 totalHistoricalRealizedPnl: m9_totalRealized,
             };
 
@@ -1187,6 +1344,7 @@ export function HoldingsProvider({ children }: { children: React.ReactNode }) {
             getPriceRecord,
             mtdEodMap, // Add dependency
             memoizedM14BaseResults, // [NEW] Dependency on isolated M14
+            priceSnapshot, // [FIX] Ensure re-calc on real-time price updates
         ],
     );
 
@@ -1199,10 +1357,11 @@ export function HoldingsProvider({ children }: { children: React.ReactNode }) {
         dailyPnlList,
         dailyPnlResults,
         pnlEvents,
+        fullEodMap, // [NEW] Exposed for forensic tools
         loading,
         isCalculating: loading,
         transactions: transactions || []
-    }), [rows, summary, historicalPnl, dailyPnlList, dailyPnlResults, pnlEvents, loading, transactions]);
+    }), [rows, summary, historicalPnl, dailyPnlList, dailyPnlResults, pnlEvents, fullEodMap, loading, transactions]);
 
     return (
         <HoldingsContext.Provider value={value}>

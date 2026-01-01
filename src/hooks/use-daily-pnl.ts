@@ -56,13 +56,16 @@ export function useDailyPnl(currentMonth: Date) {
         const fetchData = async () => {
             setLoading(true);
             try {
-                // Optimization: Fetch range for the whole month + single fetch for prev month end
-                // [MODIFIED] Fetch YTD (from Start of Year) to ensure we have context and data for past months
-                const rangeStart = startOfYear(currentMonth);
+                // Optimization: Fetch range for the current month + single fetch for prev month end
+                // [FIX] Do NOT fetch YTD (startOfYear) here. It's too heavy and fragile.
+                // We only need the current month's EODs + the baseline calculation.
+                const rangeStart = startOfMonth(currentMonth);
                 const rangeEnd = endOfMonth(currentMonth);
 
                 const startStr = toNyCalendarDayString(rangeStart);
                 const endStr = toNyCalendarDayString(rangeEnd);
+
+                console.log(`[useDailyPnl] Fetching EOD Data. Range: ${startStr} -> ${endStr}. Baseline: ${prevMonthEnd}`);
 
                 // 2. Fetch Prev Month End (Reference Date)
                 const p1 = getOfficialCloses(prevMonthEnd, uniqueSymbols, { shouldAutoRequestBackfill: true });

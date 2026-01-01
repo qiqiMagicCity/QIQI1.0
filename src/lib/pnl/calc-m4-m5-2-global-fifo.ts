@@ -45,7 +45,7 @@ export type GlobalFifoResult = {
     lossCount: number; // M10: 亏损批次
     pnlEvents: PnLEvent[]; // [NEW] 所有已实现盈亏事件，供 M11-M13 使用
     auditTrail: AuditEvent[]; // [NEW] Detailed ledger for debugging
-    openPositions: Map<string, Array<{ qty: number; cost: number; date: string }>>; // [NEW] 当前持仓队列，用于计算持仓均价
+    openPositions: Map<string, Array<{ qty: number; cost: number; date: string; multiplier: number }>>; // [NEW] 当前持仓队列，用于计算持仓均价
 };
 
 /**
@@ -67,7 +67,7 @@ export function calcGlobalFifo(input: GlobalFifoInput): GlobalFifoResult {
 
     // [REVERT] Use subtraction for numeric timestamps
     const sortedAllTx = [...transactions].sort((a, b) => a.transactionTimestamp - b.transactionTimestamp);
-    const globalQueues = new Map<string, Array<{ qty: number; cost: number; date: string }>>();
+    const globalQueues = new Map<string, Array<{ qty: number; cost: number; date: string; multiplier: number }>>();
 
     let m5_2 = 0;
     let m4 = 0;
@@ -97,7 +97,7 @@ export function calcGlobalFifo(input: GlobalFifoInput): GlobalFifoResult {
 
         while (remainingQty !== 0) {
             if (queue.length === 0) {
-                queue.push({ qty: remainingQty, cost: adjPrice, date: txDate });
+                queue.push({ qty: remainingQty, cost: adjPrice, date: txDate, multiplier: adjMultiplier });
                 remainingQty = 0;
             } else {
                 const head = queue[0];
@@ -105,7 +105,7 @@ export function calcGlobalFifo(input: GlobalFifoInput): GlobalFifoResult {
                 const txSign = Math.sign(remainingQty);
 
                 if (headSign === txSign) {
-                    queue.push({ qty: remainingQty, cost: adjPrice, date: txDate });
+                    queue.push({ qty: remainingQty, cost: adjPrice, date: txDate, multiplier: adjMultiplier });
                     remainingQty = 0;
                 } else {
                     const matchQty = Math.min(Math.abs(remainingQty), Math.abs(head.qty));

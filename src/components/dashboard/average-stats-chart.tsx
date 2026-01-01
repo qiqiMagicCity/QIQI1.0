@@ -30,7 +30,7 @@ export function AverageStatsChart({ title, data, type }: AverageStatsChartProps)
             return `$${val.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`;
         }
         if (isEfficiency) {
-            return `$${val.toFixed(2)}`; // PnL per $10,000
+            return `${val.toFixed(2)}%`; // Daily ROI %
         }
         return val.toLocaleString();
     };
@@ -50,7 +50,13 @@ export function AverageStatsChart({ title, data, type }: AverageStatsChartProps)
     };
 
     const renderChart = (chartData: StatData[], label: string) => {
-        if (!chartData || chartData.length === 0) {
+        // [FIX] Filter out leading empty periods (zeros) to auto-detect activity start
+        // This matches the logic in DailyPnlChart and CumulativePnlChart
+        const firstActivityIndex = chartData.findIndex(d => Math.abs(d.value) > 0.01);
+        const startIndex = firstActivityIndex >= 0 ? firstActivityIndex : 0;
+        const filteredData = chartData.slice(startIndex);
+
+        if (!filteredData || filteredData.length === 0) {
             return (
                 <div className="h-[150px] flex items-center justify-center text-muted-foreground text-xs border rounded-md bg-muted/20">
                     No Data
@@ -58,10 +64,14 @@ export function AverageStatsChart({ title, data, type }: AverageStatsChartProps)
             );
         }
 
+        // Use filteredData for all charts below
+        const dataToRender = filteredData;
+
+
         // --- 1. Area Chart for PnL (Green/Red Gradient) ---
         if (isPnl) {
-            const dataMax = Math.max(...chartData.map((d) => d.value));
-            const dataMin = Math.min(...chartData.map((d) => d.value));
+            const dataMax = Math.max(...dataToRender.map((d) => d.value));
+            const dataMin = Math.min(...dataToRender.map((d) => d.value));
 
             let gradientOffset = 0;
             if (dataMax <= 0) {
@@ -79,7 +89,7 @@ export function AverageStatsChart({ title, data, type }: AverageStatsChartProps)
                     <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider text-center">{label}</h4>
                     <div className="h-[150px] w-full">
                         <ResponsiveContainer width="100%" height="100%">
-                            <AreaChart data={chartData} margin={{ top: 5, right: 5, bottom: 5, left: 5 }}>
+                            <AreaChart data={dataToRender} margin={{ top: 5, right: 5, bottom: 5, left: 5 }}>
                                 <defs>
                                     <linearGradient id={gradId} x1="0" y1="0" x2="0" y2="1">
                                         <stop offset={gradientOffset} stopColor="#10b981" stopOpacity={0.6} />
@@ -127,7 +137,7 @@ export function AverageStatsChart({ title, data, type }: AverageStatsChartProps)
                     <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider text-center">{label}</h4>
                     <div className="h-[150px] w-full">
                         <ResponsiveContainer width="100%" height="100%">
-                            <ComposedChart data={chartData} margin={{ top: 5, right: 5, bottom: 5, left: 5 }}>
+                            <ComposedChart data={dataToRender} margin={{ top: 5, right: 5, bottom: 5, left: 5 }}>
                                 <XAxis dataKey="label" hide={false} minTickGap={30} tickFormatter={(v) => v.slice(5)} tick={{ fontSize: 10, fill: '#666' }} />
                                 <Tooltip
                                     cursor={{ fill: 'transparent' }}
@@ -167,7 +177,7 @@ export function AverageStatsChart({ title, data, type }: AverageStatsChartProps)
                 <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider text-center">{label}</h4>
                 <div className="h-[150px] w-full">
                     <ResponsiveContainer width="100%" height="100%">
-                        <BarChart data={chartData} margin={{ top: 5, right: 5, bottom: 5, left: 5 }}>
+                        <BarChart data={dataToRender} margin={{ top: 5, right: 5, bottom: 5, left: 5 }}>
                             <XAxis dataKey="label" hide={false} minTickGap={30} tickFormatter={(v) => v.slice(5)} tick={{ fontSize: 10, fill: '#666' }} />
                             <Tooltip
                                 cursor={{ fill: 'rgba(255,255,255,0.05)' }}
@@ -193,7 +203,7 @@ export function AverageStatsChart({ title, data, type }: AverageStatsChartProps)
                             />
                             <ReferenceLine y={0} stroke="#555" />
                             <Bar dataKey="value" radius={[4, 4, 0, 0]}>
-                                {chartData.map((entry, index) => (
+                                {dataToRender.map((entry, index) => (
                                     <Cell key={`cell-${index}`} fill={getBarColor(entry.value)} />
                                 ))}
                             </Bar>

@@ -4,30 +4,68 @@ import { useHoldings } from '@/hooks/use-holdings';
 import { Bar, BarChart, CartesianGrid, Cell, ResponsiveContainer, Tooltip, XAxis, YAxis, ReferenceLine } from 'recharts';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 
+import { useMemo, useState } from 'react';
+import { startOfWeek, startOfMonth, format, parseISO } from 'date-fns';
+import { cn } from '@/lib/utils';
+import { isNyTradingDay } from '@/lib/ny-time';
+
 export function DailyPnlChart() {
     const { dailyPnlList, loading } = useHoldings();
+    const [viewMode, setViewMode] = useState<'day' | 'week' | 'month'>('day');
 
-    if (loading) {
-        return (
-            <div className="relative overflow-hidden rounded-xl border border-zinc-800 bg-zinc-950/50 backdrop-blur-xl shadow-2xl h-[400px] flex items-center justify-center">
-                <div className="text-muted-foreground">加载中...</div>
-            </div>
-        );
-    }
+    const data = useMemo(() => {
+        if (!dailyPnlList || dailyPnlList.length === 0) return [];
 
-    if (!dailyPnlList || dailyPnlList.length === 0) {
-        return (
-            <div className="relative overflow-hidden rounded-xl border border-zinc-800 bg-zinc-950/50 backdrop-blur-xl shadow-2xl h-[400px] flex items-center justify-center">
-                <div className="text-muted-foreground">暂无每日盈亏数据</div>
-            </div>
-        );
-    }
+        const sorted = [...dailyPnlList].sort((a, b) => a.date.localeCompare(b.date));
 
-    // Format dates for X-axis (MM-DD)
-    const data = dailyPnlList.map(item => ({
-        ...item,
-        dateShort: item.date.slice(5), // Remove YYYY-
-    }));
+        // Filter out leading empty days
+        const firstActivityIndex = sorted.findIndex(item => Math.abs(item.pnl) > 0.01);
+        const startIndex = firstActivityIndex >= 0 ? firstActivityIndex : 0;
+
+        // [FIX] Filter out weekends (Non-Trading Days)
+        const activeData = sorted.slice(startIndex).filter(item => isNyTradingDay(item.date));
+
+        if (viewMode === 'day') {
+            return activeData.map(item => ({
+                ...item,
+                dateShort: item.date.slice(5),
+            }));
+        }
+
+        // Aggregate for Week/Month
+        const grouped = new Map<string, { date: string, pnl: number, dateShort: string }>();
+
+        activeData.forEach(item => {
+            const dateObj = parseISO(item.date);
+            let key: string;
+            let label: string;
+
+            if (viewMode === 'week') {
+                const start = startOfWeek(dateObj, { weekStartsOn: 1 }); // Monday start
+                key = format(start, 'yyyy-MM-dd');
+                // label = format(start, 'MM-dd'); // OLD
+                label = `W${format(start, 'I')}`; // NEW: Week Number
+            } else {
+                const start = startOfMonth(dateObj);
+                key = format(start, 'yyyy-MM-dd');
+                label = format(start, 'yyyy-MM');
+            }
+
+            if (!grouped.has(key)) {
+                grouped.set(key, { date: key, pnl: 0, dateShort: label });
+            }
+            const entry = grouped.get(key)!;
+            entry.pnl += item.pnl;
+        });
+
+        return Array.from(grouped.values()).sort((a, b) => a.date.localeCompare(b.date));
+    }, [dailyPnlList, viewMode]);
+
+    const chartWidth = useMemo(() => {
+        const barWidth = viewMode === 'day' ? 40 : 60;
+        return Math.max(viewMode === 'day' ? 1000 : 600, data.length * barWidth);
+    }, [data, viewMode]);
+
 
     return (
         <div className="relative overflow-hidden rounded-xl border border-zinc-800 bg-zinc-950/50 backdrop-blur-xl shadow-2xl col-span-1 md:col-span-2 lg:col-span-3">
@@ -36,26 +74,48 @@ export function DailyPnlChart() {
                     <div className="h-2 w-2 rounded-full bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.5)]" />
                     <h3 className="text-sm font-medium tracking-wide text-zinc-100">每日盈亏情况</h3>
                 </div>
+
+                <div className="flex items-center gap-1 bg-zinc-900/50 rounded-lg p-0.5 border border-zinc-800">
+                    {(['day', 'week', 'month'] as const).map((m) => (
+                        <button
+                            key={m}
+                            onClick={() => setViewMode(m)}
+                            className={cn(
+                                "px-3 py-1 text-xs font-medium rounded-md transition-all",
+                                viewMode === m
+                                    ? "bg-zinc-800 text-zinc-100 shadow-sm"
+                                    : "text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800/50"
+                            )}
+                        >
+                            {m === 'day' ? '日' : m === 'week' ? '周' : '月'}
+                        </button>
+                    ))}
+                </div>
             </div>
 
-            <div className="p-4">
-                <div className="h-[300px] w-full">
+            <div className="p-4 overflow-x-auto scrollbar-thin scrollbar-thumb-zinc-700 scrollbar-track-transparent">
+                <div className="h-[300px]" style={{ minWidth: '100%', width: chartWidth }}>
                     <ResponsiveContainer width="100%" height="100%">
-                        <BarChart data={data} margin={{ top: 5, right: 30, left: 20, bottom: 5 }}>
-                            <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e5e7eb" />
+                        <BarChart data={data} margin={{ top: 5, right: 30, left: 10, bottom: 5 }}>
+                            <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e5e7eb" opacity={0.1} />
                             <XAxis
                                 dataKey="dateShort"
                                 stroke="#888888"
-                                fontSize={12}
+                                fontSize={10}
                                 tickLine={false}
                                 axisLine={false}
+                                interval={0}
+                                angle={-45}
+                                textAnchor="end"
+                                height={60}
                             />
                             <YAxis
                                 stroke="#888888"
                                 fontSize={12}
                                 tickLine={false}
                                 axisLine={false}
-                                tickFormatter={(value) => `$${value}`}
+                                tickFormatter={(value) => `$${Math.round(value).toLocaleString()}`}
+                                width={60}
                             />
                             <Tooltip
                                 cursor={{ fill: 'transparent' }}

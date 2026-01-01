@@ -5,6 +5,7 @@ import { DashboardHeader } from "@/components/dashboard/dashboard-header";
 import { CalculationGrid } from "@/components/dashboard/calculation-grid";
 import { HoldingsOverview } from "@/components/dashboard/holdings-overview";
 import { StockDetails } from "@/components/dashboard/stock-details";
+import { StocksTab } from "@/components/dashboard/stocks-tab";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { StatusBadge } from "@/components/ui/status-badge";
@@ -110,6 +111,7 @@ export default function Home() {
             <TabsList>
               <TabsTrigger value="home">首页</TabsTrigger>
               <TabsTrigger value="details">交易分析</TabsTrigger>
+              <TabsTrigger value="stocks">个股详情</TabsTrigger>
               <TabsTrigger value="history">交易历史</TabsTrigger>
             </TabsList>
 
@@ -207,6 +209,10 @@ export default function Home() {
 
             <TabsContent value="details" className="mt-6">
               <StockDetails />
+            </TabsContent>
+
+            <TabsContent value="stocks" className="mt-6">
+              <StocksTab />
             </TabsContent>
 
             <TabsContent value="history" className="mt-6">

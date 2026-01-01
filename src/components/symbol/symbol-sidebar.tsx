@@ -19,9 +19,10 @@ interface SidebarItem {
 interface SymbolSidebarProps {
     items: SidebarItem[];
     currentSymbol: string;
+    onSelect?: (symbol: string) => void; // Optional: If provided, acts as a controlled component
 }
 
-export function SymbolSidebar({ items, currentSymbol }: SymbolSidebarProps) {
+export function SymbolSidebar({ items, currentSymbol, onSelect }: SymbolSidebarProps) {
     const [searchQuery, setSearchQuery] = useState('');
 
     const filteredItems = useMemo(() => {
@@ -31,18 +32,20 @@ export function SymbolSidebar({ items, currentSymbol }: SymbolSidebarProps) {
 
     return (
         <div className="flex flex-col h-full bg-slate-900/50 backdrop-blur-md rounded-2xl border border-slate-800 overflow-hidden shadow-xl">
-            {/* Header / Back to Home */}
+            {/* Header / Back to Home - Only show if NOT in embedded mode (no onSelect) */}
             <div className="p-4 border-b border-slate-800 space-y-4 bg-slate-950/50">
-                <Link href="/" prefetch={false}>
-                    <Button
-                        variant="ghost"
-                        className="w-full justify-start text-slate-400 hover:text-emerald-400 hover:bg-slate-900 gap-2"
-                    >
-                        <ArrowLeft className="h-4 w-4" />
-                        <LayoutDashboard className="h-4 w-4" />
-                        <span className="font-bold">返回首页</span>
-                    </Button>
-                </Link>
+                {!onSelect && (
+                    <Link href="/" prefetch={false}>
+                        <Button
+                            variant="ghost"
+                            className="w-full justify-start text-slate-400 hover:text-emerald-400 hover:bg-slate-900 gap-2"
+                        >
+                            <ArrowLeft className="h-4 w-4" />
+                            <LayoutDashboard className="h-4 w-4" />
+                            <span className="font-bold">返回首页</span>
+                        </Button>
+                    </Link>
+                )}
 
                 <div className="relative">
                     <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-500" />
@@ -70,27 +73,47 @@ export function SymbolSidebar({ items, currentSymbol }: SymbolSidebarProps) {
                             borderColorClass = "border-emerald-500";
                         }
 
-                        return (
-                            <Link
-                                key={item.symbol}
-                                href={`/symbol/${item.symbol}`}
-                                prefetch={false}
-                                className={cn(
-                                    "flex flex-col items-center justify-center p-3 rounded-xl border-2 transition-all duration-200 group relative overflow-hidden",
-                                    isSelected
-                                        ? "bg-emerald-500/10 shadow-[0_0_15px_rgba(16,185,129,0.15)]"
-                                        : "bg-slate-950/50 hover:bg-slate-800",
-                                    borderColorClass
-                                )}
-                            >
-                                <CompanyLogo symbol={item.symbol.split(' ')[0]} size={32} className="w-8 h-8 mb-2" />
+                        const commonClasses = cn(
+                            "flex flex-col items-center justify-center p-3 rounded-xl border-2 transition-all duration-200 group relative overflow-hidden",
+                            isSelected
+                                ? "bg-emerald-500/10 shadow-[0_0_15px_rgba(16,185,129,0.15)]"
+                                : "bg-slate-950/50 hover:bg-slate-800",
+                            borderColorClass,
+                            onSelect ? "cursor-pointer" : ""
+                        );
 
+                        const content = (
+                            <>
+                                <CompanyLogo symbol={item.symbol.split(' ')[0]} size={32} className="w-8 h-8 mb-2" />
                                 <span className={cn(
                                     "font-bold text-sm tracking-wide transition-colors text-center break-words w-full",
                                     isSelected ? "text-emerald-400" : "text-slate-400 group-hover:text-emerald-400"
                                 )}>
                                     {item.symbol}
                                 </span>
+                            </>
+                        );
+
+                        if (onSelect) {
+                            return (
+                                <div
+                                    key={item.symbol}
+                                    onClick={() => onSelect(item.symbol)}
+                                    className={commonClasses}
+                                >
+                                    {content}
+                                </div>
+                            );
+                        }
+
+                        return (
+                            <Link
+                                key={item.symbol}
+                                href={`/symbol/${item.symbol}`}
+                                prefetch={false}
+                                className={commonClasses}
+                            >
+                                {content}
                             </Link>
                         );
                     })}

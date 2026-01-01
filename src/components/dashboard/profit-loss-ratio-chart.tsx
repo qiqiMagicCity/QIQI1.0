@@ -56,7 +56,7 @@ export function ProfitLossRatioChart({ stats, mode, onModeChange }: ProfitLossRa
             <div className="p-4">
                 {/* Top Metrics Cards */}
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
-                    <div className="bg-muted/30 p-3 rounded-lg border border-border/50">
+                    <div className="bg-muted/30 p-3 rounded-lg border border-border/50 relative overflow-hidden">
                         <p className="text-xs text-muted-foreground mb-1">Win Rate 胜率</p>
                         <p className="text-xl font-bold font-mono text-emerald-500">{(winRate * 100).toFixed(1)}%</p>
                     </div>
@@ -74,6 +74,54 @@ export function ProfitLossRatioChart({ stats, mode, onModeChange }: ProfitLossRa
                     </div>
                 </div>
 
+                {/* Breakeven Analysis */}
+                {(() => {
+                    const safeAvgLoss = Math.abs(avgLoss);
+                    // Avoid division by zero
+                    const r = safeAvgLoss > 0 ? avgWin / safeAvgLoss : 0;
+                    const beRate = r > 0 ? 1 / (1 + r) : 0;
+                    const bePercent = beRate * 100;
+                    const currentPercent = winRate * 100;
+                    const isSafe = winRate > beRate;
+
+                    return (
+                        <div className="mb-6 px-1">
+                            <div className="flex justify-between text-xs mb-1">
+                                <span className={!isSafe ? "text-rose-400 font-bold" : "text-emerald-500 font-medium"}>
+                                    {isSafe ? "策略可持续 (盈利模式)" : "警告：策略不可持续 (亏损模式)"}
+                                </span>
+                                <span className="text-muted-foreground">
+                                    盈亏平衡所需胜率: <span className="font-mono text-zinc-300">{bePercent.toFixed(1)}%</span>
+                                </span>
+                            </div>
+                            <div className="relative h-4 bg-zinc-800 rounded-full overflow-hidden">
+                                {/* Current Win Rate Bar */}
+                                <div
+                                    className={`absolute top-0 left-0 h-full transition-all duration-500 ${isSafe ? 'bg-emerald-500' : 'bg-rose-500'}`}
+                                    style={{ width: `${Math.min(currentPercent, 100)}%` }}
+                                />
+                                {/* Breakeven Marker */}
+                                <div
+                                    className="absolute top-0 h-full w-0.5 bg-white shadow-[0_0_10px_white] z-10"
+                                    style={{ left: `${Math.min(bePercent, 100)}%` }}
+                                />
+                                {/* BE Label */}
+                                <div
+                                    className="absolute top-4 text-[10px] font-bold text-white -translate-x-1/2"
+                                    style={{ left: `${Math.min(bePercent, 100)}%` }}
+                                >
+                                    BE (保本)
+                                </div>
+                            </div>
+                            <div className="flex justify-between text-[10px] text-muted-foreground mt-1">
+                                <span>0%</span>
+                                <span>当前: {(winRate * 100).toFixed(1)}%</span>
+                                <span>100%</span>
+                            </div>
+                        </div>
+                    );
+                })()}
+
                 {/* Bar Chart */}
                 <div className="h-[200px] w-full">
                     <ResponsiveContainer width="100%" height="100%">
@@ -83,6 +131,7 @@ export function ProfitLossRatioChart({ stats, mode, onModeChange }: ProfitLossRa
                                 dataKey="name"
                                 type="category"
                                 width={80}
+                                tickFormatter={(val) => val === 'Avg Win' ? '平均盈利' : '平均亏损'}
                                 tick={{ fontSize: 12, fill: '#888888' }}
                                 axisLine={false}
                                 tickLine={false}
@@ -94,7 +143,7 @@ export function ProfitLossRatioChart({ stats, mode, onModeChange }: ProfitLossRa
                                         const data = payload[0].payload;
                                         return (
                                             <div className="bg-popover border border-border px-3 py-2 rounded shadow-lg text-xs">
-                                                <p className="font-bold mb-1">{data.name}</p>
+                                                <p className="font-bold mb-1">{data.name === 'Avg Win' ? '平均盈利 (Avg Win)' : '平均亏损 (Avg Loss)'}</p>
                                                 <p className="font-mono">{formatCurrency(data.value)}</p>
                                             </div>
                                         );
@@ -114,7 +163,7 @@ export function ProfitLossRatioChart({ stats, mode, onModeChange }: ProfitLossRa
                 {/* Footer Text */}
                 <div className="mt-4 text-xs text-center text-muted-foreground">
                     损益比 &gt; 1 表示平均盈利大于平均亏损；损益比 &lt; 1 表示平均亏损大于平均盈利。
-                    <span className="ml-2 opacity-70">(Expectancy: {formatCurrency(expectancy)})</span>
+                    <span className="ml-2 opacity-70">(预期每笔收益 Expectancy: {formatCurrency(expectancy)})</span>
                 </div>
             </div>
         </div>

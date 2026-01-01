@@ -72,7 +72,7 @@ function startDev() {
     console.log('[启动助手] 启动 Next.js...');
 
     // Inherit stdio so colors and interaction work
-    const next = spawn('next', ['dev', '-p', String(PORT)], {
+    const next = spawn('next', ['dev', '-p', String(PORT), '-H', '0.0.0.0'], {
         stdio: 'inherit',
         shell: true
     });

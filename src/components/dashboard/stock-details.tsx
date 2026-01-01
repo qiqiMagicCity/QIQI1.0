@@ -5,6 +5,7 @@ import Link from "next/link";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { useHoldings } from "@/hooks/use-holdings";
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip, Sector } from "recharts";
+import { CumulativePnlChart } from "./cumulative-pnl-chart";
 import { DailyPnlChart } from "./daily-pnl-chart";
 import { DailyPnlCalendar } from "./daily-pnl-calendar";
 import { CompanyLogo } from "@/components/common/company-logo";
@@ -196,8 +197,8 @@ export function StockDetails() {
     return calculateTransactionStats(dailyPnlValues, transactions);
   }, [dailyPnlValues, transactions]);
 
-  const [statsMode, setStatsMode] = useState<'realized' | 'combined'>('realized');
-  const [scatterDimension, setScatterDimension] = useState<'symbol' | 'day'>('symbol');
+  const [statsMode, setStatsMode] = useState<'realized' | 'combined'>('combined');
+  const [scatterDimension, setScatterDimension] = useState<'symbol' | 'day'>('day');
 
   const displayedWinRateStats = useMemo(() => {
     const base = summary?.winRateStats;
@@ -292,20 +293,39 @@ export function StockDetails() {
         realizedMap.set(e.date, (realizedMap.get(e.date) || 0) + e.pnl);
       });
 
-      return stats.daily.map((d: any) => ({
-        x: d.tradingValue,
-        y: realizedMap.get(d.date) || 0,
-        label: d.date,
-        isHolding: false
-      })).filter((d: any) => d.x > 0 || Math.abs(d.y) > 0.01);
+      return stats.daily.map((d: any) => {
+        const pnl = realizedMap.get(d.date) || 0;
+        const volume = d.tradingValue || 0;
+        const roi = volume > 0 ? (pnl / volume) * 100 : 0;
+
+        return {
+          x: volume,
+          y: roi, // Use ROI for Y-Axis
+          z: d.ticketCount || 1, // Use Ticket Count for Bubble Size
+          roi: roi,
+          pnl: pnl,
+          label: d.date,
+          isHolding: false
+        };
+      }).filter((d: any) => d.x > 0 || Math.abs(d.pnl) > 0.01);
     }
 
-    return stats.daily.map((d: any) => ({
-      x: d.tradingValue,
-      y: d.pnl,
-      label: d.date,
-      isHolding: false
-    })).filter((d: any) => d.x > 0 || Math.abs(d.y) > 0.01);
+    // Combined Mode
+    return stats.daily.map((d: any) => {
+      const pnl = d.pnl;
+      const volume = d.tradingValue || 0;
+      const roi = volume > 0 ? (pnl / volume) * 100 : 0;
+
+      return {
+        x: volume,
+        y: roi, // Use ROI for Y-Axis
+        z: d.ticketCount || 1, // Use Ticket Count for Bubble Size
+        roi: roi,
+        pnl: pnl,
+        label: d.date,
+        isHolding: false
+      };
+    }).filter((d: any) => d.x > 0 || Math.abs(d.pnl) > 0.01);
   }, [stats.daily, statsMode, pnlEvents]);
 
   const displayedScatter = useMemo(() => {
@@ -323,18 +343,22 @@ export function StockDetails() {
     );
   }
 
-  if (data.length === 0) {
+  if (holdings?.length === 0 && (!transactions || transactions.length === 0)) {
+    // Only show empty state if truly no data (no holdings AND no txs)
+    // Existing check `if (data.length === 0)` was checking holdings pie chart data only.
+    // We often have transactions even if no current holdings.
+  }
+
+  if (combinedPnl.length === 0 && (!transactions || transactions.length === 0)) {
     return (
       <div className="flex flex-col items-center justify-center h-[300px] gap-4">
-        <p className="text-muted-foreground">暂无持仓数据</p>
-        <div className="text-xs text-left w-full max-w-md bg-muted p-4 rounded overflow-auto max-h-[200px]">
-          <p className="font-bold mb-2">Debug Info:</p>
-          <p>Holdings Count: {holdings?.length ?? 0}</p>
-          <pre>{JSON.stringify(holdings?.map(h => ({ s: h.symbol, mv: h.mv, qty: h.netQty })), null, 2)}</pre>
-        </div>
+        <p className="text-muted-foreground">暂无持仓或交易数据</p>
       </div>
     );
   }
+  // Remove "Debug Info" block for cleaner UI in production, or keep if user wanted debug.
+  // Existing code had logic `if (data.length === 0)`. 
+  // We keep the structure but allow rendering if we have stats even if Pie data is empty.
 
   return (
     <div className="space-y-6">
@@ -344,66 +368,72 @@ export function StockDetails() {
             <CardTitle>持仓分布 (按市值)</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="flex flex-col md:flex-row items-center gap-6 h-[400px]">
-              {/* Left: Detailed List (Clickable Cards) - Grid Layout */}
-              <div
-                className="w-full md:w-1/2 h-full overflow-y-auto pr-1 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 [&::-webkit-scrollbar]:hidden"
-              >
-                {data.map((entry, index) => {
-                  const isActive = activeIndex === index;
-                  const totalValue = data.reduce((sum, item) => sum + item.value, 0);
-                  const percent = totalValue > 0 ? (entry.value / totalValue) * 100 : 0;
+            {data.length > 0 ? (
+              <div className="flex flex-col md:flex-row items-center gap-6 h-[400px]">
+                {/* Left: Detailed List (Clickable Cards) - Grid Layout */}
+                <div
+                  className="w-full md:w-1/2 h-full overflow-y-auto pr-1 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 [&::-webkit-scrollbar]:hidden"
+                >
+                  {data.map((entry, index) => {
+                    const isActive = activeIndex === index;
+                    const totalValue = data.reduce((sum, item) => sum + item.value, 0);
+                    const percent = totalValue > 0 ? (entry.value / totalValue) * 100 : 0;
 
-                  return (
-                    <Link
-                      key={entry.name}
-                      href={`/symbol/${entry.name}`}
-                      className={`flex items-center justify-between gap-2 px-3 py-2 rounded-lg border backdrop-blur-sm transition-all group cursor-pointer shadow-sm
+                    return (
+                      <Link
+                        key={entry.name}
+                        href={`/symbol/${entry.name}`}
+                        className={`flex items-center justify-between gap-2 px-3 py-2 rounded-lg border backdrop-blur-sm transition-all group cursor-pointer shadow-sm
                         ${isActive
-                          ? 'bg-emerald-900/40 border-emerald-500/60'
-                          : 'bg-emerald-950/20 border-emerald-500/30 hover:bg-emerald-900/30'
-                        }`}
-                      onMouseEnter={() => setActiveIndex(index)}
-                    >
-                      <div className="flex items-center gap-2 min-w-0">
-                        <CompanyLogo symbol={entry.name} size={20} className="w-5 h-5 shrink-0" />
-                        <span className="text-sm font-bold text-emerald-400 tracking-wide truncate">
-                          {entry.name}
+                            ? 'bg-emerald-900/40 border-emerald-500/60'
+                            : 'bg-emerald-950/20 border-emerald-500/30 hover:bg-emerald-900/30'
+                          }`}
+                        onMouseEnter={() => setActiveIndex(index)}
+                      >
+                        <div className="flex items-center gap-2 min-w-0">
+                          <CompanyLogo symbol={entry.name} size={20} className="w-5 h-5 shrink-0" />
+                          <span className="text-sm font-bold text-emerald-400 tracking-wide truncate">
+                            {entry.name}
+                          </span>
+                        </div>
+                        <span className="text-xl text-emerald-500 font-mono font-bold shrink-0">
+                          {percent.toFixed(1)}%
                         </span>
-                      </div>
-                      <span className="text-xl text-emerald-500 font-mono font-bold shrink-0">
-                        {percent.toFixed(1)}%
-                      </span>
-                    </Link>
-                  );
-                })}
-              </div>
+                      </Link>
+                    );
+                  })}
+                </div>
 
-              {/* Right: Pie Chart with Hover Effect */}
-              <div className="w-full md:w-1/2 h-full">
-                <ResponsiveContainer width="100%" height="100%">
-                  <PieChart>
-                    <Pie
-                      activeIndex={activeIndex}
-                      activeShape={renderActiveShape}
-                      data={data}
-                      cx="50%"
-                      cy="50%"
-                      innerRadius={80} // Donut chart looks better with active shape
-                      outerRadius={120}
-                      fill="#8884d8"
-                      dataKey="value"
-                      onMouseEnter={onPieEnter}
-                      stroke="none"
-                    >
-                      {data.map((entry, index) => (
-                        <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
-                      ))}
-                    </Pie>
-                  </PieChart>
-                </ResponsiveContainer>
+                {/* Right: Pie Chart with Hover Effect */}
+                <div className="w-full md:w-1/2 h-full">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <PieChart>
+                      <Pie
+                        activeIndex={activeIndex}
+                        activeShape={renderActiveShape}
+                        data={data}
+                        cx="50%"
+                        cy="50%"
+                        innerRadius={80} // Donut chart looks better with active shape
+                        outerRadius={120}
+                        fill="#8884d8"
+                        dataKey="value"
+                        onMouseEnter={onPieEnter}
+                        stroke="none"
+                      >
+                        {data.map((entry, index) => (
+                          <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                        ))}
+                      </Pie>
+                    </PieChart>
+                  </ResponsiveContainer>
+                </div>
               </div>
-            </div>
+            ) : (
+              <div className="flex items-center justify-center h-[200px] text-muted-foreground">
+                当前无持仓
+              </div>
+            )}
           </CardContent>
         </Card>
       </section>
@@ -467,6 +497,7 @@ export function StockDetails() {
       <section id="daily-pnl">
         <div className="space-y-6">
           <DailyPnlChart />
+          <CumulativePnlChart />
           <DailyPnlCalendar />
         </div>
       </section>
@@ -489,10 +520,10 @@ export function StockDetails() {
         />
       </section>
 
-      {/* Funds Efficiency */}
+      {/* Funds Efficiency (Refactored to ROI) */}
       <section id="efficiency">
         <AverageStatsChart
-          title="PnL per 10,000 USD Traded 资金效率 (含持仓 / Total PnL)"
+          title="Avg. Daily ROI % 平均每日回报率 (PnL / Volume)"
           data={stats.efficiency || { weekly: [], monthly: [], yearly: [] }}
           type="efficiency"
         />

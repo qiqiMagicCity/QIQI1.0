@@ -2,6 +2,39 @@
 @tailwind components;
 @tailwind utilities;
 
+@keyframes flash-green {
+  0% {
+    color: #10b981;
+    background-color: rgba(16, 185, 129, 0.2);
+  }
+
+  100% {
+    color: inherit;
+    background-color: transparent;
+  }
+}
+
+@keyframes flash-red {
+  0% {
+    color: #ef4444;
+    background-color: rgba(239, 68, 68, 0.2);
+  }
+
+  100% {
+    color: inherit;
+    background-color: transparent;
+  }
+}
+
+.flash-green {
+  animation: flash-green 1s ease-out;
+}
+
+.flash-red {
+  animation: flash-red 1s ease-out;
+}
+
+
 @layer base {
   :root {
     --background: 140 65% 85%;

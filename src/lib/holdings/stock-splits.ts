@@ -62,3 +62,49 @@ export function getCumulativeSplitFactor(symbolRaw: string, txTimestamp: number,
 
     return factor;
 }
+
+// —— 拆分辅助：根据日期直接计算复权因子（用于修正 EOD 价格） ——
+// 针对 EOD 数据通常是“全面复权”（Adjusted Close）的情况：
+// 如果查询的日期在拆分生效日之前，意味着当时的真实价格（和我们当时持有的股数）是“未拆分”的状态。
+// 但 EOD 价格是“已拆分”的低价。
+// 因此，我们需要乘以拆分比例，将 EOD 价格还原为当时的“原始价格”，以便与当时的持仓数量（低数量）匹配。
+export function getSplitFactorForDate(symbolRaw: string, dateString: string): number {
+    if (!symbolRaw || !dateString) return 1;
+
+    const normalizedSymbol = normalizeSymbolForGrouping(symbolRaw);
+    let factor = 1;
+
+    for (const ev of STOCK_SPLITS) {
+        const evSymbolNorm = normalizeSymbolForGrouping(ev.symbol);
+        if (evSymbolNorm !== normalizedSymbol) continue;
+
+        // 如果 当前日期 < 拆分生效日，说明相对于“现在/最新数据”，该日期处于“过去”，
+        // 当时的实际价格应该比现在的复权价格高，所以需要乘回来。
+        if (
+            dateString < ev.effectiveDate &&
+            typeof ev.splitRatio === 'number' &&
+            Number.isFinite(ev.splitRatio) &&
+            ev.splitRatio > 0
+        ) {
+            factor *= ev.splitRatio;
+        }
+    }
+    return factor;
+}
+
+/**
+ * [STANDARD] 标准化的获取历史真实价格的函数
+ * 所有涉及“使用 EOD 价格计算历史持仓盈亏”的地方，必须使用此函数，禁止直接使用 eod.close。
+ * 
+ * 原因：
+ * EOD 数据通常是 Adjusted Close（复权后价格，即今日口径）。
+ * 但我们的历史持仓快照是当时的“原始股数”（Historical Shares，即当时口径）。
+ * 为了计算匹配，必须将 EOD 价格“还原”回当时的“原始价格”。
+ * 
+ * 公式：RestoredPrice = AdjustedEodPrice * CumulativeSplitFactor
+ */
+export function getRestoredHistoricalPrice(adjustedClose: number, symbol: string, date: string): number {
+    if (!adjustedClose) return 0;
+    const factor = getSplitFactorForDate(symbol, date);
+    return adjustedClose * factor;
+}

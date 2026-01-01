@@ -221,8 +221,11 @@ function normalizeFireTx(raw: FireTx, source: 'transactions' | 'trades'): Tx {
       opKind = 'COVER'; actionLabel = '补回'; side = 'BUY'; qty = Math.abs(qtyAbs);
     } else if (/sell/.test(bag)) {
       opKind = 'SELL'; actionLabel = '卖出'; side = 'SELL'; qty = -Math.abs(qtyAbs);
-    } else if (primary === 'SPLIT' || primary === 'STOCK SPLIT' || /split/.test(bag)) {
-      opKind = 'SPLIT'; actionLabel = '拆分'; side = 'NOTE'; qty = 0; // Ignore qty for PnL
+    } else if (
+      primary === 'SPLIT' || primary === 'STOCK SPLIT' ||
+      /split|consumption|distribution|stock\s*dividend/.test(bag)
+    ) {
+      opKind = 'SPLIT'; actionLabel = '拆分'; side = 'NOTE'; qty = 0; // Ignore qty for PnL & Value
     } else {
       opKind = 'BUY'; actionLabel = '买入'; side = 'BUY'; qty = Math.abs(qtyAbs);
     }

@@ -93,8 +93,10 @@ export const rebuildHistoricalEod = onCall(
             const allTasks: { symbol: string, date: string }[] = [];
 
             for (const [symbol, startDate] of symbolsMap.entries()) {
-                // HARDCODED: Force scan from 2025-01-01 to ensure October is checked
-                let curr = new Date('2025-01-01T00:00:00Z');
+                // Use the earliest transaction date found for this symbol
+                let curr = new Date(startDate);
+                // Adjust to UTC midnight to be safe for iteration
+                curr.setUTCHours(0, 0, 0, 0);
 
                 // Safeguard: Don't go beyond 5 years
                 const cutoff = new Date();
@@ -110,14 +112,33 @@ export const rebuildHistoricalEod = onCall(
                 const existingDates = new Set<string>();
                 existingDocsSnapshot.forEach(d => {
                     const data = d.data();
-                    if (['ok', 'market_closed', 'missing_vendor'].includes(data.status)) {
-                        existingDates.add(data.tradingDate);
+                    const dDate = data.tradingDate || data.date;
+                    if (!dDate) return;
+
+                    if (data.status === 'ok') {
+                        // Only trust OK if price is valid > 0
+                        if (typeof data.close === 'number' && data.close > 0) {
+                            existingDates.add(dDate);
+                        }
+                    } else if (data.status === 'market_closed') {
+                        // Only trust 'market_closed' if our system agrees it's NOT a trading day.
+                        // If our system thinks it IS a trading day, we should retry (maybe provider error).
+                        if (!isNyTradingDay(dDate)) {
+                            existingDates.add(dDate);
+                        }
                     }
+                    // For 'missing_vendor' or other statuses, we do NOT add to existingDates,
+                    // effectively forcing a retry (re-backfill).
                 });
 
                 const loopCancelAt = new Date(todayNy);
+                loopCancelAt.setUTCHours(0, 0, 0, 0); // Align comparison
+
                 while (curr < loopCancelAt) {
                     const dStr = toNyCalendarDayString(curr.getTime());
+
+                    // Double check cutoff to prevent future dates (timezone edge cases)
+                    if (dStr >= todayNy) break;
 
                     if (isNyTradingDay(dStr)) {
                         if (!existingDates.has(dStr)) {
@@ -147,8 +168,8 @@ export const rebuildHistoricalEod = onCall(
                 await Promise.all(chunk.map(async (task) => {
                     const docId = `${task.date}_${task.symbol}`;
                     try {
-                        // Delay 500ms per task
-                        await new Promise(r => setTimeout(r, 500));
+                        // Delay 100ms per task to be nicer to APIs but faster
+                        await new Promise(r => setTimeout(r, 100));
 
                         const result = await fetchAndSaveOfficialClose(
                             db,
