@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { getOfficialCloses } from '@/lib/data/official-close-repo';
+import { getOfficialCloses, triggerManualBackfill } from '@/lib/data/official-close-repo';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { toNyCalendarDayString } from '@/lib/ny-time';
@@ -51,8 +51,8 @@ export default function BackfillPage() {
             }
 
             try {
-                // Read-only check: shouldAutoRequestBackfill = false
-                const result = await getOfficialCloses(dateStr, [symbol], { shouldAutoRequestBackfill: false });
+                // Read-only check: shouldAutoRequestBackfill = false (Implied now)
+                const result = await getOfficialCloses(dateStr, [symbol]);
 
                 const status = result[symbol]?.status;
                 if (status === 'ok') {
@@ -82,7 +82,7 @@ export default function BackfillPage() {
 
     const handleSmartBackfill = async () => {
         setIsRunning(true);
-        addLog("Triggering Smart Backfill (5 Years via Single Request)...");
+        addLog("Triggering Manual Backfill (5 Years via Single Request)...");
 
         try {
             // Calculate most recent past trading day (e.g. yesterday)
@@ -98,20 +98,11 @@ export default function BackfillPage() {
             const dateStr = toNyCalendarDayString(targetDate.getTime());
             addLog(`Targeting Date: ${dateStr}`);
 
-            // Trigger backfill for this SINGLE date
-            // The backend provider (FMP) will automatically fetch 5 years of history
-            // and the worker will bulk save it.
-            const result = await getOfficialCloses(dateStr, ['NVDA'], { shouldAutoRequestBackfill: true });
+            // Explicitly call manual backfill
+            await triggerManualBackfill(dateStr, ['NVDA'], true);
 
-            const status = result['NVDA']?.status;
-            if (status === 'pending') {
-                addLog(`[SUCCESS] Backfill requested for ${dateStr}. Backend is now fetching 5 years of data.`);
-                addLog("Please wait ~30 seconds then click 'Scan History' to verify.");
-            } else if (status === 'ok') {
-                addLog(`[OK] Data for ${dateStr} already exists. Backend might have already run.`);
-            } else {
-                addLog(`[Result] Status: ${status}`);
-            }
+            addLog(`[SUCCESS] Manual Backfill triggered for ${dateStr}. Backend is now fetching data.`);
+            addLog("Please wait ~30 seconds then click 'Scan History' to verify.");
 
         } catch (e: any) {
             addLog(`[ERROR] Smart Backfill failed: ${e.message}`);

@@ -9,8 +9,6 @@ import { CumulativePnlChart } from "./cumulative-pnl-chart";
 import { DailyPnlChart } from "./daily-pnl-chart";
 import { DailyPnlCalendar } from "./daily-pnl-calendar";
 import { CompanyLogo } from "@/components/common/company-logo";
-import { useUser } from "@/firebase";
-import { useUserTransactions } from "@/hooks/use-user-transactions";
 import { AverageStatsChart } from "./average-stats-chart";
 import { ScatterStatsChart } from "./scatter-stats-chart";
 import { ProfitLossRatioChart } from "./profit-loss-ratio-chart";
@@ -147,9 +145,8 @@ const renderActiveShape = (props: any) => {
 };
 
 export function StockDetails() {
-  const { rows: holdings, loading, historicalPnl, dailyPnlList, dailyPnlResults, summary, pnlEvents } = useHoldings();
-  const { user } = useUser();
-  const { data: transactions } = useUserTransactions(user?.uid);
+  const { rows: holdings, loading, historicalPnl, dailyPnlList, dailyPnlResults, summary, pnlEvents, transactions, analysisYear, setAnalysisYear } = useHoldings(); // [FIX] Use filtered transactions
+  // const { data: transactions } = useUserTransactions(user?.uid); // [REMOVED] Raw fetch ignores Time Travel
   const [activeIndex, setActiveIndex] = useState(0);
 
   const onPieEnter = (_: any, index: number) => {
@@ -191,6 +188,8 @@ export function StockDetails() {
 
   // --- Aggregation Logic ---
   // [PERFORMANCE] Memoize the input data for calculateTransactionStats to prevent unnecessary re-runs
+  // [REVERT] Do NOT filter here. AverageStatsChart manages its own view filtering, 
+  // ensuring Yearly Comparison has access to full history.
   const dailyPnlValues = useMemo(() => Object.values(dailyPnlResults || {}), [dailyPnlResults]);
 
   const stats = useMemo(() => {
@@ -200,55 +199,129 @@ export function StockDetails() {
   const [statsMode, setStatsMode] = useState<'realized' | 'combined'>('combined');
   const [scatterDimension, setScatterDimension] = useState<'symbol' | 'day'>('day');
 
+  // --- Available Years ---
+  const availableYears = useMemo(() => {
+    const years = new Set<number>();
+    const current = new Date().getFullYear();
+    years.add(current);
+    if (pnlEvents) {
+      pnlEvents.forEach((e: any) => {
+        const d = e.closeDate || e.date;
+        if (d) {
+          const y = parseInt(d.substring(0, 4));
+          if (!isNaN(y)) years.add(y);
+        }
+      });
+    }
+    return Array.from(years).sort((a, b) => b - a);
+  }, [pnlEvents]);
+
   const displayedWinRateStats = useMemo(() => {
-    const base = summary?.winRateStats;
-    if (statsMode === 'realized' || !base || !holdings) return base;
+    // Re-calculate stats from events to support filtering
+    // 1. Get Base Events (Realized) filtered by Year
+    let events = pnlEvents || [];
+    if (analysisYear) {
+      const yStr = String(analysisYear);
+      events = events.filter((e: any) => {
+        const d = e.closeDate || e.date;
+        return d && d.startsWith(yStr);
+      });
+    }
 
-    let { winCount, lossCount, avgWin, avgLoss } = base;
-    let totalWin = avgWin * winCount;
-    let totalLoss = avgLoss * lossCount;
+    // 2. Compute Realized Stats
+    let winCount = 0;
+    let lossCount = 0;
+    let totalWin = 0;
+    let totalLoss = 0;
 
-    holdings.forEach(h => {
-      // Use h.pnl (Unrealized PnL)
-      const pnl = h.pnl || 0;
-      if (Math.abs(pnl) < 0.01) return; // Ignore near-zero PnL
+    events.forEach((e: any) => {
+      // Use strictly realized PnL from events
+      const pnl = e.pnl;
+      if (Math.abs(pnl) < 0.01) return;
 
       if (pnl > 0) {
-        totalWin += pnl;
         winCount++;
+        totalWin += pnl;
       } else {
-        totalLoss += Math.abs(pnl);
         lossCount++;
+        totalLoss += Math.abs(pnl);
       }
     });
 
-    const newAvgWin = winCount > 0 ? totalWin / winCount : 0;
-    const newAvgLoss = lossCount > 0 ? totalLoss / lossCount : 0;
+    // 3. Add Unrealized (if Combined Mode & Current Year/All)
+    const currentYear = new Date().getFullYear();
+    const isCurrentOrAll = !analysisYear || analysisYear === currentYear;
+
+    if (statsMode === 'combined' && isCurrentOrAll && holdings) {
+      holdings.forEach(h => {
+        // Use h.pnl (Unrealized PnL)
+        const pnl = h.pnl || 0;
+        if (Math.abs(pnl) < 0.01) return; // Ignore near-zero PnL
+
+        if (pnl > 0) {
+          totalWin += pnl;
+          winCount++;
+        } else {
+          totalLoss += Math.abs(pnl);
+          lossCount++;
+        }
+      });
+    }
+
+    const avgWin = winCount > 0 ? totalWin / winCount : 0;
+    const avgLoss = lossCount > 0 ? totalLoss / lossCount : 0;
     const totalCount = winCount + lossCount;
-    const newWinRate = totalCount > 0 ? winCount / totalCount : 0;
-    const newPnlRatio = newAvgLoss > 0 ? newAvgWin / newAvgLoss : 0;
-    const newExpectancy = (newWinRate * newAvgWin) - ((1 - newWinRate) * newAvgLoss);
+    const winRate = totalCount > 0 ? winCount / totalCount : 0;
+    const pnlRatio = avgLoss > 0 ? avgWin / avgLoss : 0;
+    const expectancy = (winRate * avgWin) - ((1 - winRate) * avgLoss);
 
     return {
-      winRate: newWinRate,
-      avgWin: newAvgWin,
-      avgLoss: newAvgLoss,
-      pnlRatio: newPnlRatio,
-      expectancy: newExpectancy,
+      winRate,
+      avgWin,
+      avgLoss,
+      pnlRatio,
+      expectancy,
       winCount,
       lossCount
     };
-  }, [summary?.winRateStats, holdings, statsMode]);
+  }, [pnlEvents, holdings, statsMode, analysisYear]);
 
   // --- Dimension: By Symbol ---
   const scatterBySymbol = useMemo(() => {
-    // 1. Get PnL Map (Symbol -> PnL)
+    const targetYearStr = analysisYear ? String(analysisYear) : null;
+    const currentYear = new Date().getFullYear();
+    const isCurrentOrAll = !analysisYear || analysisYear === currentYear;
+
+    // 1. Get Realized PnL Map (Symbol -> PnL) for the Target Year
     const pnlMap = new Map<string, number>();
 
-    if (statsMode === 'combined') {
-      combinedPnl.forEach(item => pnlMap.set(item.symbol, item.pnl));
-    } else {
-      historicalPnl.forEach(h => pnlMap.set(h.symbol, h.pnl));
+    // We must use pnlEvents to filter by date, historicalPnl is pre-aggregated lifetime stats.
+    if (pnlEvents) {
+      pnlEvents.forEach((e: any) => {
+        // [FIX] AuditEvent uses 'closeDate', Legacy uses 'date'
+        const dateStr = e.closeDate || e.date;
+        if (!dateStr) return;
+
+        if (targetYearStr && !dateStr.startsWith(targetYearStr)) return;
+
+        // [FIX] AuditEvent has 'symbol'
+        if (e.symbol) {
+          pnlMap.set(e.symbol, (pnlMap.get(e.symbol) || 0) + e.pnl);
+        }
+      });
+      // }).filter((d: any) => d.label.startsWith(String(analysisYear || ''))); // Simple filter at end?
+      // Better to filter source:
+      // const targetYearStr = analysisYear ? String(analysisYear) : null;
+      // ...
+    }
+
+    // If Mode is Combined, add Unrealized PnL (Only for Current Year to avoid historical confusion)
+    if (statsMode === 'combined' && isCurrentOrAll && holdings) {
+      holdings.forEach(h => {
+        const currentUnrealized = h.pnl || 0;
+        const existing = pnlMap.get(h.symbol) || 0;
+        pnlMap.set(h.symbol, existing + currentUnrealized);
+      });
     }
 
     // 2. Get Trading Value Map (Symbol -> Total Value)
@@ -256,6 +329,13 @@ export function StockDetails() {
     if (transactions) {
       transactions.forEach(tx => {
         if (!['BUY', 'SELL', 'SHORT', 'COVER'].includes(tx.opKind)) return;
+
+        // Filter by Year
+        if (targetYearStr) {
+          const txDate = new Date(tx.transactionTimestamp).toISOString().slice(0, 4);
+          if (txDate !== targetYearStr) return;
+        }
+
         const val = Math.abs(tx.price * tx.qty * (tx.multiplier || 1));
         const current = valMap.get(tx.symbol) || 0;
         valMap.set(tx.symbol, current + val);
@@ -269,9 +349,11 @@ export function StockDetails() {
     for (const sym of allSymbols) {
       const val = valMap.get(sym) || 0;
       const pnl = pnlMap.get(sym) || 0;
-      const isHolding = holdings?.some(h => h.symbol === sym);
+      // Mark as holding only if currently held
+      const isHolding = holdings?.some(h => h.symbol === sym) ?? false;
 
-      if (val > 10 || Math.abs(pnl) > 10) { // Filter noise
+      // Lower threshold to show more data in filtered views
+      if (val > 1 || Math.abs(pnl) > 1) {
         result.push({
           x: val,
           y: pnl,
@@ -281,19 +363,26 @@ export function StockDetails() {
       }
     }
     return result;
-  }, [combinedPnl, historicalPnl, transactions, holdings, statsMode]);
+  }, [pnlEvents, transactions, holdings, statsMode, analysisYear]);
 
   // --- Dimension: By Day ---
   const scatterByDay = useMemo(() => {
     if (!stats.daily) return [];
 
+    const targetYearStr = analysisYear ? String(analysisYear) : null;
+    // Pre-filter stats.daily by year
+    const filteredDailyStats = targetYearStr
+      ? stats.daily.filter((d: any) => d.date.startsWith(targetYearStr))
+      : stats.daily;
+
     if (statsMode === 'realized') {
       const realizedMap = new Map<string, number>();
-      (pnlEvents || []).forEach(e => {
-        realizedMap.set(e.date, (realizedMap.get(e.date) || 0) + e.pnl);
+      (pnlEvents || []).forEach((e: any) => {
+        const date = e.closeDate || e.date;
+        if (date) realizedMap.set(date, (realizedMap.get(date) || 0) + e.pnl);
       });
 
-      return stats.daily.map((d: any) => {
+      return filteredDailyStats.map((d: any) => {
         const pnl = realizedMap.get(d.date) || 0;
         const volume = d.tradingValue || 0;
         const roi = volume > 0 ? (pnl / volume) * 100 : 0;
@@ -311,7 +400,7 @@ export function StockDetails() {
     }
 
     // Combined Mode
-    return stats.daily.map((d: any) => {
+    return filteredDailyStats.map((d: any) => {
       const pnl = d.pnl;
       const volume = d.tradingValue || 0;
       const roi = volume > 0 ? (pnl / volume) * 100 : 0;
@@ -326,7 +415,7 @@ export function StockDetails() {
         isHolding: false
       };
     }).filter((d: any) => d.x > 0 || Math.abs(d.pnl) > 0.01);
-  }, [stats.daily, statsMode, pnlEvents]);
+  }, [stats.daily, statsMode, pnlEvents, analysisYear]);
 
   const displayedScatter = useMemo(() => {
     if (scatterDimension === 'day') {
@@ -508,6 +597,8 @@ export function StockDetails() {
           title="Avg. PnL / Day 平均每日盈亏 (含持仓 / Total PnL)"
           data={stats.pnl || { weekly: [], monthly: [], yearly: [] }}
           type="pnl"
+          analysisYear={analysisYear}
+          setAnalysisYear={setAnalysisYear}
         />
       </section>
 
@@ -517,15 +608,19 @@ export function StockDetails() {
           title="Avg. Trading Value / Day 平均每日成交金额 (成交额 / Turnover)"
           data={stats.value || { weekly: [], monthly: [], yearly: [] }}
           type="value"
+          analysisYear={analysisYear}
+          setAnalysisYear={setAnalysisYear}
         />
       </section>
 
       {/* Funds Efficiency (Refactored to ROI) */}
       <section id="efficiency">
         <AverageStatsChart
-          title="Avg. Daily ROI % 平均每日回报率 (PnL / Volume)"
+          title="Return on Volume % 交易量回报率 (PnL / TradingValue)"
           data={stats.efficiency || { weekly: [], monthly: [], yearly: [] }}
           type="efficiency"
+          analysisYear={analysisYear}
+          setAnalysisYear={setAnalysisYear}
         />
       </section>
 
@@ -538,6 +633,8 @@ export function StockDetails() {
           onModeChange={setStatsMode}
           dimension={scatterDimension}
           onDimensionChange={setScatterDimension}
+          analysisYear={analysisYear}
+          setAnalysisYear={setAnalysisYear}
         />
       </section>
 
@@ -555,6 +652,9 @@ export function StockDetails() {
           }}
           mode={statsMode}
           onModeChange={setStatsMode}
+          analysisYear={analysisYear}
+          setAnalysisYear={setAnalysisYear}
+          availableYears={availableYears}
         />
       </section>
     </div>

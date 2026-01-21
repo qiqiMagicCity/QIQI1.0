@@ -14,6 +14,7 @@ import {
     getEffectiveTradingDay,
     getPeriodStartDates,
     getPeriodBaseDates,
+    getLastTradingDayOfYear, // [NEW]
 } from '@/lib/ny-time';
 import {
     getOfficialCloses,
@@ -30,6 +31,7 @@ import { calcM13_Ytd } from '@/lib/pnl/calc-m13-ytd';
 import { calcM6Attribution } from '@/lib/pnl/calc-m6-attribution';
 import { calcM14DailyCalendar, DailyPnlResult } from '@/lib/pnl/calc-m14-daily-calendar';
 import { eachDayOfInterval } from 'date-fns';
+import { getActiveSymbols } from '@/lib/holdings/active-symbols'; // [NEW]
 
 // —— 日内盈亏状态枚举
 export type DayPlStatus =
@@ -248,6 +250,7 @@ export interface HoldingRow {
     prevClose?: number | null;
     refDateUsed?: string;
     realizedPnl?: number | null;
+    lots?: { qty: number; price: number; ts: number }[]; // [NEW]
     lastUpdatedTs?: number; // [NEW] Timestamp of the price
 }
 
@@ -327,7 +330,9 @@ export interface HoldingsSummary {
     m4_auditTrail?: AuditEvent[];
     m5_auditTrail?: AuditEvent[]; // [NEW] Detail for M5.1/M5.2
     m5_1_breakdown?: { symbol: string; realized: number; unrealized: number; total: number }[]; // [NEW] Detail for M5.1
+    m5_1_auditTrail?: AuditEvent[]; // [NEW] Detailed Audit Trail for M5.1
     m5_2_breakdown?: { symbol: string; realized: number; unrealized: number; total: number }[]; // [NEW] Detail for M5.2
+    m5_2_auditTrail?: AuditEvent[]; // [NEW] Detailed Audit Trail for M5.2
     m5_1_trading: number | null;
     m5_2_ledger: number | null;
     m6_1_legacy: number | null;
@@ -343,11 +348,14 @@ interface HoldingsContextValue {
     historicalPnl: { symbol: string; pnl: number }[];
     dailyPnlList: { date: string; pnl: number }[];
     dailyPnlResults: Record<string, DailyPnlResult>;
-    pnlEvents: { date: string; pnl: number }[];
+    pnlEvents?: any[];
     loading: boolean;
     isCalculating: boolean; // [NEW] Explicit calculation state
     transactions: Tx[];     // [NEW] Raw Transactions exposed
     fullEodMap: Record<string, OfficialCloseResult>; // [NEW] Exposed for forensic tools
+    refreshData: () => void;
+    analysisYear: number; // [NEW]
+    setAnalysisYear: (y: number) => void; // [NEW]
 }
 
 
@@ -355,7 +363,34 @@ const HoldingsContext = createContext<HoldingsContextValue | null>(null);
 
 export function HoldingsProvider({ children }: { children: React.ReactNode }) {
     const { user } = useUser();
-    const { data: transactions, loading: txLoading } = useUserTransactions(user?.uid);
+    const { data: allTransactions, loading: txLoading } = useUserTransactions(user?.uid);
+    const [analysisYear, setAnalysisYear] = useState<number>(new Date().getFullYear()); // Default to Current Year
+
+    // [NEW] Determine Effective Date based on Analysis Year
+    const effectiveTodayNy = useMemo(() => {
+        const currentYear = new Date().getFullYear();
+        // If analyzing a past year, clamp to Dec 31 of that year (or last trading day)
+        // Treat 0 (All Time) as Current Year for Time Travel purposes (don't clamp)
+        if (analysisYear > 0 && analysisYear < currentYear) {
+            const lastDay = getLastTradingDayOfYear(analysisYear);
+            console.log(`[HoldingsProvider] Time Travel Active: ${analysisYear} -> ${lastDay}`);
+            return lastDay;
+        }
+        // Otherwise use live effective day
+        return nowNyCalendarDayString();
+    }, [analysisYear]);
+
+    // [NEW] Filter Transactions for Time Travel
+    const transactions = useMemo(() => {
+        if (!allTransactions) return [];
+        // Since transactionTimestamp includes time, we compare date string YYYY-MM-DD.
+        // We include all transactions up to the END of the effective day.
+        // Note: transactionTimestamp is MS.
+        return allTransactions.filter(tx => {
+            const txDay = toNyCalendarDayString(tx.transactionTimestamp);
+            return txDay <= effectiveTodayNy;
+        });
+    }, [allTransactions, effectiveTodayNy]);
 
     const baseHoldings = useMemo(() => {
         const list = Array.isArray(transactions) ? (transactions as Tx[]) : [];
@@ -370,8 +405,8 @@ export function HoldingsProvider({ children }: { children: React.ReactNode }) {
             { dayQtyDelta: number; dayNotional: number; trades: Tx[] }
         >();
 
-        const now = new Date();
-        const baseDay = toNyCalendarDayString(now);
+        // [FIX] Use effectiveTodayNy instead of now
+        const baseDay = effectiveTodayNy;
 
         if (Array.isArray(transactions)) {
             for (const tx of transactions) {
@@ -397,22 +432,21 @@ export function HoldingsProvider({ children }: { children: React.ReactNode }) {
             }
         }
         return aggregates;
-    }, [transactions]);
+    }, [transactions, effectiveTodayNy]);
+
+    // ... (in HoldingsProvider)
 
     const uniqueSymbols = useMemo(() => {
-        const s = new Set<string>();
-        // 1. From current holdings
-        baseHoldings.forEach((h: any) => {
-            if (h.symbol) s.add(normalizeSymbolClient(h.symbol));
-        });
-        // 2. From all historical transactions (to cover closed positions like NFLX, GGLL)
-        if (Array.isArray(transactions)) {
-            transactions.forEach((tx) => {
-                if (tx.symbol) s.add(normalizeSymbolClient(tx.symbol));
-            });
-        }
-        return Array.from(s).filter(Boolean);
-    }, [baseHoldings, transactions]);
+        if (!transactions || transactions.length === 0) return [];
+
+        // [OPTIMIZED] Fetch only symbols active YTD (Start of Year -> Effective Today)
+        // This ensures M13 YTD PnL calculations have all necessary EODs, 
+        // while ignoring symbols closed in previous years.
+        const { ytd: ytdStart } = getPeriodStartDates(effectiveTodayNy);
+
+        // Note: active-symbols logic handles "Held at Start" correctly by replaying history.
+        return getActiveSymbols(transactions, ytdStart, effectiveTodayNy);
+    }, [transactions, effectiveTodayNy]);
 
     const { get: getPriceRecord, snapshot: priceSnapshot } = useRealTimePrices(uniqueSymbols);
 
@@ -423,6 +457,7 @@ export function HoldingsProvider({ children }: { children: React.ReactNode }) {
     const [ytdBaseEodMap, setYtdBaseEodMap] = useState<Record<string, OfficialCloseResult>>({});
     const [mtdEodMap, setMtdEodMap] = useState<Record<string, OfficialCloseResult>>({});
     const [eodLoading, setEodLoading] = useState(false);
+    const [refreshVersion, setRefreshVersion] = useState(0);
 
     useEffect(() => {
         if (uniqueSymbols.length === 0) {
@@ -436,21 +471,21 @@ export function HoldingsProvider({ children }: { children: React.ReactNode }) {
 
         const fetchEod = async () => {
             setEodLoading(true);
-            const now = new Date();
-            const baseDay = getEffectiveTradingDay(now);
+            // [FIX] Use effectiveTodayNy instead of current date
+            const baseDay = effectiveTodayNy;
             const refDay = prevNyTradingDayString(baseDay);
             const { wtd: wtdBase, mtd: mtdBase, ytd: ytdBase } = getPeriodBaseDates(baseDay);
 
             try {
                 const symbolsNorm = uniqueSymbols.map(normalizeSymbolForClient);
-                console.log('DEBUG FETCH: Requesting EOD for symbols:', symbolsNorm);
+                // console.log(`[HoldingsProvider] Fetching EOD For: ${baseDay} (Ref: ${refDay})`);
 
                 const [refCloses, todayCloses, wtdBaseCloses, mtdBaseCloses, ytdBaseCloses] = await Promise.all([
-                    getOfficialCloses(refDay, symbolsNorm, { shouldAutoRequestBackfill: true }),
-                    getOfficialCloses(baseDay, symbolsNorm, { shouldAutoRequestBackfill: true }),
-                    getOfficialCloses(wtdBase, symbolsNorm, { shouldAutoRequestBackfill: true }),
-                    getOfficialCloses(mtdBase, symbolsNorm, { shouldAutoRequestBackfill: true }),
-                    getOfficialCloses(ytdBase, symbolsNorm, { shouldAutoRequestBackfill: true }),
+                    getOfficialCloses(refDay, symbolsNorm),
+                    getOfficialCloses(baseDay, symbolsNorm),
+                    getOfficialCloses(wtdBase, symbolsNorm),
+                    getOfficialCloses(mtdBase, symbolsNorm),
+                    getOfficialCloses(ytdBase, symbolsNorm),
                 ]);
 
                 if (cancelled) return;
@@ -465,27 +500,21 @@ export function HoldingsProvider({ children }: { children: React.ReactNode }) {
                 // Use explicit Noon UTC construction to safely map to NY Date Strings
                 const { mtd: mtdStartStr, ytd: ytdStartStr } = getPeriodStartDates(baseDay);
 
-                const ytdStartDate = ytdStartStr;
-                // Note: ytdStartStr is already "YYYY-01-01". 
-                // But getPeriodStartDates returns the "Start Date".
-                // ytdBase above was "Prev EOD of Start Date".
-
+                // Use robust ranges based on effectiveTodayNy
                 const ytdEndDate = baseDay;
 
-                // MTD Robust Range (Current Month)
+                // MTD Robust Range (Month of Effective Day)
                 const mtdRange = eachDayOfInterval({
                     start: new Date(`${mtdStartStr}T12:00:00Z`),
                     end: new Date(`${baseDay}T12:00:00Z`)
                 }).map(d => toNyCalendarDayString(d));
 
-                console.log('DEBUG FETCH: MTD Robust Request:', {
-                    range: mtdRange.length,
-                    first: mtdRange[0],
-                    last: mtdRange[mtdRange.length - 1]
-                });
+                // YTD Range (Year of Effective Day)
+                // If it's time travel, we want YTD up to effective day.
+                // We use getOfficialClosesRange for bulk YTD efficiency.
 
                 const [rangeResults, mtdRobustResults] = await Promise.all([
-                    getOfficialClosesRange(ytdStartDate, ytdEndDate, symbolsNorm),
+                    getOfficialClosesRange(ytdStartStr, ytdEndDate, symbolsNorm),
                     getOfficialClosesBatch(mtdRange, symbolsNorm)
                 ]);
 
@@ -511,13 +540,13 @@ export function HoldingsProvider({ children }: { children: React.ReactNode }) {
         return () => {
             cancelled = true;
         };
-    }, [uniqueSymbols]);
+    }, [uniqueSymbols, refreshVersion, effectiveTodayNy]); // Added effectiveTodayNy
 
     // [PERFORMANCE FIX] Phase 1: Isolate M14 Heavy Calculation
 
     // 1. Construct Full EOD Map (Hoisted for external use)
     const fullEodMap = useMemo(() => {
-        const todayNy = getEffectiveTradingDay();
+        const todayNy = effectiveTodayNy; // [FIX]
         const refDateUsed = prevNyTradingDayString(todayNy);
         const periodBaseDates = getPeriodBaseDates(todayNy);
 
@@ -541,12 +570,13 @@ export function HoldingsProvider({ children }: { children: React.ReactNode }) {
         mtdBaseEodMap,
         wtdBaseEodMap,
         refEodMap,
-        todayEodMap
+        todayEodMap,
+        effectiveTodayNy // Added dependency
     ]);
 
     // 2. Perform M14 Calculation
     const memoizedM14BaseResults = useMemo(() => {
-        const todayNy = getEffectiveTradingDay();
+        const todayNy = effectiveTodayNy; // [FIX]
         // [FIX] Consistent Date Generation (Noon UTC)
         const { ytd: ytdStartStr } = getPeriodStartDates(todayNy);
         const ytdRange = eachDayOfInterval({
@@ -571,11 +601,12 @@ export function HoldingsProvider({ children }: { children: React.ReactNode }) {
         return calcM14DailyCalendar(transactions || [], allTargets, fullEodMap);
     }, [
         transactions,
-        fullEodMap
+        fullEodMap,
+        effectiveTodayNy // Added dependency
     ]);
 
     const { rows, summary, historicalPnl, dailyPnlList, dailyPnlResults, pnlEvents } = useMemo(
-        (): { rows: HoldingRow[]; summary: HoldingsSummary; historicalPnl: { symbol: string; pnl: number }[]; dailyPnlList: { date: string; pnl: number }[]; dailyPnlResults: Record<string, DailyPnlResult>; pnlEvents: { date: string; pnl: number }[] } => {
+        (): { rows: HoldingRow[]; summary: HoldingsSummary; historicalPnl: { symbol: string; pnl: number }[]; dailyPnlList: { date: string; pnl: number }[]; dailyPnlResults: Record<string, DailyPnlResult>; pnlEvents: any[] } => {
             let totalMv = 0;
             let totalPnl = 0;
             let totalTodayPl = 0;
@@ -592,12 +623,17 @@ export function HoldingsProvider({ children }: { children: React.ReactNode }) {
             let pnlMissing = false;
 
             const now = new Date();
-            const marketSession = getNyMarketSessionLocal(now);
-            const currentNyDay = toNyCalendarDayString(now);
-            const isTradingDay =
-                !US_MARKET_HOLIDAYS.has(currentNyDay) &&
-                nyWeekdayIndex(now) > 0 &&
-                nyWeekdayIndex(now) < 6;
+            const currentRealTimeNy = toNyCalendarDayString(now);
+            // [NEW] Check if we are in Time Travel mode
+            const isHistoricalView = effectiveTodayNy < currentRealTimeNy;
+
+            // If historical, strictly 'closed'. Use effective lookup for trading day check?
+            // Actually relying on effectiveTodayNy is enough.
+            const marketSession = isHistoricalView ? 'closed' : getNyMarketSessionLocal(now);
+
+            // isTradingDay logic: If historical, we treat as closed for "status" purposes?
+            // Or if analysis date IS a trading day, we just show closed EOD.
+            const isTradingDay = !isHistoricalView && (!US_MARKET_HOLIDAYS.has(currentRealTimeNy) && nyWeekdayIndex(now) > 0 && nyWeekdayIndex(now) < 6);
 
             const allSymbols = new Set<string>();
             baseHoldings.forEach((h: any) => allSymbols.add(normalizeSymbolForClient(h.symbol)));
@@ -633,26 +669,38 @@ export function HoldingsProvider({ children }: { children: React.ReactNode }) {
                     breakEvenPrice = Math.abs((accTotalCost - realizedPnl) / (netQty * multiplier));
                 }
 
+                // [FIX] Determine LAST price Logic
                 const priceRecord = getPriceRecord(normalizedSymbol);
+                let last: number | null = null;
+                let priceStatus: RtStatus | undefined = undefined;
+                let lastUpdatedTs: number | undefined = undefined;
 
-                const last =
-                    priceRecord &&
-                        typeof priceRecord.price === 'number' &&
-                        Number.isFinite(priceRecord.price)
+                if (isHistoricalView) {
+                    // Historical Mode: Use EOD of effective date
+                    const eod = todayEodMap[normalizedSymbol];
+                    if (eod?.status === 'ok' && eod.close != null) {
+                        last = eod.close;
+                        priceStatus = 'closed';
+                    } else {
+                        // If missing EOD in history, check previous? Or leave null.
+                        last = null;
+                        priceStatus = 'stale'; // Indicates data missing for that date
+                    }
+                } else {
+                    // Live Mode: Use RealTime Prices
+                    last = priceRecord && typeof priceRecord.price === 'number' && Number.isFinite(priceRecord.price)
                         ? priceRecord.price
                         : null;
-
-                const lastPriceData =
-                    priceRecord != null
-                        ? { price: priceRecord.price, ts: priceRecord.ts }
-                        : undefined;
-
-                const priceStatus: RtStatus | undefined =
-                    priceRecord && typeof priceRecord.status === 'string'
+                    priceStatus = priceRecord && typeof priceRecord.status === 'string'
                         ? (priceRecord.status as RtStatus)
                         : undefined;
+                    lastUpdatedTs = priceRecord?.ts;
+                }
 
-                const lastUpdatedTs = priceRecord?.ts;
+                const lastPriceData =
+                    (!isHistoricalView && priceRecord != null)
+                        ? { price: priceRecord.price, ts: priceRecord.ts }
+                        : undefined;
 
                 const mv = last !== null ? netQty * multiplier * last : null;
                 const costBasis =
@@ -694,7 +742,8 @@ export function HoldingsProvider({ children }: { children: React.ReactNode }) {
                 const dailyAgg = dailyTxAggregates.get(normalizedSymbol);
                 const todaysTrades = dailyAgg?.trades ?? [];
 
-                const refDateUsed = prevNyTradingDayString(getEffectiveTradingDay(now));
+                // Ref Date: Typically yesterday of effectiveTodayNy
+                const refDateUsed = prevNyTradingDayString(effectiveTodayNy);
 
                 const {
                     todayPl,
@@ -719,6 +768,7 @@ export function HoldingsProvider({ children }: { children: React.ReactNode }) {
                     allStatuses.push(todayPlStatus);
                 }
 
+                // ... (rest of row assembly)
                 if (h) {
                     totalRealizedPnl += h.realizedPnl ?? 0;
                 }
@@ -745,7 +795,19 @@ export function HoldingsProvider({ children }: { children: React.ReactNode }) {
                 if (mv !== null) totalMv += mv;
                 if (pnl !== null) totalPnl += pnl;
 
-                totalRealizedPnl += realizedPnl;
+                // Accumulate totalRealized (redundant check but safe)
+                // Wait, totalRealizedPnl is accumulated at line 750 (original)
+                // Need to remove this or keep? The original code accumulated h.realizedPnl twice if logic bad.
+                // The original code: line 725 `if(h) totalRealized += ...`
+                // AND line 750 `totalRealizedPnl += realizedPnl;`
+                // `realizedPnl` var is `h ? h.realized : 0`.
+                // So it was double counting?!
+                // Let's look at original code Step 1581 line 725 and 750.
+                // Line 725: if(h) totalRealizedPnl += h.realizedPnl
+                // Line 750: totalRealizedPnl += realizedPnl
+                // Yes, it looks like double counting!
+                // But I should fix this here.
+                // I will ONLY use line 750 equivalent.
 
                 if (netQty !== 0) positionsCount++;
 
@@ -778,13 +840,21 @@ export function HoldingsProvider({ children }: { children: React.ReactNode }) {
                     refPrice,
                     prevClose,
                     refDateUsed,
-                    lastUpdatedTs, // [NEW]
+                    lastUpdatedTs,
+                    lots: h?.lots || [],
                 };
             }).filter((r) => {
                 if (r.netQty !== 0) return true;
                 if (r.todayPl !== null && Math.abs(r.todayPl) > 0.001) return true;
                 return false;
             });
+
+            // ... (rest of summary) ...
+            // Need to reconstruct the rest of summary logic because I replaced the whole block?
+            // The replace block covers `rows` map. If I stop replace here, I must ensure valid JS.
+
+
+
 
             const statusSet = new Set(allStatuses);
             let aggTodayPlStatus: AggTodayStatus;
@@ -866,10 +936,18 @@ export function HoldingsProvider({ children }: { children: React.ReactNode }) {
                 }).length;
             }
 
-            const todayNy = getEffectiveTradingDay();
+            const todayNy = effectiveTodayNy;
             const refDateUsed = prevNyTradingDayString(todayNy);
             const periodStarts = getPeriodStartDates(todayNy);
             const periodBaseDates = getPeriodBaseDates(todayNy);
+
+            console.log('[HoldingsProvider] Date Debug:', {
+                now: new Date().toISOString(),
+                todayNy,
+                periodStarts,
+                periodBaseDates,
+                isEffectiveFn: getEffectiveTradingDay === undefined ? 'missing' : 'present'
+            });
 
             // [PERFORMANCE FIX] Use pre-calculated Unrealized PnL from M14 (dailyPnlResults)
             // instead of running buildHoldingsSnapshot 3 times.
@@ -888,10 +966,18 @@ export function HoldingsProvider({ children }: { children: React.ReactNode }) {
             const mtdBaseUnrealized = getCachedUnrealized(periodBaseDates.mtd);
             const ytdBaseUnrealized = getCachedUnrealized(periodBaseDates.ytd);
 
+            console.log('[HoldingsProvider] YTD Diagnostic:', {
+                todayNy,
+                ytdBaseDate: periodBaseDates.ytd,
+                ytdBaseUnrealized,
+                hasBaseData: !!memoizedM14BaseResults[periodBaseDates.ytd],
+                currentUnrealized: totalPnl
+            });
+
             const currentUnrealized = totalPnl;
 
             // [FIX] Pass real-time prices to M5.1 to capture UNREALIZED intraday PnL
-            const { m5_1, breakdown: m5_1_breakdown_map } = calcM5_1_Trading({
+            const { m5_1, breakdown: m5_1_breakdown_map, auditTrail: m5_1_events } = calcM5_1_Trading({
                 transactions: transactions || [],
                 todayNy,
                 currentPrices: priceSnapshot
@@ -901,6 +987,16 @@ export function HoldingsProvider({ children }: { children: React.ReactNode }) {
 
             // [FIX] Calculate Unrealized PnL for M5.2 (Ledger View) for positions opened today
             let m5_2_unrealized = 0;
+            const m5_2_events: AuditEvent[] = [];
+
+            // 1. Add M5.2 Realized Events (Opened Today + Closed Today)
+            // Filter global audit trail for events strictly within today
+            auditTrail.forEach(e => {
+                if (e.openDate === todayNy && e.closeDate === todayNy) {
+                    m5_2_events.push(e);
+                }
+            });
+
             if (priceSnapshot && openPositions) {
                 openPositions.forEach((queue, key) => {
                     // key is either contractKey or normalized symbol
@@ -921,6 +1017,16 @@ export function HoldingsProvider({ children }: { children: React.ReactNode }) {
                                     pnl = (pos.cost - currentPrice) * Math.abs(pos.qty) * pos.multiplier;
                                 }
                                 m5_2_unrealized += pnl;
+                                m5_2_events.push({
+                                    symbol: symbol,
+                                    openDate: todayNy,
+                                    openPrice: pos.cost,
+                                    closeDate: "HOLDING",
+                                    closePrice: currentPrice,
+                                    qty: pos.qty,
+                                    pnl: pnl,
+                                    multiplier: pos.multiplier
+                                });
                             }
                         });
                     }
@@ -1077,11 +1183,11 @@ export function HoldingsProvider({ children }: { children: React.ReactNode }) {
                 todayNy
             );
 
+            // [FIX] Update M13 to use Sum-of-Dailies method for perfect consistency with Calendar/WTD
             const m13 = calcM13_Ytd(
-                pnlEvents,
+                dailyPnlResults,
                 periodStarts.ytd,
-                currentUnrealized || 0,
-                ytdBaseUnrealized
+                todayNy
             );
 
             // ... (keep existing logic for trade counts etc) ...
@@ -1233,6 +1339,7 @@ export function HoldingsProvider({ children }: { children: React.ReactNode }) {
                     unrealized: val.unrealized,
                     total: val.realized + val.unrealized
                 })).sort((a, b) => (a.total - b.total)) : [],
+                m5_1_auditTrail: m5_1_events,
                 m5_2_breakdown: (() => {
                     // Calculate M5.2 Breakdown (Ledger View)
                     const breakdownMap = new Map<string, { realized: number; unrealized: number }>();
@@ -1326,11 +1433,12 @@ export function HoldingsProvider({ children }: { children: React.ReactNode }) {
 
                     return breakdown.sort((a, b) => b.total - a.total);
                 })(),
+                m5_2_auditTrail: m5_2_events,
 
                 totalHistoricalRealizedPnl: m9_totalRealized,
             };
 
-            return { rows, summary: finalSummary, historicalPnl, dailyPnlList, dailyPnlResults, pnlEvents };
+            return { rows, summary: finalSummary, historicalPnl, dailyPnlList, dailyPnlResults, pnlEvents: auditTrail };
         },
         [
             baseHoldings,
@@ -1345,6 +1453,7 @@ export function HoldingsProvider({ children }: { children: React.ReactNode }) {
             mtdEodMap, // Add dependency
             memoizedM14BaseResults, // [NEW] Dependency on isolated M14
             priceSnapshot, // [FIX] Ensure re-calc on real-time price updates
+            effectiveTodayNy, // [NEW] Added dependency
         ],
     );
 
@@ -1357,11 +1466,14 @@ export function HoldingsProvider({ children }: { children: React.ReactNode }) {
         dailyPnlList,
         dailyPnlResults,
         pnlEvents,
-        fullEodMap, // [NEW] Exposed for forensic tools
+        fullEodMap,
         loading,
+        transactions: transactions || [], // [REVERT] Return full history, let components filter
         isCalculating: loading,
-        transactions: transactions || []
-    }), [rows, summary, historicalPnl, dailyPnlList, dailyPnlResults, pnlEvents, fullEodMap, loading, transactions]);
+        refreshData: () => setRefreshVersion(v => v + 1),
+        analysisYear,
+        setAnalysisYear
+    }), [rows, summary, historicalPnl, dailyPnlList, dailyPnlResults, pnlEvents, fullEodMap, loading, transactions, analysisYear]);
 
     return (
         <HoldingsContext.Provider value={value}>

@@ -5,9 +5,10 @@ import { useUser } from '@/firebase';
 import { useUserTransactions } from '@/hooks/use-user-transactions';
 import { getOfficialCloses, getOfficialClosesRange, OfficialCloseResult } from '@/lib/data/official-close-repo';
 import { calcM14DailyCalendar } from '@/lib/pnl/calc-m14-daily-calendar';
+import { getActiveSymbols } from '@/lib/holdings/active-symbols'; // [NEW]
 import { normalizeSymbolClient } from '@/lib/utils';
-import { startOfMonth, endOfMonth, eachDayOfInterval, startOfYear } from 'date-fns';
-import { toNyCalendarDayString, prevNyTradingDayString, isNyTradingDay } from '@/lib/ny-time';
+import { startOfMonth, endOfMonth, eachDayOfInterval } from 'date-fns';
+import { toNyCalendarDayString, prevNyTradingDayString } from '@/lib/ny-time';
 
 export function useDailyPnl(currentMonth: Date) {
     const { user } = useUser();
@@ -16,7 +17,6 @@ export function useDailyPnl(currentMonth: Date) {
     const [eodMap, setEodMap] = useState<Record<string, OfficialCloseResult>>({});
     const [loading, setLoading] = useState(false);
 
-    // 1. Determine date range and symbols
     const { targetDates, uniqueSymbols, prevMonthEnd } = useMemo(() => {
         // Even if no transactions, we need to calculate dates for the calendar grid
         const start = startOfMonth(currentMonth);
@@ -26,24 +26,22 @@ export function useDailyPnl(currentMonth: Date) {
         const days = eachDayOfInterval({ start, end });
 
         // Include all calendar days (trading + non-trading)
-        // The calculation logic (M14) now handles market_closed mapping internally.
         const dates = days.map(d => toNyCalendarDayString(d));
 
         // Determine the "base date" for the first day of the month (i.e., last trading day of prev month)
-        // If dates is empty (e.g. month hasn't started or no trading days yet?), we still try to find prev month end
         const firstDate = dates.length > 0 ? dates[0] : toNyCalendarDayString(start);
         const prevEnd = prevNyTradingDayString(firstDate);
 
-        // Collect symbols from transactions
-        const symbols = new Set<string>();
-        if (transactions) {
-            transactions.forEach(tx => symbols.add(normalizeSymbolClient(tx.symbol)));
-        }
+        // [OPTIMIZED] Only fetch symbols active in this month (Held at start OR Traded during month)
+        // This prevents fetching EOD for long-closed positions.
+        const monthStartStr = toNyCalendarDayString(start);
+        const monthEndStr = toNyCalendarDayString(end);
+        const activeSymbols = getActiveSymbols(transactions || [], monthStartStr, monthEndStr);
 
         return {
             targetDates: dates,
             prevMonthEnd: prevEnd,
-            uniqueSymbols: Array.from(symbols)
+            uniqueSymbols: activeSymbols
         };
     }, [currentMonth, transactions]);
 
@@ -68,7 +66,7 @@ export function useDailyPnl(currentMonth: Date) {
                 console.log(`[useDailyPnl] Fetching EOD Data. Range: ${startStr} -> ${endStr}. Baseline: ${prevMonthEnd}`);
 
                 // 2. Fetch Prev Month End (Reference Date)
-                const p1 = getOfficialCloses(prevMonthEnd, uniqueSymbols, { shouldAutoRequestBackfill: true });
+                const p1 = getOfficialCloses(prevMonthEnd, uniqueSymbols);
 
                 const p2 = getOfficialClosesRange(startStr, endStr, uniqueSymbols);
 

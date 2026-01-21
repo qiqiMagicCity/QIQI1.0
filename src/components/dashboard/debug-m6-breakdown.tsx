@@ -87,8 +87,8 @@ export function DebugM6Breakdown() {
             // Fetch prices
             const symbolList = Array.from(allSymbols);
             const [refCloses, todayCloses] = await Promise.all([
-                getOfficialCloses(refDay, symbolList, { shouldAutoRequestBackfill: true }),
-                getOfficialCloses(todayNy, symbolList, { shouldAutoRequestBackfill: true }),
+                getOfficialCloses(refDay, symbolList),
+                getOfficialCloses(todayNy, symbolList),
             ]);
 
             const details: M6Detail[] = [];

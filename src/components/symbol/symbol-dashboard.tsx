@@ -11,8 +11,13 @@ interface SymbolDashboardProps {
     winCount: number;
     lossCount: number;
     realizedPnl: number;
+    unrealizedPnl?: number;
     breakEvenPrice?: number;
     avgCost?: number;
+    lastTrade?: {
+        side: string;
+        price: number;
+    };
 }
 
 export function SymbolDashboard({
@@ -22,8 +27,10 @@ export function SymbolDashboard({
     winCount,
     lossCount,
     realizedPnl,
+    unrealizedPnl,
     breakEvenPrice,
     avgCost,
+    lastTrade,
 }: SymbolDashboardProps) {
     const winRate = (winCount + lossCount) > 0
         ? Math.round((winCount / (winCount + lossCount)) * 100)
@@ -102,6 +109,41 @@ export function SymbolDashboard({
                     </span>
                 </CardContent>
             </Card>
+
+            {/* Unrealized PnL (Floating) - Only visible if there is an open position (unrealizedPnl is provided) */}
+            {unrealizedPnl !== undefined && unrealizedPnl !== null ? (
+                <Card className="bg-slate-900/50 border-slate-800">
+                    <CardContent className="p-6 flex flex-col items-center justify-center gap-2">
+                        <span className="text-slate-400 text-sm font-medium">持有浮动盈亏 (未实现)</span>
+                        <span className={cn(
+                            "text-2xl font-bold font-mono",
+                            unrealizedPnl > 0 ? "text-emerald-400" : unrealizedPnl < 0 ? "text-red-400" : "text-slate-200"
+                        )}>
+                            {unrealizedPnl > 0 ? '+' : ''}{unrealizedPnl.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                        </span>
+                    </CardContent>
+                </Card>
+            ) : (
+                /* Last Trade - Only visible if Position is Closed (unrealizedPnl is null/undefined) AND lastTrade exists */
+                lastTrade && (
+                    <Card className="bg-slate-900/50 border-slate-800">
+                        <CardContent className="p-6 flex flex-col items-center justify-center gap-2">
+                            <span className="text-slate-400 text-sm font-medium">最后一次成交</span>
+                            <div className="flex flex-col items-center">
+                                <span className={cn(
+                                    "text-lg font-bold mb-1",
+                                    lastTrade.side === 'BUY' ? "text-emerald-400" : "text-red-400"
+                                )}>
+                                    {lastTrade.side === 'BUY' ? '买入' : '卖出'}
+                                </span>
+                                <span className="text-2xl font-bold font-mono text-white">
+                                    {lastTrade.price.toFixed(2)}
+                                </span>
+                            </div>
+                        </CardContent>
+                    </Card>
+                )
+            )}
         </div>
     );
 }

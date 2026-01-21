@@ -17,33 +17,54 @@ export function EodAutoManager() {
     const hasRunBackfill = useRef(false);
     const lastSnapshotDate = useRef<string | null>(null);
 
-    // 1. Auto Backfill (Historical Data)
+    // 1. Auto Backfill (Historical Data) - [REMOVED FOR SAFETY]
+    // 1. Auto Backfill (Historical Data) - [RESTORED]
     useEffect(() => {
-        if (hasRunBackfill.current || holdings.length === 0) return;
-
         const runBackfill = async () => {
-            hasRunBackfill.current = true;
-            const todayNy = toNyCalendarDayString(new Date());
-            const prevDay = prevNyTradingDayString(todayNy);
+            if (hasRunBackfill.current) return;
+
+            // We always want to check the *Previous Trading Day* relative to Today.
+            // Because that is the reference date for Today's PnL.
+            const now = new Date();
+            const todayNy = toNyCalendarDayString(now);
+            const targetDate = prevNyTradingDayString(todayNy);
+
+            // Filter symbols that need backfill
             const symbols = holdings.map(h => h.symbol);
+            if (symbols.length === 0) return;
 
-            console.log(`[EodAutoManager] Checking backfill for ${prevDay}...`);
+            // Check if we have data
+            const results = await getOfficialCloses(targetDate, symbols);
+            const missingSymbols = symbols.filter(s => !results[s] || results[s]?.status !== 'ok');
 
-            // Check if we have data for previous trading day
-            const results = await getOfficialCloses(prevDay, symbols, { shouldAutoRequestBackfill: true });
+            if (missingSymbols.length > 0) {
+                console.log('[EodAutoManager] Found missing EOD for:', targetDate, missingSymbols);
 
-            const missingCount = Object.values(results).filter(r => r.status !== 'ok').length;
-            if (missingCount > 0) {
-                toast({
-                    title: '正在自动修复历史数据',
-                    description: `发现 ${missingCount} 个代码缺失 ${prevDay} 的数据，已触发自动修复。`,
-                });
+                // Limit batch size purely for safety, though triggerManualBackfill has checks too
+                const batch = missingSymbols.slice(0, 15);
+
+                // Import dynamically to avoid circular deps if any (though static import is fine here)
+                const { triggerManualBackfill } = await import('@/lib/data/official-close-repo');
+
+                try {
+                    await triggerManualBackfill(targetDate, batch, true);
+                    toast({
+                        title: '自动修复数据',
+                        description: `检测到 ${targetDate} 对 ${batch.length} 个标的缺失基准EOD，正在补录...`,
+                    });
+                } catch (e) {
+                    console.error('[EodAutoManager] Auto backfill failed', e);
+                }
             }
+
+            hasRunBackfill.current = true;
         };
 
-        // Delay slightly to ensure app is stable
-        const timer = setTimeout(runBackfill, 3000);
-        return () => clearTimeout(timer);
+        // Run after meaningful delay to let holdings load
+        if (holdings.length > 0) {
+            const t = setTimeout(runBackfill, 2000);
+            return () => clearTimeout(t);
+        }
     }, [holdings, toast]);
 
     // 3. Auto Snapshot (Today's Close)
@@ -69,7 +90,7 @@ export function EodAutoManager() {
             const symbols = holdings.map(h => h.symbol);
             if (symbols.length === 0) return;
 
-            const results = await getOfficialCloses(todayNy, symbols, { shouldAutoRequestBackfill: false });
+            const results = await getOfficialCloses(todayNy, symbols);
 
             let savedCount = 0;
             for (const sym of symbols) {

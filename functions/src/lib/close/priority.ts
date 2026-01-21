@@ -3,6 +3,7 @@ import { CloseProvider } from "../../providers/close/interface";
 import { coversDate } from "./capabilities";
 import { fmpProvider } from "../../providers/close/fmp";
 import { yahooProvider } from "../../providers/close/yahoo";
+import { finnhubEodProvider } from "../../providers/close/finnhub";
 
 /** 调用尝试的记录（便于排障） */
 interface Attempt {
@@ -189,6 +190,7 @@ export function buildDefaultCloseProviders(
     enableMarketstack?: boolean;
     enableStockdata?: boolean;
     enableYahoo?: boolean;
+    enableFinnhub?: boolean;
     targetYmd?: string; // 目标纽约日
     nowNyYmd?: string; // 当前纽约日
   }
@@ -206,7 +208,10 @@ export function buildDefaultCloseProviders(
     opts?.enableStockdata === undefined ? true : !!opts.enableStockdata;
   const useYahoo =
     opts?.enableYahoo === undefined ? true : !!opts.enableYahoo;
+  const useFinnhub =
+    opts?.enableFinnhub === undefined ? true : !!opts.enableFinnhub;
 
+  if (useFinnhub) providers.push(finnhubEodProvider); // High priority fallback
   if (useMarketstack) providers.push(marketstackProvider);
   if (useStockdata) providers.push(stockdataProvider);
   if (useYahoo) providers.push(yahooProvider);

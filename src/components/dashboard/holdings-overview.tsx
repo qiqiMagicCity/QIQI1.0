@@ -30,9 +30,11 @@ import {
   ChevronsDown,
   ArrowUpRight,
   Tag,
+  ChevronRight,
 } from 'lucide-react';
 import { ActionBadge } from '@/components/common/action-badge';
 import { toNyCalendarDayString, toNyHmsString, nyWeekdayLabel } from '@/lib/ny-time';
+import { ManualEodDialog } from './manual-eod-dialog';
 
 const formatCurrency = (value: number | null | undefined) => {
   if (value == null || typeof value !== 'number') return '—';
@@ -127,9 +129,345 @@ const AnimatedNumber = ({ value, children, className = '' }: { value: number | n
 };
 
 // 注意：这里先定义函数，最后统一做默认导出 + 具名导出
+const HoldingRowItem = ({
+  row,
+  fetchingSymbol,
+  manualEodState,
+  setManualEodState,
+}: {
+  row: any;
+  fetchingSymbol: string | null;
+  manualEodState: any;
+  setManualEodState: (s: any) => void;
+}) => {
+  const [expanded, setExpanded] = useState(false);
+
+  return (
+    <>
+      <TableRow className="group hover:bg-slate-50/50 dark:hover:bg-slate-900/50 transition-colors">
+        {/* 1. Logo & Toggle */}
+        <TableCell className="text-[13px] md:text-sm text-center px-2">
+          <div className="flex items-center justify-center gap-1">
+            {(row.lots && row.lots.length > 0) && (
+              <button
+                onClick={() => setExpanded(!expanded)}
+                className="p-1 text-slate-400 hover:text-foreground hover:bg-slate-200 dark:hover:bg-slate-800 rounded transition"
+                title="查看成本明细"
+              >
+                {expanded ? <ChevronsDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
+              </button>
+            )}
+            <CompanyLogo symbol={row.symbol} size={24} className={!(row.lots?.length) ? "mx-auto" : ""} />
+          </div>
+        </TableCell>
+
+        {/* 2. Symbol */}
+        <TableCell className="font-mono font-bold text-base md:text-lg px-2">
+          {row.symbol}
+        </TableCell>
+
+        {/* 3. Name */}
+        <TableCell className="text-sm md:text-base px-2">
+          <SymbolName symbol={row.symbol} />
+        </TableCell>
+
+        {/* 4. Type */}
+        <TableCell className="text-sm md:text-base px-2">
+          <div className="flex flex-col gap-1">
+            <Badge
+              className={`border-none gap-1 w-fit ${row.assetType === 'option'
+                ? 'bg-orange-600 text-white'
+                : 'bg-slate-700 text-white'
+                }`}
+            >
+              <AssetTypeIcon
+                assetType={row.assetType as any}
+                className="h-3 w-3"
+              />
+              <span>{row.assetType === 'option' ? '期权' : '股票'}</span>
+            </Badge>
+            {row.netQty > 0 && (
+              <Badge className="bg-emerald-600 text-white border-none w-fit text-[10px] px-1.5 py-0 h-5">
+                多头
+              </Badge>
+            )}
+            {row.netQty < 0 && (
+              <Badge className="bg-red-600 text-white border-none w-fit text-[10px] px-1.5 py-0 h-5">
+                空头
+              </Badge>
+            )}
+          </div>
+        </TableCell>
+
+        {/* 5. Last Price */}
+        <TableCell className="text-right font-mono text-sm md:text-base px-2">
+          <div className="flex flex-col items-end gap-0.5">
+            <span className={getTodayPlClassName(row.todayPl)}>
+              {fetchingSymbol === row.symbol ? (
+                <span className="mr-1 inline-block w-2 h-2 rounded-full bg-green-500 animate-ping" title="正在更新..."></span>
+              ) : row.todayPlStatus === 'stale-last' ? (
+                <span className="mr-1 inline-block w-2 h-2 rounded-full bg-orange-500 animate-pulse" title="数据陈旧"></span>
+              ) : row.priceStatus === 'live' ? (
+                <span className="mr-1 inline-block w-2 h-2 rounded-full bg-green-500" title="实时数据"></span>
+              ) : null}
+              <AnimatedNumber value={row.last} className="inline-block">
+                {formatCurrencyNoSign(row.last)}
+              </AnimatedNumber>
+            </span>
+            {row.priceStatus && (
+              <TooltipProvider>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <div className="cursor-help">
+                      <StatusBadge
+                        status={mapRtStatusToUiStatus(row.priceStatus)}
+                        className="inline-flex items-center shrink-0 rounded-full px-2 text-[11px] h-5"
+                      />
+                    </div>
+                  </TooltipTrigger>
+                  <TooltipContent>
+                    <div className="text-xs space-y-1">
+                      <p className="font-bold">
+                        {row.priceStatus === 'stale' ? '数据陈旧 (Stale)' :
+                          row.priceStatus === 'pending' ? '等待更新 (Pending)' :
+                            row.priceStatus === 'live' ? '实时数据 (Live)' :
+                              row.priceStatus === 'closed' ? '已收盘 (Closed)' : '未知状态'}
+                      </p>
+                      {row.lastUpdatedTs ? (
+                        <p>上次更新: {toNyHmsString(row.lastUpdatedTs)}</p>
+                      ) : (
+                        <p className="opacity-70">无更新时间记录</p>
+                      )}
+                      {row.priceStatus === 'stale' && (
+                        <p className="text-orange-400">数据超过60秒未更新</p>
+                      )}
+                    </div>
+                  </TooltipContent>
+                </Tooltip>
+              </TooltipProvider>
+            )}
+          </div>
+        </TableCell>
+
+        {/* 6. Net Qty */}
+        <TableCell className="text-center font-mono text-sm md:text-base px-2 text-sky-400">
+          {Number.isInteger(row.netQty) ? row.netQty : row.netQty.toFixed(2)}
+          {row.assetType === 'option' && (
+            <span className="text-muted-foreground text-xs ml-1">
+              ×{row.multiplier}
+            </span>
+          )}
+        </TableCell>
+
+        {/* 7. Avg Cost */}
+        <TableCell className="text-right font-mono text-sm md:text-base px-2 text-amber-400">
+          {row.avgCost !== null ? row.avgCost.toFixed(4) : '—'}
+        </TableCell>
+
+        {/* 8. NCI */}
+        <TableCell className="text-center font-mono text-sm md:text-base text-blue-600 px-2">
+          {formatCurrencyNoSign(
+            row.avgCost != null
+              ? Math.abs(row.netQty) * (row.multiplier ?? 1) * row.avgCost
+              : null
+          )}
+        </TableCell>
+
+        {/* 9. Break Even */}
+        <TableCell className="text-right font-mono text-sm md:text-base px-2 text-violet-400">
+          {row.breakEvenPrice != null ? formatCurrencyNoSign(row.breakEvenPrice) : '—'}
+        </TableCell>
+
+        {/* 10. Today Pl */}
+        <TableCell className="text-right font-mono text-sm md:text-base px-2">
+          <div className="flex items-center justify-end gap-2">
+            <TooltipProvider>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <div className="cursor-help flex items-center justify-end gap-2">
+                    {showRowTodayPlNumber(row) ? (
+                      <span className={getTodayPlClassName(row.todayPl)}>
+                        <AnimatedNumber value={row.todayPl}>
+                          {formatCurrency(row.todayPl)}
+                        </AnimatedNumber>
+                      </span>
+                    ) : (
+                      <span className="text-xs text-muted-foreground">
+                        {(row.todayPlStatus === 'missing-ref-eod' ||
+                          row.todayPlStatus === 'missing-today-eod' ||
+                          row.todayPlStatus === 'pending-eod-fetch') ? (
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              if (row.refDateUsed) {
+                                setManualEodState({
+                                  open: true,
+                                  symbol: row.symbol,
+                                  date: row.refDateUsed
+                                });
+                              }
+                            }}
+                            className="text-red-400 hover:text-red-300 underline decoration-dashed underline-offset-2 cursor-pointer transition-colors"
+                            title="点击手动录入数据"
+                          >
+                            缺失EOD
+                          </button>
+                        ) : row.todayPlStatus === 'degraded' ? (
+                          '缺实价'
+                        ) : (
+                          '—'
+                        )}
+                      </span>
+                    )}
+                  </div>
+                </TooltipTrigger>
+                <TooltipContent>
+                  <div className="text-xs space-y-1 text-left">
+                    <p className="font-bold">调试信息 (Debug)</p>
+                    <div>Ref Price (实价): {row.refPrice ?? 'N/A'}</div>
+                    <div>Prev Close (昨收): {row.prevClose ?? 'N/A'}</div>
+                    <div>Ref Date (基准日): {row.refDateUsed ?? 'N/A'}</div>
+                    <div>Status: {row.todayPlStatus}</div>
+                    <div className="text-xs text-muted-foreground mt-1">
+                      PnL = (Ref - Prev) * Qty
+                    </div>
+                  </div>
+                </TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
+          </div>
+        </TableCell>
+
+        {/* 11. Day Change */}
+        <TableCell className="text-right font-mono text-sm md:text-base px-2">
+          {(() => {
+            if (row.dayChange == null || row.dayChangePct == null) {
+              return <span className="text-muted-foreground">—</span>;
+            }
+            const positionChange = row.dayChange * row.netQty * (row.multiplier ?? 1);
+
+            return (
+              <div className={`flex flex-col items-end ${getTodayPlClassName(positionChange)}`}>
+                <AnimatedNumber value={positionChange}>
+                  <span>{formatCurrency(positionChange)}</span>
+                </AnimatedNumber>
+                <span className="text-[11px] md:text-xs opacity-80">
+                  ({formatPercent(row.dayChangePct)})
+                </span>
+              </div>
+            );
+          })()}
+        </TableCell>
+
+        {/* 12. Holding PnL */}
+        <TableCell className="text-right font-mono text-sm md:text-base px-2">
+          {(() => {
+            if (row.pnl == null || row.pnlPct == null) {
+              return <span className="text-muted-foreground">—</span>;
+            }
+            return (
+              <div className={`flex flex-col items-end ${getTodayPlClassName(row.pnl)}`}>
+                <span>{formatPercent(row.pnlPct)}</span>
+                <span className="text-[11px] md:text-xs opacity-80">
+                  <AnimatedNumber value={row.pnl}>
+                    ({formatCurrency(row.pnl)})
+                  </AnimatedNumber>
+                </span>
+              </div>
+            );
+          })()}
+        </TableCell>
+
+        {/* 13. Realized PnL */}
+        <TableCell className="text-right font-mono text-sm md:text-base px-2">
+          {(() => {
+            const val = row.realizedPnl ?? 0;
+            return (
+              <span className={getTodayPlClassName(val)}>
+                <AnimatedNumber value={val}>
+                  {formatCurrency(val)}
+                </AnimatedNumber>
+              </span>
+            );
+          })()}
+        </TableCell>
+
+        {/* 14. Detail Link */}
+        <TableCell className="text-center px-2">
+          <Link
+            href={`/symbol/${row.symbol}`}
+            className="inline-flex items-center justify-center w-8 h-8 rounded-full hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors text-slate-400 hover:text-emerald-500"
+            title="查看详情"
+            prefetch={false}
+          >
+            <ArrowUpRight className="h-4 w-4" />
+          </Link>
+        </TableCell>
+      </TableRow>
+
+      {/* EXPANDED DETAILS */}
+      {expanded && (
+        <TableRow className="bg-slate-50/50 dark:bg-slate-900/50">
+          <TableCell colSpan={15} className="p-0">
+            <div className="p-4 pl-14 md:pl-20 border-b relative">
+              <div className="absolute left-6 top-0 bottom-0 w-px bg-border border-dashed dark:border-slate-800" />
+              <div className="absolute left-6 top-6 w-6 h-px bg-border border-dashed dark:border-slate-800" />
+
+              <div className="rounded-md border bg-card/50 overflow-hidden max-w-2xl">
+                <div className="bg-muted/50 px-4 py-2 border-b flex justify-between items-center">
+                  <span className="font-semibold text-xs">成本明细 (FIFO Layers)</span>
+                </div>
+                <Table>
+                  <TableHeader>
+                    <TableRow className="h-8 border-none hover:bg-transparent bg-muted/20">
+                      <TableHead className="h-8 text-xs w-[180px]">开仓时间</TableHead>
+                      <TableHead className="h-8 text-xs text-right">数量</TableHead>
+                      <TableHead className="h-8 text-xs text-right">成本 (Cost)</TableHead>
+                      <TableHead className="h-8 text-xs text-right">总投 (Basis)</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {row.lots?.map((lot: any, idx: number) => {
+                      const basis = Math.abs(lot.qty) * lot.price * (row.multiplier ?? 1);
+                      return (
+                        <TableRow key={idx} className="h-8 border-none hover:bg-black/5 dark:hover:bg-white/5">
+                          <TableCell className="py-1 text-xs">
+                            <span className="font-mono">{toNyCalendarDayString(new Date(lot.ts))}</span>
+                            <span className="text-muted-foreground ml-2 text-[10px]">{toNyHmsString(new Date(lot.ts))}</span>
+                          </TableCell>
+                          <TableCell className="py-1 text-xs text-right font-mono">
+                            {lot.qty > 0 ? (
+                              <span className="text-emerald-500">+{lot.qty}</span>
+                            ) : (
+                              <span className="text-red-500">{lot.qty}</span>
+                            )}
+                          </TableCell>
+                          <TableCell className="py-1 text-xs text-right font-mono text-amber-400">
+                            {lot.price.toFixed(4)}
+                          </TableCell>
+                          <TableCell className="py-1 text-xs text-right font-mono text-blue-400">
+                            {formatCurrencyNoSign(basis)}
+                          </TableCell>
+                        </TableRow>
+                      );
+                    })}
+                  </TableBody>
+                </Table>
+              </div>
+            </div>
+          </TableCell>
+        </TableRow>
+      )}
+    </>
+  );
+};
+
 function HoldingsOverview() {
-  const { rows, loading, transactions } = useHoldings();
+  const { rows, loading, transactions, refreshData } = useHoldings();
   const { fetchingSymbol } = usePriceCenterContext();
+
+  // Manual EOD State
+  const [manualEodState, setManualEodState] = useState<{ open: boolean; symbol: string; date: string } | null>(null);
 
   type SortKey = 'symbol' | 'assetType' | 'last' | 'netQty' | 'avgCost' | 'costBasis' | 'todayPl' | 'dayChange' | 'dayChangePct';
   type SortDirection = 'asc' | 'desc' | null;
@@ -348,257 +686,36 @@ function HoldingsOverview() {
                   )}
 
                   {!loading &&
-                    sortedRows.map((row) => {
-                      const costBasis =
-                        row.avgCost != null
-                          ? Math.abs(row.netQty) * (row.multiplier ?? 1) * row.avgCost
-                          : null;
-
-                      const isMissingEod =
-                        row.todayPlStatus === 'missing-ref-eod' ||
-                        row.todayPlStatus === 'missing-today-eod' ||
-                        row.todayPlStatus === 'pending-eod-fetch';
-
-                      const isMissingRealtime = row.todayPlStatus === 'degraded';
-
-                      return (
-                        <TableRow
-                          key={`${row.symbol}-${row.assetType}-${row.multiplier ?? 1}`}
-                        >
-                          <TableCell className="text-[13px] md:text-sm text-center px-2">
-                            <CompanyLogo symbol={row.symbol} size={24} className="mx-auto" />
-                          </TableCell>
-
-                          <TableCell className="font-mono font-bold text-base md:text-lg px-2">
-                            {row.symbol}
-                          </TableCell>
-
-                          <TableCell className="text-sm md:text-base px-2">
-                            <SymbolName symbol={row.symbol} />
-                          </TableCell>
-
-                          <TableCell className="text-sm md:text-base px-2">
-                            <div className="flex flex-col gap-1">
-                              <Badge
-                                className={`border-none gap-1 w-fit ${row.assetType === 'option'
-                                  ? 'bg-orange-600 text-white'
-                                  : 'bg-slate-700 text-white'
-                                  }`}
-                              >
-                                <AssetTypeIcon
-                                  assetType={row.assetType as any}
-                                  className="h-3 w-3"
-                                />
-                                <span>{row.assetType === 'option' ? '期权' : '股票'}</span>
-                              </Badge>
-                              {row.netQty > 0 && (
-                                <Badge className="bg-emerald-600 text-white border-none w-fit text-[10px] px-1.5 py-0 h-5">
-                                  多头
-                                </Badge>
-                              )}
-                              {row.netQty < 0 && (
-                                <Badge className="bg-red-600 text-white border-none w-fit text-[10px] px-1.5 py-0 h-5">
-                                  空头
-                                </Badge>
-                              )}
-                            </div>
-                          </TableCell>
-
-                          {/* 实时价格 + 实时价格状态徽章（来自价格中心）；颜色跟随当日盈亏 todayPl */}
-                          <TableCell className="text-right font-mono text-sm md:text-base px-2">
-                            <div className="flex items-center justify-end gap-2">
-                              <span className={getTodayPlClassName(row.todayPl)}>
-                                {fetchingSymbol === row.symbol ? (
-                                  <span className="mr-1 inline-block w-2 h-2 rounded-full bg-green-500 animate-ping" title="正在更新..."></span>
-                                ) : row.todayPlStatus === 'stale-last' ? (
-                                  <span className="mr-1 inline-block w-2 h-2 rounded-full bg-orange-500 animate-pulse" title="数据陈旧"></span>
-                                ) : row.priceStatus === 'live' ? (
-                                  <span className="mr-1 inline-block w-2 h-2 rounded-full bg-green-500" title="实时数据"></span>
-                                ) : null}
-                                <AnimatedNumber value={row.last} className="inline-block">
-                                  {formatCurrencyNoSign(row.last)}
-                                </AnimatedNumber>
-                              </span>
-                              {row.priceStatus && (
-                                <TooltipProvider>
-                                  <Tooltip>
-                                    <TooltipTrigger asChild>
-                                      <div className="cursor-help">
-                                        <StatusBadge
-                                          status={mapRtStatusToUiStatus(row.priceStatus)}
-                                          className="inline-flex items-center shrink-0 rounded-full px-2 text-[11px] h-5"
-                                        />
-                                      </div>
-                                    </TooltipTrigger>
-                                    <TooltipContent>
-                                      <div className="text-xs space-y-1">
-                                        <p className="font-bold">
-                                          {row.priceStatus === 'stale' ? '数据陈旧 (Stale)' :
-                                            row.priceStatus === 'pending' ? '等待更新 (Pending)' :
-                                              row.priceStatus === 'live' ? '实时数据 (Live)' :
-                                                row.priceStatus === 'closed' ? '已收盘 (Closed)' : '未知状态'}
-                                        </p>
-                                        {row.lastUpdatedTs ? (
-                                          <p>上次更新: {toNyHmsString(row.lastUpdatedTs)}</p>
-                                        ) : (
-                                          <p className="opacity-70">无更新时间记录</p>
-                                        )}
-                                        {row.priceStatus === 'stale' && (
-                                          <p className="text-orange-400">数据超过60秒未更新</p>
-                                        )}
-                                      </div>
-                                    </TooltipContent>
-                                  </Tooltip>
-                                </TooltipProvider>
-                              )}
-                            </div>
-                          </TableCell>
-
-                          {/* 持仓数量 */}
-                          <TableCell className="text-center font-mono text-sm md:text-base px-2 text-sky-400">
-                            {Number.isInteger(row.netQty) ? row.netQty : row.netQty.toFixed(2)}
-                            {row.assetType === 'option' && (
-                              <span className="text-muted-foreground text-xs ml-1">
-                                ×{row.multiplier}
-                              </span>
-                            )}
-                          </TableCell>
-
-                          {/* 持仓单价 */}
-                          <TableCell className="text-right font-mono text-sm md:text-base px-2 text-amber-400">
-                            {row.avgCost !== null ? row.avgCost.toFixed(4) : '—'}
-                          </TableCell>
-
-                          {/* 净现金投入（NCI） */}
-                          <TableCell className="text-center font-mono text-sm md:text-base text-blue-600 px-2">
-                            {formatCurrencyNoSign(costBasis)}
-                          </TableCell>
-
-                          {/* 盈亏平衡点 */}
-                          <TableCell className="text-right font-mono text-sm md:text-base px-2 text-violet-400">
-                            {row.breakEvenPrice != null ? formatCurrencyNoSign(row.breakEvenPrice) : '—'}
-                          </TableCell>
-
-                          {/* 当日盈亏：仅金额（关注人） */}
-                          <TableCell className="text-right font-mono text-sm md:text-base px-2">
-                            <div className="flex items-center justify-end gap-2">
-                              <TooltipProvider>
-                                <Tooltip>
-                                  <TooltipTrigger asChild>
-                                    <div className="cursor-help flex items-center justify-end gap-2">
-                                      {showRowTodayPlNumber(row) ? (
-                                        <span className={getTodayPlClassName(row.todayPl)}>
-                                          <AnimatedNumber value={row.todayPl}>
-                                            {formatCurrency(row.todayPl)}
-                                          </AnimatedNumber>
-                                        </span>
-                                      ) : (
-                                        <span className="text-xs text-muted-foreground">
-                                          {isMissingEod
-                                            ? '缺失EOD'
-                                            : isMissingRealtime
-                                              ? '缺实价'
-                                              : '—'}
-                                        </span>
-                                      )}
-                                    </div>
-                                  </TooltipTrigger>
-                                  <TooltipContent>
-                                    <div className="text-xs space-y-1 text-left">
-                                      <p className="font-bold">调试信息 (Debug)</p>
-                                      <div>Ref Price (实价): {row.refPrice ?? 'N/A'}</div>
-                                      <div>Prev Close (昨收): {row.prevClose ?? 'N/A'}</div>
-                                      <div>Ref Date (基准日): {row.refDateUsed ?? 'N/A'}</div>
-                                      <div>Status: {row.todayPlStatus}</div>
-                                      <div className="text-xs text-muted-foreground mt-1">
-                                        PnL = (Ref - Prev) * Qty
-                                      </div>
-                                    </div>
-                                  </TooltipContent>
-                                </Tooltip>
-                              </TooltipProvider>
-                            </div>
-                          </TableCell>
-
-                          {/* 当日变动：金额放上面，百分比放下面括号内 */}
-                          <TableCell className="text-right font-mono text-sm md:text-base px-2">
-                            {(() => {
-                              if (row.dayChange == null || row.dayChangePct == null) {
-                                return <span className="text-muted-foreground">—</span>;
-                              }
-                              // 计算持仓市值变动 = 单股变动 * 数量 * 倍数
-                              const positionChange = row.dayChange * row.netQty * (row.multiplier ?? 1);
-
-                              return (
-                                <div className={`flex flex-col items-end ${getTodayPlClassName(positionChange)}`}>
-                                  <AnimatedNumber value={positionChange}>
-                                    <span>{formatCurrency(positionChange)}</span>
-                                  </AnimatedNumber>
-                                  <span className="text-[11px] md:text-xs opacity-80">
-                                    ({formatPercent(row.dayChangePct)})
-                                  </span>
-                                </div>
-                              );
-                            })()}
-                          </TableCell>
-
-                          {/* 持仓盈亏 */}
-                          <TableCell className="text-right font-mono text-sm md:text-base px-2">
-                            {(() => {
-                              if (row.pnl == null || row.pnlPct == null) {
-                                return <span className="text-muted-foreground">—</span>;
-                              }
-                              return (
-                                <span className={getTodayPlClassName(row.pnl)}>
-                                  {formatPercent(row.pnlPct)}
-                                  <span className="ml-1 text-[11px] md:text-xs">
-                                    <AnimatedNumber value={row.pnl}>
-                                      ({formatCurrency(row.pnl)})
-                                    </AnimatedNumber>
-                                  </span>
-                                </span>
-                              );
-                            })()}
-                          </TableCell>
-
-                          {/* 个股已实现盈亏 (Strictly Realized) */}
-                          <TableCell className="text-right font-mono text-sm md:text-base px-2">
-                            {(() => {
-                              // Use strict realized PnL. If null/undef, default to 0.
-                              const val = row.realizedPnl ?? 0;
-                              // Optional: Hide if 0 and user prefers clean look? 
-                              // But usually 0.00 is better for explicit "no realized".
-                              // Given previous logic used checking null, we stick to similar pattern but default 0 is fine for realized.
-                              return (
-                                <span className={getTodayPlClassName(val)}>
-                                  <AnimatedNumber value={val}>
-                                    {formatCurrency(val)}
-                                  </AnimatedNumber>
-                                </span>
-                              );
-                            })()}
-                          </TableCell>
-
-                          {/* 详情 */}
-                          <TableCell className="text-center px-2">
-                            <Link
-                              href={`/symbol/${row.symbol}`}
-                              className="inline-flex items-center justify-center w-8 h-8 rounded-full hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors text-slate-400 hover:text-emerald-500"
-                              title="查看详情"
-                              prefetch={false}
-                            >
-                              <ArrowUpRight className="h-4 w-4" />
-                            </Link>
-                          </TableCell>
-                        </TableRow>
-                      );
-                    })}
+                    sortedRows.map((row) => (
+                      <HoldingRowItem
+                        key={`${row.symbol}-${row.assetType}-${row.multiplier ?? 1}`}
+                        row={row}
+                        fetchingSymbol={fetchingSymbol}
+                        manualEodState={manualEodState}
+                        setManualEodState={setManualEodState}
+                      />
+                    ))}
                 </TableBody>
               </Table>
             </div>
           </CardContent>
         </Card>
       </section>
+
+      {/* Manual EOD Dialog */}
+      {
+        manualEodState && (
+          <ManualEodDialog
+            open={manualEodState.open}
+            onOpenChange={(open) => setManualEodState(prev => prev ? { ...prev, open } : null)}
+            symbol={manualEodState.symbol}
+            date={manualEodState.date}
+            onSuccess={() => {
+              refreshData();
+            }}
+          />
+        )
+      }
 
       {/* [NEW] Recent Transactions Section (Full Detail) */}
       <section className="mt-8">

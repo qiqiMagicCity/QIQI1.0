@@ -8,6 +8,7 @@ import { Tx } from '@/hooks/use-user-transactions';
 import { toNyCalendarDayString } from '@/lib/ny-time';
 import { PriceRecord } from '@/price/RealTimePricesProvider';
 import { getCumulativeSplitFactor } from '@/lib/holdings/stock-splits';
+import { AuditEvent } from './calc-m4-m5-2-global-fifo';
 
 const normalizeSymbolForClient = (s: string): string =>
     (s ?? '')
@@ -27,6 +28,7 @@ export type M5_1_Result = {
     realized: number;
     unrealized: number;
     breakdown: Map<string, { realized: number; unrealized: number }>;
+    auditTrail: AuditEvent[];
 };
 
 type BucketItem = {
@@ -39,7 +41,7 @@ export function calcM5_1_Trading(input: M5_1_Input): M5_1_Result {
     const { transactions, todayNy, currentPrices } = input;
 
     if (!Array.isArray(transactions) || transactions.length === 0) {
-        return { m5_1: 0, realized: 0, unrealized: 0, breakdown: new Map() };
+        return { m5_1: 0, realized: 0, unrealized: 0, breakdown: new Map(), auditTrail: [] };
     }
 
     // 1. 数据分流：历史 vs 今日
@@ -60,10 +62,11 @@ export function calcM5_1_Trading(input: M5_1_Input): M5_1_Result {
     }
 
     if (todayTxs.length === 0) {
-        return { m5_1: 0, realized: 0, unrealized: 0, breakdown: new Map() };
+        return { m5_1: 0, realized: 0, unrealized: 0, breakdown: new Map(), auditTrail: [] };
     }
 
     const breakdown = new Map<string, { realized: number; unrealized: number }>();
+    const auditTrail: AuditEvent[] = [];
     let totalRealized = 0;
     let totalUnrealized = 0;
 
@@ -143,6 +146,17 @@ export function calcM5_1_Trading(input: M5_1_Input): M5_1_Result {
                     totalRealized += pnl;
                     addBreakdown(sym, 'realized', pnl);
 
+                    auditTrail.push({
+                        symbol: sym,
+                        openDate: "Historical", // C bucket is legacy
+                        openPrice: matchLeg.price,
+                        closeDate: todayNy,
+                        closePrice: price,
+                        qty: matched, // matched is positive. Since this is long reduce (Sell), effectively selling.
+                        pnl,
+                        multiplier: mult
+                    });
+
                     // Update Queues
                     matchLeg.qty -= matched;
                     if (matchLeg.qty <= 0.000001) C_long_reduce.shift();
@@ -158,6 +172,17 @@ export function calcM5_1_Trading(input: M5_1_Input): M5_1_Result {
                     const pnl = (matchLeg.price - price) * matched * mult;
                     totalRealized += pnl;
                     addBreakdown(sym, 'realized', pnl);
+
+                    auditTrail.push({
+                        symbol: sym,
+                        openDate: todayNy, // A bucket is today
+                        openPrice: matchLeg.price,
+                        closeDate: todayNy,
+                        closePrice: price,
+                        qty: matched,
+                        pnl,
+                        multiplier: mult
+                    });
 
                     matchLeg.qty -= matched;
                     if (matchLeg.qty <= 0.000001) A_short.shift();
@@ -197,6 +222,17 @@ export function calcM5_1_Trading(input: M5_1_Input): M5_1_Result {
                     totalRealized += pnl;
                     addBreakdown(sym, 'realized', pnl);
 
+                    auditTrail.push({
+                        symbol: sym,
+                        openDate: "Historical", // C Short bucket
+                        openPrice: matchLeg.price,
+                        closeDate: todayNy,
+                        closePrice: price,
+                        qty: matched,
+                        pnl,
+                        multiplier: mult
+                    });
+
                     matchLeg.qty -= matched;
                     if (matchLeg.qty <= 0.000001) C_short_reduce.shift();
                     qtyRemaining -= matched;
@@ -210,6 +246,17 @@ export function calcM5_1_Trading(input: M5_1_Input): M5_1_Result {
                     const pnl = (price - matchLeg.price) * matched * mult;
                     totalRealized += pnl;
                     addBreakdown(sym, 'realized', pnl);
+
+                    auditTrail.push({
+                        symbol: sym,
+                        openDate: todayNy, // A Long bucket
+                        openPrice: matchLeg.price,
+                        closeDate: todayNy,
+                        closePrice: price,
+                        qty: matched,
+                        pnl,
+                        multiplier: mult
+                    });
 
                     matchLeg.qty -= matched;
                     if (matchLeg.qty <= 0.000001) A_long.shift();
@@ -254,12 +301,32 @@ export function calcM5_1_Trading(input: M5_1_Input): M5_1_Result {
                 for (const pos of A_long) {
                     const pnl = (mark - pos.price) * pos.qty * pos.multiplier;
                     symUnrealized += pnl;
+                    auditTrail.push({
+                        symbol: sym,
+                        openDate: todayNy,
+                        openPrice: pos.price,
+                        closeDate: "HOLDING", // Unrealized
+                        closePrice: mark,
+                        qty: pos.qty,
+                        pnl,
+                        multiplier: pos.multiplier
+                    });
                 }
 
                 // A_short: Short positions. Float = (Entry - Mark)
                 for (const pos of A_short) {
                     const pnl = (pos.price - mark) * pos.qty * pos.multiplier;
                     symUnrealized += pnl;
+                    auditTrail.push({
+                        symbol: sym,
+                        openDate: todayNy,
+                        openPrice: pos.price,
+                        closeDate: "HOLDING", // Unrealized
+                        closePrice: mark,
+                        qty: pos.qty,
+                        pnl,
+                        multiplier: pos.multiplier
+                    });
                 }
             }
         }
@@ -273,13 +340,11 @@ export function calcM5_1_Trading(input: M5_1_Input): M5_1_Result {
 
     const m5_1 = totalRealized + totalUnrealized;
 
-    // Sort breakdown for consistency? 
-    // Usually handled by consumer or sort details if needed.
-
     return {
         m5_1,
         realized: totalRealized,
         unrealized: totalUnrealized,
-        breakdown
+        breakdown,
+        auditTrail
     };
 }

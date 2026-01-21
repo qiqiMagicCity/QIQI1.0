@@ -2,6 +2,7 @@
 
 import React from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { HoverCard, HoverCardContent, HoverCardTrigger } from "@/components/ui/hover-card";
 import { useDailyPnl } from "@/hooks/use-daily-pnl";
 import { useHoldings } from "@/hooks/use-holdings";
 import { cn } from "@/lib/utils";
@@ -13,35 +14,53 @@ import { toast } from "sonner";
 import { DailyPnlBreakdownDialog } from '@/components/dashboard/daily-pnl-breakdown-dialog';
 
 export function DailyPnlCalendar() {
+    const { summary, dailyPnlResults: providerResults, loading: providerLoading, isCalculating, analysisYear } = useHoldings();
+
+    // [COMPLIANT] Rule 2.1: Initialize calendar view based on NY Date.
     const todayNy = getEffectiveTradingDay();
-    // [COMPLIANT] Rule 2.1: Initialize calendar view based on NY Date, not local browser time.
-    // parse yyyy-mm-dd string to local Date object (midnight) for UI control state
+    // Default to today, but will be overridden by effect if analysisYear differs
     const [currentMonth, setCurrentMonth] = React.useState(() => {
         const [y, m, d] = todayNy.split('-').map(Number);
         return new Date(y, m - 1, d);
     });
     const [selectedDate, setSelectedDate] = React.useState<string | null>(null);
 
-    // Check if the viewed month is the current NY month
-    const isCurrentMonth = isSameMonth(currentMonth, new Date(Number(todayNy.substring(0, 4)), Number(todayNy.substring(5, 7)) - 1, 1));
+    // [NEW] Sync Calendar Month with Analysis Year
+    React.useEffect(() => {
+        if (analysisYear) {
+            const currentViewYear = currentMonth.getFullYear();
+            if (currentViewYear !== analysisYear) {
+                // If switching to past year, show December (End of Year view)
+                // If switching to current year, show 'Today's month'
+                const realNowYear = new Date().getFullYear();
+                if (analysisYear === realNowYear) {
+                    const [y, m, d] = getEffectiveTradingDay().split('-').map(Number);
+                    setCurrentMonth(new Date(y, m - 1, d));
+                } else {
+                    setCurrentMonth(new Date(analysisYear, 11, 1)); // Dec 1st
+                }
+            }
+        }
+    }, [analysisYear]);
+
+    // Check if the viewed month is covered by the Provider (Active Analysis Year)
+    const isCoveredByProvider = analysisYear ? (currentMonth.getFullYear() === analysisYear) : isSameMonth(currentMonth, new Date());
 
     const { dailyPnlResults: hookResults, loading: hookLoading } = useDailyPnl(currentMonth);
-    const { summary, dailyPnlResults: providerResults, loading: providerLoading, isCalculating } = useHoldings();
 
-    // [FIX] Use Provider results ONLY for current month (provides live/today updates).
-    // For historical months (even within same year), rely on 'hookResults' 
-    // because 'useDailyPnl' explicitly correctly fetches/backfills historical EOD data for the entire range.
-    // 'providerResults' (Global Context) might lazy-load or miss historical chunks depending on optimization.
-    const dailyPnlResults = isCurrentMonth ? providerResults : hookResults;
-    const loading = isCurrentMonth ? providerLoading : hookLoading;
+    // [FIX] Use Provider results for the entire Analysis Year (incl. Time Travel).
+    // Use 'useDailyPnl' hook only when browsing months OUTSIDE the active analysis year (e.g. looking at 2024 while Analysis is 2026).
+    const dailyPnlResults = isCoveredByProvider ? providerResults : hookResults;
+    const loading = isCoveredByProvider ? providerLoading : hookLoading;
 
     // Calculate total PnL for the month
     const monthPnl = React.useMemo(() => {
         let total = 0;
         Object.values(dailyPnlResults).forEach(res => {
             if (res.date.startsWith(format(currentMonth, 'yyyy-MM'))) {
-                // For current month, providerResults already has Today's M6 injected and status='ok'
-                if (res.status === 'ok' || res.status === 'partial') {
+                // For active provider data, status should be respected.
+                // Note: In Time Travel (2025), dates are 'past', so status might be 'market-closed' or 'ok'.
+                if (res.status === 'ok' || res.status === 'partial' || res.status === 'market-closed') {
                     total += res.totalPnl;
                 }
             }
@@ -53,21 +72,25 @@ export function DailyPnlCalendar() {
     const missingItems = React.useMemo(() => {
         const items: { date: string, symbols: string[] }[] = [];
         Object.values(dailyPnlResults).forEach(res => {
-            // Only care about this month's missing data to keep list relevant
-            // [FIX] Ignore future dates (e.g. 2026-01-02) as they are naturally missing EOD
-            if (res.date.startsWith(format(currentMonth, 'yyyy-MM')) && res.date <= todayNy) {
+            // Only care about this month's missing data
+            // Ignore future dates relative to the Analysis Date (effectiveTodayNy)
+            // But here we rely on res.date.
+            // If viewing 2025, todayNy is 2026. Data is 2025.
+            // We should check against analysis year end? 
+            // Actually 'missing-data' status is explicit.
+            if (res.date.startsWith(format(currentMonth, 'yyyy-MM'))) {
                 if (res.status === 'missing-data' && res.missingSymbols && res.missingSymbols.length > 0) {
                     items.push({ date: res.date, symbols: res.missingSymbols });
                 }
             }
         });
         return items.sort((a, b) => a.date.localeCompare(b.date));
-    }, [dailyPnlResults, currentMonth, todayNy]);
+    }, [dailyPnlResults, currentMonth]);
 
     const handleManualBackfill = async (date: string, symbols: string[]) => {
         try {
             toast.info(`正在请求补录 ${date} 的数据...`);
-            await triggerManualBackfill(date, symbols);
+            await triggerManualBackfill(date, symbols, true);
             toast.success(`已发送补录请求，请稍候...`);
         } catch (e) {
             toast.error("补录请求失败，请检查网络或日志");
@@ -294,7 +317,21 @@ export function DailyPnlCalendar() {
                                     <div className="grid grid-cols-3 gap-0.5 border-t border-white/10 pt-1.5 mt-1">
                                         {/* Pos (Left) */}
                                         <div className="flex flex-col items-start min-w-0">
-                                            <span className="text-[9px] font-bold text-zinc-500 uppercase tracking-wider leading-none mb-0.5" title="持仓盈亏 (Unrealized + Overnight Realized)">持仓</span>
+                                            <HoverCard openDelay={200} closeDelay={100}>
+                                                <HoverCardTrigger asChild>
+                                                    <span className="text-[9px] font-bold text-zinc-500 uppercase tracking-wider leading-none mb-0.5 cursor-help">持仓</span>
+                                                </HoverCardTrigger>
+                                                <HoverCardContent className="w-64 bg-zinc-950 border-zinc-800 text-zinc-300 text-xs p-3 shadow-xl backdrop-blur-xl">
+                                                    <div className="space-y-2">
+                                                        <h4 className="font-bold text-emerald-400">持仓盈亏 (Positions)</h4>
+                                                        <p>涵盖两部分损益：</p>
+                                                        <ul className="list-disc list-inside space-y-1 text-zinc-400">
+                                                            <li><span className="text-zinc-200">浮动变化</span>：所有未平仓位（无论新旧）在今日的市值波动。</li>
+                                                            <li><span className="text-zinc-200">隔夜结转</span>：卖出昨日以前持仓所产生的已实现盈亏 (Realized M4)。</li>
+                                                        </ul>
+                                                    </div>
+                                                </HoverCardContent>
+                                            </HoverCard>
                                             <span className={cn(
                                                 "text-sm font-extrabold tracking-tighter leading-none truncate w-full",
                                                 ((unrealizedChange || 0) + (res?.realizedPnlPosition || 0)) >= 0 ? "text-emerald-400" : "text-rose-400"
@@ -305,7 +342,21 @@ export function DailyPnlCalendar() {
 
                                         {/* Bk (Center) */}
                                         <div className="flex flex-col items-center min-w-0 border-l border-r border-white/5">
-                                            <span className="text-[9px] font-bold text-indigo-400/70 uppercase tracking-wider leading-none mb-0.5" title="日内账本 (Intraday Realized via FIFO)">账本</span>
+                                            <HoverCard openDelay={200} closeDelay={100}>
+                                                <HoverCardTrigger asChild>
+                                                    <span className="text-[9px] font-bold text-indigo-400/70 uppercase tracking-wider leading-none mb-0.5 cursor-help">账本</span>
+                                                </HoverCardTrigger>
+                                                <HoverCardContent className="w-64 bg-zinc-950 border-zinc-800 text-zinc-300 text-xs p-3 shadow-xl backdrop-blur-xl">
+                                                    <div className="space-y-2">
+                                                        <h4 className="font-bold text-indigo-400">账本盈亏 (Book/Ledger)</h4>
+                                                        <p>严格会计定义的日内已实现盈亏：</p>
+                                                        <ul className="list-disc list-inside space-y-1 text-zinc-400">
+                                                            <li>仅包含<span className="text-zinc-200">今日开仓且今日平仓</span>的完整闭环交易。</li>
+                                                            <li>基于全局 FIFO 原则，若卖出的是老仓位，则归入“持仓”而非此处。</li>
+                                                        </ul>
+                                                    </div>
+                                                </HoverCardContent>
+                                            </HoverCard>
                                             <span className={cn(
                                                 "text-sm font-extrabold tracking-tighter leading-none truncate w-full text-center",
                                                 (res?.realizedPnlDay || 0) >= 0 ? "text-indigo-300" : "text-rose-300"
@@ -316,7 +367,21 @@ export function DailyPnlCalendar() {
 
                                         {/* Tr (Right) */}
                                         <div className="flex flex-col items-end min-w-0">
-                                            <span className="text-[9px] font-bold text-amber-500/70 uppercase tracking-wider leading-none mb-0.5" title="日内交易 (Intraday Isolated Match)">交易</span>
+                                            <HoverCard openDelay={200} closeDelay={100}>
+                                                <HoverCardTrigger asChild>
+                                                    <span className="text-[9px] font-bold text-amber-500/70 uppercase tracking-wider leading-none mb-0.5 cursor-help">撮合</span>
+                                                </HoverCardTrigger>
+                                                <HoverCardContent className="w-64 bg-zinc-950 border-zinc-800 text-zinc-300 text-xs p-3 shadow-xl backdrop-blur-xl">
+                                                    <div className="space-y-2">
+                                                        <h4 className="font-bold text-amber-500">日内撮合 (Intraday Match)</h4>
+                                                        <p>纯日内交易能力的独立评分：</p>
+                                                        <ul className="list-disc list-inside space-y-1 text-zinc-400">
+                                                            <li><span className="text-zinc-200">强制撮合</span>：忽略历史持仓，仅对今日的“买”与“卖”进行 FIFO 配对。</li>
+                                                            <li><span className="text-zinc-200">Shadow Ledger</span>：不计入总账，用于评估 T+0 微操水平。</li>
+                                                        </ul>
+                                                    </div>
+                                                </HoverCardContent>
+                                            </HoverCard>
                                             <span className={cn(
                                                 "text-sm font-extrabold tracking-tighter leading-none truncate w-full text-right",
                                                 (res?.m5_1 || 0) >= 0 ? "text-amber-400" : "text-rose-400"

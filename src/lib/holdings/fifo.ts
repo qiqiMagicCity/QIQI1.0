@@ -32,6 +32,7 @@ export interface Holding {
   plFloating: "--";
   status: 'calc_pending';
   anomalies: string[];
+  lots: FifoLayer[]; // [New] Expose specific cost layers
 }
 
 export interface Snapshot {
@@ -260,6 +261,7 @@ export function buildHoldingsSnapshot(transactions: Tx[], targetDate?: string): 
       plFloating: '--',
       status: 'calc_pending',
       anomalies: anomalies.get(symbol.toUpperCase()) || [],
+      lots: relevantLayers, // [New]
     });
     audit.positionsProduced++;
   }

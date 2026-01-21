@@ -8,11 +8,15 @@ import { SymbolHeader } from '@/components/symbol/symbol-header';
 import { SymbolDashboard } from '@/components/symbol/symbol-dashboard';
 import { SymbolTransactionsTable, SymbolTransactionRow } from '@/components/symbol/symbol-transactions-table';
 import { calcGlobalFifo } from '@/lib/pnl/calc-m4-m5-2-global-fifo';
+
 import { nowNyCalendarDayString, toNyCalendarDayString, nyWeekdayIndex } from '@/lib/ny-time';
+import { usePriceCenterContext } from '@/price/RealTimePricesProvider';
+import { normalizeSymbolClient } from '@/lib/utils';
 
 export function StocksTab() {
     const { user } = useUser();
     const { data: transactions, loading } = useUserTransactions(user?.uid);
+    const { map: priceMap, register, unregister } = usePriceCenterContext(); // [NEW] Get RT Prices
     const [selectedSymbol, setSelectedSymbol] = useState<string>('');
 
     // --- Sidebar Logic (from SymbolLayout) ---
@@ -54,6 +58,17 @@ export function StocksTab() {
             setSelectedSymbol(sidebarItems[0].symbol);
         }
     }, [sidebarItems, selectedSymbol]);
+
+    // [NEW] Register for Real-time Updates
+    useEffect(() => {
+        if (!selectedSymbol) return;
+        const root = selectedSymbol.split(' ')[0];
+        const id = `stocks-tab-${root}`;
+        // Register the root symbol (for Stock mode). 
+        // For Option mode, we might not have streaming option prices, but registering root doesn't hurt.
+        register(id, [root]);
+        return () => unregister(id);
+    }, [selectedSymbol, register, unregister]);
 
 
     // --- Details Logic (from SymbolPage) ---
@@ -109,6 +124,68 @@ export function StocksTab() {
         const breakEvenPrice = totalQty !== 0 ? Math.abs((totalCost - realizedPnl) / totalQty) : 0;
         const avgCost = totalQty !== 0 ? Math.abs(totalCost / totalQty) : 0;
 
+        // [NEW] Calculate Unrealized PnL
+        let unrealizedPnl: number | undefined = undefined;
+        let hasOpenPosition = false;
+
+        if (fifo.openPositions && fifo.openPositions.size > 0 && totalQty !== 0) {
+            let tempUnrealized = 0;
+            let missingPrice = false;
+
+            fifo.openPositions.forEach((queue, key) => {
+                // key is like 'AAPL' or 'AAPL-CALL...'
+                // For simplified Stock match:
+                const normSym = normalizeSymbolClient(key.split(' ')[0]);
+                const priceRec = priceMap.get(normSym);
+
+                if (priceRec && typeof priceRec.price === 'number') {
+                    const currentPrice = priceRec.price;
+                    queue.forEach(pos => {
+                        // PnL = (Current - Cost) * Qty * Multiplier
+                        // Note: Qty is signed in openPositions? let's verify. 
+                        // calc-m4-m5-2-global-fifo.ts pushes `remainingQty`. yes signed.
+                        // General formula: (Current - Cost) * Qty * Multiplier works for both Long/Short.
+                        // Long (Qty>0): (110 - 100) * 10 = 100 profit
+                        // Short (Qty<0): (90 - 100) * (-10) = -10 * -10 = 100 profit (Price fell)
+                        // Wait, for Short: Sold at 100 (Cost). Current 90.
+                        // We want (Entry - Current) * AbsQty
+                        // = (100 - 90) * 10 = 100.
+                        // Formula (Current - Cost) * Qty:
+                        // (90 - 100) * (-10) = (-10) * (-10) = 100.
+                        // YES. It works universally.
+
+                        tempUnrealized += (currentPrice - pos.cost) * pos.qty * pos.multiplier;
+                    });
+                    hasOpenPosition = true;
+                } else {
+                    missingPrice = true;
+                    // If we have positions but no price, we can't calc total unrealized accurately.
+                    // For now we might show partial or skip? 
+                    // Let's assume if it's the main symbol we care about, we show what we have.
+                }
+            });
+
+            if (hasOpenPosition && !missingPrice) {
+                unrealizedPnl = tempUnrealized;
+            }
+        }
+
+        // [NEW] Find Last Trade (Latest by timestamp)
+        // symbolTransactions is already filtered by symbol.
+        // We need to find the one with the largest timestamp.
+        let lastTrade: { side: string; price: number } | undefined = undefined;
+        if (symbolTransactions.length > 0) {
+            // Sort just to be safe, although we do it again later for tableData. 
+            // Opt: Can reuse sortedTxs if we move this logic down.
+            const latestTx = [...symbolTransactions].sort((a, b) => b.transactionTimestamp - a.transactionTimestamp)[0];
+            if (latestTx) {
+                lastTrade = {
+                    side: latestTx.side,
+                    price: latestTx.price
+                };
+            }
+        }
+
         const calculatedMetrics = {
             longCount,
             shortCount,
@@ -116,8 +193,10 @@ export function StocksTab() {
             winCount: fifo.winCount,
             lossCount: fifo.lossCount,
             realizedPnl,
+            unrealizedPnl,
             breakEvenPrice,
             avgCost,
+            lastTrade, // [NEW]
         };
 
         const weekdays = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
@@ -135,7 +214,7 @@ export function StocksTab() {
         });
 
         return { fifoResult: fifo, metrics: calculatedMetrics, tableData: data };
-    }, [symbolTransactions]);
+    }, [symbolTransactions, priceMap]);
 
     if (loading) {
         return <div className="p-8 text-center text-slate-500">正在加载交易记录...</div>;
@@ -150,7 +229,7 @@ export function StocksTab() {
     }
 
     return (
-        <div className="flex flex-row gap-6 h-[800px] overflow-hidden">
+        <div className="flex flex-row gap-6 h-[calc(100vh-180px)] min-h-[600px] overflow-hidden">
             {/* Left Sidebar */}
             <div className="w-[380px] shrink-0 h-full">
                 {/* 
@@ -179,8 +258,10 @@ export function StocksTab() {
                             winCount={metrics.winCount}
                             lossCount={metrics.lossCount}
                             realizedPnl={metrics.realizedPnl}
+                            unrealizedPnl={metrics.unrealizedPnl}
                             breakEvenPrice={metrics.breakEvenPrice}
                             avgCost={metrics.avgCost}
+                            lastTrade={metrics.lastTrade}
                         />
 
                         {/* Transactions Table */}

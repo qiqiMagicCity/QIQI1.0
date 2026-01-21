@@ -1,28 +1,32 @@
-import { PnLEvent } from './calc-m4-m5-2-global-fifo';
+import { DailyPnlResult } from './calc-m14-daily-calendar';
 
 /**
- * M13: YTD (Year-to-Date) Realized PnL
- * Formula: Sum(Realized PnL within period) + (Current Unrealized PnL - Base Unrealized PnL)
+ * M13: YTD (Year-to-Date) Total PnL
+ * Formula: Sum of Daily Total PnL (from M14/M6) from Year Start to Today.
+ * [UPDATED] Uses 'Sum of Dailies' method to match WTD/MTD and ensure consistency with Calendar.
  * 
- * @param events - List of realized PnL events
- * @param ytdStartDate - Start date of the current year (YYYY-MM-DD)
- * @param currentUnrealized - Current Total Unrealized PnL
- * @param baseUnrealized - Total Unrealized PnL at the end of the previous year
+ * @param dailyPnlMap - Map of daily PnL results
+ * @param ytdStartDate - Start date of the current year (YYYY-01-01)
+ * @param todayNy - Current NY trading day
  * @returns Total YTD PnL
  */
 export function calcM13_Ytd(
-    events: PnLEvent[],
+    dailyPnlMap: Record<string, DailyPnlResult>,
     ytdStartDate: string,
-    currentUnrealized: number | null,
-    baseUnrealized: number
-): number | null {
-    if (currentUnrealized === null) return null;
+    todayNy: string
+): number {
+    let total = 0;
+    const dates = Object.keys(dailyPnlMap).sort();
 
-    const realizedFlow = (events || [])
-        .filter(e => e.date >= ytdStartDate)
-        .reduce((sum, e) => sum + e.pnl, 0);
+    for (const date of dates) {
+        if (date >= ytdStartDate && date <= todayNy) {
+            const dayResult = dailyPnlMap[date];
+            if (dayResult && typeof dayResult.totalPnl === 'number') {
+                total += dayResult.totalPnl;
+            }
+        }
+    }
 
-    const unrealizedDelta = currentUnrealized - baseUnrealized;
-
-    return realizedFlow + unrealizedDelta;
+    return total;
 }
+

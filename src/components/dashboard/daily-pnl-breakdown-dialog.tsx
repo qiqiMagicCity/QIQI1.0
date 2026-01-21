@@ -8,7 +8,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { Loader2 } from 'lucide-react';
 import { calcDailyAttribution, DailyAttributionResult } from '@/lib/pnl/calc-daily-attribution';
 import { CompanyLogo } from '@/components/common/company-logo';
-import { ScrollArea } from '@/components/ui/scroll-area';
+
 import { Card, CardContent } from '@/components/ui/card';
 
 interface DailyPnlBreakdownDialogProps {
@@ -64,7 +64,7 @@ export function DailyPnlBreakdownDialog({ date, onClose }: DailyPnlBreakdownDial
                 ) : !result ? (
                     <div className="text-center py-8 text-muted-foreground">无法计算归因数据。</div>
                 ) : (
-                    <ScrollArea className="flex-1 pr-4">
+                    <div className="flex-1 overflow-y-auto pr-4 min-h-0 relative">
                         <div className="space-y-6 pb-6">
                             {/* Summary Card */}
                             <div className="grid grid-cols-3 gap-4">
@@ -165,7 +165,7 @@ export function DailyPnlBreakdownDialog({ date, onClose }: DailyPnlBreakdownDial
                                 </div>
                             </div>
                         </div>
-                    </ScrollArea>
+                    </div>
                 )}
             </DialogContent>
         </Dialog>

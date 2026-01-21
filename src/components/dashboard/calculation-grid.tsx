@@ -14,8 +14,10 @@ import {
   CalendarDays,
   Calendar,
   CalendarRange,
+  Bug,
 } from 'lucide-react';
 import { cn, formatCurrency } from '@/lib/utils';
+import { getEffectiveTradingDay, toNyCalendarDayString, toNyHmsString } from '@/lib/ny-time';
 import {
   Tooltip,
   TooltipContent,
@@ -43,7 +45,7 @@ interface MetricItem {
 }
 
 export function CalculationGrid() {
-  const { summary, loading } = useHoldings();
+  const { summary, loading, refreshData, analysisYear, setAnalysisYear } = useHoldings();
 
   if (loading) {
     return (
@@ -320,6 +322,7 @@ export function CalculationGrid() {
       // Calculate Totals for Footer
       const totalRealized = summary.m5_1_breakdown.reduce((acc, curr) => acc + curr.realized, 0);
       const totalUnrealized = summary.m5_1_breakdown.reduce((acc, curr) => acc + curr.unrealized, 0);
+      const events = summary.m5_1_auditTrail || [];
 
       return (
         <TooltipContent side="right" className="p-0 border-none bg-popover text-popover-foreground shadow-xl">
@@ -329,26 +332,26 @@ export function CalculationGrid() {
               <span className="text-[10px] text-muted-foreground">单位: USD</span>
             </div>
 
-            {/* Header Row */}
-            <div className="grid grid-cols-12 gap-2 px-3 py-2 text-[10px] font-bold text-muted-foreground bg-muted/10">
-              <div className="col-span-4">标的</div>
-              <div className="col-span-4 text-right">已平仓 (Realized)</div>
-              <div className="col-span-4 text-right">持仓浮动 (Floating)</div>
-            </div>
-
-            <ScrollArea className="h-[250px]">
-              <div className="py-1">
-                {summary.m5_1_breakdown.length === 0 && (
+            <ScrollArea className="h-[300px]">
+              <div className="p-2 space-y-1">
+                {events.length === 0 && (
                   <div className="text-center py-4 text-xs text-muted-foreground">暂无数据</div>
                 )}
-                {summary.m5_1_breakdown.map((item, idx) => (
-                  <div key={idx} className="grid grid-cols-12 gap-2 px-3 py-1.5 hover:bg-muted/50 transition-colors text-xs items-center border-b border-border/40 last:border-0">
-                    <div className="col-span-4 font-bold font-mono text-primary">{item.symbol}</div>
-                    <div className={cn("col-span-4 text-right font-mono", getPnLColor(item.realized))}>
-                      {item.realized !== 0 ? formatCurrency(item.realized) : '-'}
+                {events.map((event, idx) => (
+                  <div key={idx} className="flex items-center justify-between text-xs p-2 rounded-sm hover:bg-muted/50 transition-colors border-b border-border/40 last:border-0">
+                    <div className="flex flex-col gap-0.5">
+                      <div className="font-bold font-mono text-primary">{event.symbol}</div>
+                      <div className="text-[10px] text-muted-foreground leading-tight">
+                        {event.openDate} ➔ {event.closeDate === 'HOLDING' ? '持仓中' : event.closeDate}
+                      </div>
                     </div>
-                    <div className={cn("col-span-4 text-right font-mono", getPnLColor(item.unrealized))}>
-                      {item.unrealized !== 0 ? formatCurrency(item.unrealized) : '-'}
+                    <div className="flex flex-col items-end gap-0.5">
+                      <div className={cn("font-bold font-mono", getPnLColor(event.pnl))}>
+                        {formatCurrency(event.pnl)}
+                      </div>
+                      <div className="text-[10px] text-muted-foreground text-right leading-tight">
+                        {event.qty}股 @ {event.openPrice} ➔ {event.closePrice}
+                      </div>
                     </div>
                   </div>
                 ))}
@@ -379,6 +382,7 @@ export function CalculationGrid() {
       // Calculate Totals for Footer
       const totalRealized = summary.m5_2_breakdown.reduce((acc, curr) => acc + curr.realized, 0);
       const totalUnrealized = summary.m5_2_breakdown.reduce((acc, curr) => acc + curr.unrealized, 0);
+      const events = summary.m5_2_auditTrail || [];
 
       return (
         <TooltipContent side="right" className="p-0 border-none bg-popover text-popover-foreground shadow-xl">
@@ -388,26 +392,28 @@ export function CalculationGrid() {
               <span className="text-[10px] text-muted-foreground">单位: USD</span>
             </div>
 
-            {/* Header Row */}
-            <div className="grid grid-cols-12 gap-2 px-3 py-2 text-[10px] font-bold text-muted-foreground bg-muted/10">
-              <div className="col-span-4">标的</div>
-              <div className="col-span-4 text-right">已平仓 (Realized)</div>
-              <div className="col-span-4 text-right">持仓浮动 (Floating)</div>
-            </div>
 
-            <ScrollArea className="h-[250px]">
-              <div className="py-1">
-                {summary.m5_2_breakdown.length === 0 && (
+
+            <ScrollArea className="h-[300px]">
+              <div className="p-2 space-y-1">
+                {events.length === 0 && (
                   <div className="text-center py-4 text-xs text-muted-foreground">暂无数据</div>
                 )}
-                {summary.m5_2_breakdown.map((item, idx) => (
-                  <div key={idx} className="grid grid-cols-12 gap-2 px-3 py-1.5 hover:bg-muted/50 transition-colors text-xs items-center border-b border-border/40 last:border-0">
-                    <div className="col-span-4 font-bold font-mono text-primary">{item.symbol}</div>
-                    <div className={cn("col-span-4 text-right font-mono", getPnLColor(item.realized))}>
-                      {item.realized !== 0 ? formatCurrency(item.realized) : '-'}
+                {events.map((event, idx) => (
+                  <div key={idx} className="flex items-center justify-between text-xs p-2 rounded-sm hover:bg-muted/50 transition-colors border-b border-border/40 last:border-0">
+                    <div className="flex flex-col gap-0.5">
+                      <div className="font-bold font-mono text-primary">{event.symbol}</div>
+                      <div className="text-[10px] text-muted-foreground leading-tight">
+                        {event.openDate} ➔ {event.closeDate === 'HOLDING' ? '持仓中' : event.closeDate}
+                      </div>
                     </div>
-                    <div className={cn("col-span-4 text-right font-mono", getPnLColor(item.unrealized))}>
-                      {item.unrealized !== 0 ? formatCurrency(item.unrealized) : '-'}
+                    <div className="flex flex-col items-end gap-0.5">
+                      <div className={cn("font-bold font-mono", getPnLColor(event.pnl))}>
+                        {formatCurrency(event.pnl)}
+                      </div>
+                      <div className="text-[10px] text-muted-foreground text-right leading-tight">
+                        {event.qty}股 @ {event.openPrice} ➔ {event.closePrice}
+                      </div>
                     </div>
                   </div>
                 ))}
@@ -551,6 +557,37 @@ export function CalculationGrid() {
 
   return (
     <div className="space-y-4">
+      {/* Year Selector / Time Travel Control */}
+      <div className="flex items-center justify-between bg-muted/20 p-2 rounded-lg border border-border/40">
+        <div className="flex items-center gap-2">
+          <span className="text-xs font-bold text-muted-foreground px-2">Analysis Year:</span>
+          <div className="flex bg-background rounded-md p-1 border shadow-sm">
+            {[2026, 2025].map(year => (
+              <button
+                key={year}
+                onClick={() => setAnalysisYear && setAnalysisYear(year)}
+                className={cn(
+                  "px-4 py-1 text-xs font-bold rounded transition-all",
+                  analysisYear === year
+                    ? "bg-primary text-primary-foreground shadow-sm"
+                    : "text-muted-foreground hover:bg-muted"
+                )}
+              >
+                {year}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* Optional: Add status indicator for Historical View */}
+        {analysisYear && analysisYear < new Date().getFullYear() && (
+          <div className="flex items-center gap-1.5 px-3 py-1 bg-amber-500/10 text-amber-600 rounded-full border border-amber-500/20">
+            <History className="h-3 w-3" />
+            <span className="text-[10px] font-bold">Historical View (Dec 31 Snapshot)</span>
+          </div>
+        )}
+      </div>
+
       {/* Row 1: 4 items */}
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
         {row1Metrics.map((metric, i) => renderMetricCard(metric, i))}
@@ -565,6 +602,8 @@ export function CalculationGrid() {
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 lg:w-3/4 lg:mx-auto">
         {row3Metrics.map((metric, i) => renderMetricCard(metric, i + 8))}
       </div>
+
+
     </div>
   );
 }

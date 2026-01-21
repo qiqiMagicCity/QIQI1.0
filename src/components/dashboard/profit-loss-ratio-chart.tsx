@@ -11,9 +11,12 @@ interface ProfitLossRatioChartProps {
     };
     mode: 'realized' | 'combined';
     onModeChange: (m: 'realized' | 'combined') => void;
+    analysisYear?: number;
+    setAnalysisYear?: (year: number) => void;
+    availableYears?: number[];
 }
 
-export function ProfitLossRatioChart({ stats, mode, onModeChange }: ProfitLossRatioChartProps) {
+export function ProfitLossRatioChart({ stats, mode, onModeChange, analysisYear, setAnalysisYear, availableYears = [] }: ProfitLossRatioChartProps) {
     const { winRate, avgWin, avgLoss, pnlRatio, expectancy } = stats;
 
     const chartData = [
@@ -30,26 +33,69 @@ export function ProfitLossRatioChart({ stats, mode, onModeChange }: ProfitLossRa
                     <div className="h-2 w-2 rounded-full bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.5)]" />
                     <h3 className="text-sm font-medium tracking-wide text-zinc-100">Profit / Loss Ratio 损益比</h3>
                 </div>
-                {/* Toggle Switch */}
-                <div className="flex items-center bg-zinc-900/50 rounded-lg p-0.5 border border-white/10">
-                    <button
-                        onClick={() => onModeChange('realized')}
-                        className={`px-3 py-1 text-xs font-medium rounded-md transition-all ${mode === 'realized'
-                            ? 'bg-zinc-800 text-white shadow-sm'
-                            : 'text-zinc-500 hover:text-zinc-300'
-                            }`}
-                    >
-                        已平仓
-                    </button>
-                    <button
-                        onClick={() => onModeChange('combined')}
-                        className={`px-3 py-1 text-xs font-medium rounded-md transition-all ${mode === 'combined'
-                            ? 'bg-zinc-800 text-emerald-400 shadow-sm'
-                            : 'text-zinc-500 hover:text-zinc-300'
-                            }`}
-                    >
-                        含持仓
-                    </button>
+
+                <div className="flex items-center gap-4">
+                    {/* Year Switcher */}
+                    {setAnalysisYear && availableYears.length > 0 && (
+                        <div className="flex items-center gap-1 bg-zinc-900/50 rounded-lg p-0.5 border border-zinc-800">
+                            {/* All Time Button (represented by a specific year or handled by logic? usually All Time is !analysisYear) */}
+                            {/* But here analysisYear IS the state. If it's undefined, it's All Time. */}
+                            {/* Wait, StockDetails probably uses current year as default or undefined? */}
+                            {/* AverageStatsChart doesn't have an explicit 'All Time' button but shows 'Yearly' chart. */}
+                            {/* Here we need to explicit 'All Time' or 'History'. */}
+                            {/* Let's assume passed availableYears includes ALL relevant years. */}
+                            {/* We add a manual 'All' button if analysisYear is optional. */}
+                            <button
+                                onClick={() => setAnalysisYear(0)} // 0 or undefined? setAnalysisYear usually expects number. Let's send 0 for 'All'. Parent handles it.
+                                className={`
+                                    px-3 py-1 text-xs font-medium rounded-md transition-all
+                                    ${!analysisYear || analysisYear === 0
+                                        ? "bg-zinc-800 text-zinc-100 shadow-sm"
+                                        : "text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800/50"
+                                    }
+                                `}
+                            >
+                                全部
+                            </button>
+                            {availableYears.map(year => (
+                                <button
+                                    key={year}
+                                    onClick={() => setAnalysisYear(year)}
+                                    className={`
+                                        px-3 py-1 text-xs font-medium rounded-md transition-all
+                                        ${analysisYear === year
+                                            ? "bg-zinc-800 text-zinc-100 shadow-sm"
+                                            : "text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800/50"
+                                        }
+                                    `}
+                                >
+                                    {year}
+                                </button>
+                            ))}
+                        </div>
+                    )}
+
+                    {/* Toggle Switch */}
+                    <div className="flex items-center bg-zinc-900/50 rounded-lg p-0.5 border border-white/10">
+                        <button
+                            onClick={() => onModeChange('realized')}
+                            className={`px-3 py-1 text-xs font-medium rounded-md transition-all ${mode === 'realized'
+                                ? 'bg-zinc-800 text-white shadow-sm'
+                                : 'text-zinc-500 hover:text-zinc-300'
+                                }`}
+                        >
+                            已平仓
+                        </button>
+                        <button
+                            onClick={() => onModeChange('combined')}
+                            className={`px-3 py-1 text-xs font-medium rounded-md transition-all ${mode === 'combined'
+                                ? 'bg-zinc-800 text-emerald-400 shadow-sm'
+                                : 'text-zinc-500 hover:text-zinc-300'
+                                }`}
+                        >
+                            含持仓
+                        </button>
+                    </div>
                 </div>
             </div>
 
@@ -86,19 +132,29 @@ export function ProfitLossRatioChart({ stats, mode, onModeChange }: ProfitLossRa
 
                     return (
                         <div className="mb-6 px-1">
-                            <div className="flex justify-between text-xs mb-1">
-                                <span className={!isSafe ? "text-rose-400 font-bold" : "text-emerald-500 font-medium"}>
+                            <div className="flex justify-between items-end mb-2">
+                                <span className={!isSafe ? "text-rose-400 text-base font-bold drop-shadow-[0_0_8px_rgba(244,63,94,0.6)]" : "text-emerald-500 text-base font-bold drop-shadow-[0_0_8px_rgba(16,185,129,0.6)]"}>
                                     {isSafe ? "策略可持续 (盈利模式)" : "警告：策略不可持续 (亏损模式)"}
                                 </span>
-                                <span className="text-muted-foreground">
-                                    盈亏平衡所需胜率: <span className="font-mono text-zinc-300">{bePercent.toFixed(1)}%</span>
+                                <span className="text-muted-foreground text-sm">
+                                    盈亏平衡所需胜率: <span className="font-mono text-base font-bold text-zinc-100 drop-shadow-[0_0_8px_rgba(255,255,255,0.4)]">{bePercent.toFixed(1)}%</span>
                                 </span>
                             </div>
+                            <style jsx>{`
+                                @keyframes pulse-glow {
+                                    0% { opacity: 0.6; box-shadow: 0 0 5px rgba(16, 185, 129, 0.5); }
+                                    50% { opacity: 1; box-shadow: 0 0 15px rgba(16, 185, 129, 0.8), 0 0 5px rgba(255, 255, 255, 0.5); }
+                                    100% { opacity: 0.6; box-shadow: 0 0 5px rgba(16, 185, 129, 0.5); }
+                                }
+                            `}</style>
                             <div className="relative h-4 bg-zinc-800 rounded-full overflow-hidden">
                                 {/* Current Win Rate Bar */}
                                 <div
                                     className={`absolute top-0 left-0 h-full transition-all duration-500 ${isSafe ? 'bg-emerald-500' : 'bg-rose-500'}`}
-                                    style={{ width: `${Math.min(currentPercent, 100)}%` }}
+                                    style={{
+                                        width: `${Math.min(currentPercent, 100)}%`,
+                                        animation: isSafe ? 'pulse-glow 2s infinite ease-in-out' : 'none'
+                                    }}
                                 />
                                 {/* Breakeven Marker */}
                                 <div
@@ -113,9 +169,9 @@ export function ProfitLossRatioChart({ stats, mode, onModeChange }: ProfitLossRa
                                     BE (保本)
                                 </div>
                             </div>
-                            <div className="flex justify-between text-[10px] text-muted-foreground mt-1">
+                            <div className="flex justify-between text-xs text-muted-foreground mt-1 font-medium">
                                 <span>0%</span>
-                                <span>当前: {(winRate * 100).toFixed(1)}%</span>
+                                <span className={`text-sm font-bold text-white ${isSafe ? 'drop-shadow-[0_0_5px_rgba(16,185,129,0.8)]' : ''}`}>当前: {(winRate * 100).toFixed(1)}%</span>
                                 <span>100%</span>
                             </div>
                         </div>

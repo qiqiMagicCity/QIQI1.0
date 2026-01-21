@@ -18,12 +18,43 @@ interface AverageStatsChartProps {
         yearly: StatData[];
     };
     type: 'pnl' | 'volume' | 'value' | 'efficiency';
+    analysisYear?: number;
+    setAnalysisYear?: (year: number) => void;
 }
 
-export function AverageStatsChart({ title, data, type }: AverageStatsChartProps) {
+export function AverageStatsChart({ title, data, type, analysisYear, setAnalysisYear }: AverageStatsChartProps) {
     const isPnl = type === 'pnl';
     const isValue = type === 'value';
     const isEfficiency = type === 'efficiency';
+
+    // [New] Filter Data based on Analysis Year
+    // Weekly and Monthly charts should focus on the selected year.
+    // Yearly Chart should generally show history (or emphasize current year), but user complained about single bar.
+    // So we keep Yearly UNFILTERED to show comparison.
+    // We filter weekly/monthly.
+
+    const filterByYear = (items: StatData[]) => {
+        if (!analysisYear) return items;
+        const yStr = String(analysisYear);
+        return items.filter(item => item.label.startsWith(yStr));
+    };
+
+    const weeklyData = filterByYear(data.weekly);
+    const monthlyData = filterByYear(data.monthly);
+    const yearlyData = data.yearly; // Show all history
+
+    // Derive available years from yearlyData for the switch
+    const availableYears = data.yearly.map(d => parseInt(d.label, 10)).filter(y => !isNaN(y)).sort((a, b) => b - a);
+    // Ensure current analysis year is in list if not found
+    if (analysisYear && !availableYears.includes(analysisYear)) {
+        availableYears.unshift(analysisYear);
+    }
+    // Fallback if no data
+    if (availableYears.length === 0) {
+        const now = new Date().getFullYear();
+        availableYears.push(now);
+        availableYears.push(now - 1);
+    }
 
     const formatValue = (val: number) => {
         if (isPnl || isValue) {
@@ -58,8 +89,11 @@ export function AverageStatsChart({ title, data, type }: AverageStatsChartProps)
 
         if (!filteredData || filteredData.length === 0) {
             return (
-                <div className="h-[150px] flex items-center justify-center text-muted-foreground text-xs border rounded-md bg-muted/20">
-                    No Data
+                <div className="space-y-2">
+                    <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider text-center">{label}</h4>
+                    <div className="h-[150px] flex items-center justify-center text-muted-foreground text-xs border rounded-md bg-muted/20">
+                        No Data in {analysisYear}
+                    </div>
                 </div>
             );
         }
@@ -82,7 +116,7 @@ export function AverageStatsChart({ title, data, type }: AverageStatsChartProps)
                 gradientOffset = dataMax / (dataMax - dataMin);
             }
 
-            const gradId = `splitColor-${label.replace(/\s/g, '')}`;
+            const gradId = `splitColor-${label.replace(/\s/g, '')}-${type}`; // Unique ID
 
             return (
                 <div className="space-y-2">
@@ -222,13 +256,33 @@ export function AverageStatsChart({ title, data, type }: AverageStatsChartProps)
                     <div className="h-2 w-2 rounded-full bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.5)]" />
                     <h3 className="text-sm font-medium tracking-wide text-zinc-100">{title}</h3>
                 </div>
+                {/* Year Switcher */}
+                {setAnalysisYear && (
+                    <div className="flex items-center gap-1 bg-zinc-900/50 rounded-lg p-0.5 border border-zinc-800">
+                        {availableYears.length > 0 && availableYears.map(year => (
+                            <button
+                                key={year}
+                                onClick={() => setAnalysisYear(year)}
+                                className={`
+                                    px-3 py-1 text-xs font-medium rounded-md transition-all
+                                    ${analysisYear === year
+                                        ? "bg-zinc-800 text-zinc-100 shadow-sm"
+                                        : "text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800/50"
+                                    }
+                                `}
+                            >
+                                {year}
+                            </button>
+                        ))}
+                    </div>
+                )}
             </div>
 
             <div className="p-4">
                 <div className="grid grid-cols-3 gap-4">
-                    {renderChart(data.weekly, "Weekly Avg")}
-                    {renderChart(data.monthly, "Monthly Avg")}
-                    {renderChart(data.yearly, "Yearly Avg")}
+                    {renderChart(weeklyData, "Weekly Avg")}
+                    {renderChart(monthlyData, "Monthly Avg")}
+                    {renderChart(yearlyData, "Yearly Avg")}
                 </div>
             </div>
         </div>

@@ -10,56 +10,91 @@ import { cn } from '@/lib/utils';
 import { isNyTradingDay } from '@/lib/ny-time';
 
 export function DailyPnlChart() {
-    const { dailyPnlList, loading } = useHoldings();
+    const { dailyPnlList, loading, analysisYear } = useHoldings();
     const [viewMode, setViewMode] = useState<'day' | 'week' | 'month'>('day');
 
     const data = useMemo(() => {
-        if (!dailyPnlList || dailyPnlList.length === 0) return [];
+        // [FIX] Always generate a full year's range to ensure X-Axis is stable
+        const targetYear = analysisYear ?? new Date().getFullYear();
+        const start = new Date(targetYear, 0, 1);
+        const end = new Date(targetYear, 11, 31);
+        const fullYearDays = Object.keys(dailyPnlList?.reduce((acc, item) => ({ ...acc, [item.date]: item }), {}) || {});
+        // Better Strategy: Generate all dates in viewMode intervals
 
-        const sorted = [...dailyPnlList].sort((a, b) => a.date.localeCompare(b.date));
+        const pnlMap = new Map<string, number>();
+        dailyPnlList?.forEach(item => pnlMap.set(item.date, item.pnl));
 
-        // Filter out leading empty days
-        const firstActivityIndex = sorted.findIndex(item => Math.abs(item.pnl) > 0.01);
-        const startIndex = firstActivityIndex >= 0 ? firstActivityIndex : 0;
+        // Generate Domain
+        const result = [];
+        let cursor = start;
 
-        // [FIX] Filter out weekends (Non-Trading Days)
-        const activeData = sorted.slice(startIndex).filter(item => isNyTradingDay(item.date));
+        // Define helpers
+        const getIsoWeek = (d: Date) => `W${format(d, 'I')}`;
+        const getMonth = (d: Date) => format(d, 'created'); // unused
 
+        // We will generate buckets based on viewMode
+        // But simply, we can iterate days and aggregate if needed.
+        // Actually simplest is: Generate all days, then filter/aggregate.
+
+        while (cursor <= end) {
+            const dateStr = format(cursor, 'yyyy-MM-dd');
+            // Only include Trading Days for 'day' view? User wants "Future" marked.
+            // Let's include all Weekdays (Mon-Fri) as potential trading days.
+            const isWeekend = cursor.getDay() === 0 || cursor.getDay() === 6;
+
+            if (!isWeekend) {
+                // If viewMode is week/month, we handle differently?
+                // Actually, let's keep the existing logic but just ENSURE the domain covers the year.
+                // The issue is `activeData` is sliced.
+                result.push({
+                    date: dateStr,
+                    pnl: pnlMap.get(dateStr) || 0,
+                    hasData: pnlMap.has(dateStr),
+                    dateObj: new Date(cursor)
+                });
+            }
+            cursor.setDate(cursor.getDate() + 1);
+        }
+
+        // Now aggregate based on viewMode
         if (viewMode === 'day') {
-            return activeData.map(item => ({
+            // For day view, return full list (Mon-Fri)
+            return result.map(item => ({
                 ...item,
                 dateShort: item.date.slice(5),
+                // If no data (future), pnl is 0. Visuals handle distinction?
             }));
         }
 
         // Aggregate for Week/Month
-        const grouped = new Map<string, { date: string, pnl: number, dateShort: string }>();
+        const grouped = new Map<string, { date: string, pnl: number, dateShort: string, hasData: boolean }>();
 
-        activeData.forEach(item => {
-            const dateObj = parseISO(item.date);
+        result.forEach(item => {
             let key: string;
             let label: string;
 
             if (viewMode === 'week') {
-                const start = startOfWeek(dateObj, { weekStartsOn: 1 }); // Monday start
-                key = format(start, 'yyyy-MM-dd');
-                // label = format(start, 'MM-dd'); // OLD
-                label = `W${format(start, 'I')}`; // NEW: Week Number
+                const s = startOfWeek(item.dateObj, { weekStartsOn: 1 });
+                key = format(s, 'yyyy-MM-dd');
+                label = `W${format(s, 'I')}`;
             } else {
-                const start = startOfMonth(dateObj);
-                key = format(start, 'yyyy-MM-dd');
-                label = format(start, 'yyyy-MM');
+                const s = startOfMonth(item.dateObj);
+                key = format(s, 'yyyy-MM-dd');
+                label = format(s, 'yyyy-MM');
             }
 
             if (!grouped.has(key)) {
-                grouped.set(key, { date: key, pnl: 0, dateShort: label });
+                grouped.set(key, { date: key, pnl: 0, dateShort: label, hasData: false });
             }
             const entry = grouped.get(key)!;
-            entry.pnl += item.pnl;
+            if (item.hasData) {
+                entry.pnl += item.pnl;
+                entry.hasData = true;
+            }
         });
 
         return Array.from(grouped.values()).sort((a, b) => a.date.localeCompare(b.date));
-    }, [dailyPnlList, viewMode]);
+    }, [dailyPnlList, viewMode, analysisYear]);
 
     const chartWidth = useMemo(() => {
         const barWidth = viewMode === 'day' ? 40 : 60;
@@ -150,9 +185,26 @@ export function DailyPnlChart() {
                             />
                             <ReferenceLine y={0} stroke="#666" strokeDasharray="3 3" />
                             <Bar dataKey="pnl" radius={[4, 4, 0, 0]}>
-                                {data.map((entry, index) => (
-                                    <Cell key={`cell-${index}`} fill={entry.pnl >= 0 ? '#22c55e' : '#ef4444'} />
-                                ))}
+                                {data.map((entry, index) => {
+                                    // Visual logic: 
+                                    // If no data (future or missing), maybe show a very faint gray?
+                                    // Or just transparent? User said "mark future dates".
+                                    // Let's use a faint gray for "no data" vs explicitly 0.
+                                    // But dataKey is 'pnl', which is 0 for no data.
+                                    // We need to check 'hasData'.
+                                    // Recharts doesn't easily let us read custom props in Cell unless we hack it.
+                                    // But we CAN read it from the `entry` object!
+                                    // entry is the data point.
+
+                                    const hasData = (entry as any).hasData;
+                                    let fill = '#27272a'; // Zinc-800 for empty/future 
+
+                                    if (hasData) {
+                                        fill = entry.pnl >= 0 ? '#22c55e' : '#ef4444';
+                                    }
+
+                                    return <Cell key={`cell-${index}`} fill={fill} fillOpacity={hasData ? 1 : 0.3} />;
+                                })}
                             </Bar>
                         </BarChart>
                     </ResponsiveContainer>

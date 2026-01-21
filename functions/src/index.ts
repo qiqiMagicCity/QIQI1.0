@@ -33,6 +33,7 @@ export {
   refreshEodSymbolsFromTransactionsOnDemand
 } from "./jobs/refresh-eod-symbols-from-transactions";
 export { manualRunEodForMetaSymbols } from "./jobs/manual-eod-from-meta";
+export { serverSideEodJob } from "./jobs/server-side-eod"; // [NEW] Full Auto EOD
 
 // Admin / Tools
 export { requestBackfillEod } from "./admin/request-backfill-eod";

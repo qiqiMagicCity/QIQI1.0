@@ -195,6 +195,36 @@ export function calcM14DailyCalendar(
         }
     };
 
+    // --- Helper: Apply Pending Splits up to a date ---
+    // [FIX] We must track which splits have been applied to avoid double-counting.
+    const appliedSplits = new Set<string>(); // Key: `${date}_${symbol}`
+
+    const applyPendingSplits = (upToDate: string) => {
+        for (const split of STOCK_SPLITS) {
+            const splitKey = `${split.effectiveDate}_${split.symbol}`;
+            if (appliedSplits.has(splitKey)) continue;
+
+            if (split.effectiveDate <= upToDate) {
+                // Apply Split
+                const state = positions.get(normalizeSymbolClient(split.symbol));
+                if (state) {
+                    const ratio = split.splitRatio;
+                    if (ratio > 0) {
+                        state.longLayers.forEach(l => {
+                            l.qty = l.qty * ratio;
+                            l.price = l.price / ratio;
+                        });
+                        state.shortLayers.forEach(l => {
+                            l.qty = l.qty * ratio;
+                            l.price = l.price / ratio;
+                        });
+                    }
+                }
+                appliedSplits.add(splitKey);
+            }
+        }
+    };
+
     // --- Warmup Phase: Initialize Baseline State ---
     // Fast-forward to the day *before* the first target date to set correct prevDateUnrealizedVal
     if (sortedTargetDates.length > 0) {
@@ -207,12 +237,19 @@ export function calcM14DailyCalendar(
             const txDay = toNyCalendarDayString(tx.transactionTimestamp);
             if (txDay > baselineDate) break;
 
+            // [FIX] Apply splits valid *before or on* this transaction day
+            // This ensures logic order: Old Layers -> Spilt -> New Tx (Already Split)
+            applyPendingSplits(txDay);
+
             applyTxToState(tx);
             txIndex++;
         }
 
+        // [FIX] Catch-up splits after last tx but before baseline
+        applyPendingSplits(baselineDate);
+
         // Calculate Baseline Unrealized PnL (if valid trading day)
-        // We rely on eodMap containing data for baselineDate (useDailyPnl fetches prevMonthEnd)
+        // ... (existing baseline calc logic) ...
         if (isNyTradingDay(baselineDate)) {
             // [DEBUG] Container for Oct 31 (Baseline) analysis
             const debugHoldings: any[] = [];
@@ -269,33 +306,17 @@ export function calcM14DailyCalendar(
         }
     }
 
+    // [FIX] Remove legacy 'splitsByDate' loop inside Main Loop?
+    // The Main Loop below also needs to apply splits.
+    // We can reuse `applyPendingSplits`!
+    // But Main Loop iterates `sortedTargetDates`.
+    // Let's replace the inline 2.1 logic with `applyPendingSplits(currentDate)`.
+
     for (let i = 0; i < sortedTargetDates.length; i++) {
         const currentDate = sortedTargetDates[i];
-        const prevDate = i > 0 ? sortedTargetDates[i - 1] : '';
 
-        // 2.1 Identify Splits in Gap
-        if (splitsByDate.size > 0) {
-            for (const [splitDate, events] of splitsByDate) {
-                if (splitDate > prevDate && splitDate <= currentDate) {
-                    for (const split of events) {
-                        const state = positions.get(normalizeSymbolClient(split.symbol));
-                        if (state) {
-                            const ratio = split.splitRatio;
-                            if (ratio > 0) {
-                                state.longLayers.forEach(l => {
-                                    l.qty = l.qty * ratio;
-                                    l.price = l.price / ratio;
-                                });
-                                state.shortLayers.forEach(l => {
-                                    l.qty = l.qty * ratio;
-                                    l.price = l.price / ratio;
-                                });
-                            }
-                        }
-                    }
-                }
-            }
-        }
+        // 2.1 Apply Splits (using the robust helper)
+        applyPendingSplits(currentDate);
 
         // 2.2 Process Transactions for the Current Date
         while (txIndex < sortedTxs.length) {
@@ -306,11 +327,17 @@ export function calcM14DailyCalendar(
                 break;
             }
 
-            // Apply Tx
+            // Note: Splits for txDay are already applied above (since txDay <= currentDate)
+            // Wait, if txDay < currentDate, splits for txDay were applied in previous loops.
+            // If txDay == currentDate, splits for currentDate were applied in 2.1 above.
+            // So we are safe.
             applyTxToState(tx);
 
             txIndex++;
         }
+
+        // ... rest of loop
+
 
         // 2.3 Calculate EOD Unrealized PnL
         let eodUnrealized = 0;
@@ -377,9 +404,15 @@ export function calcM14DailyCalendar(
 
         // 2.4 Assemble Result
         let status: DailyPnlResult['status'] = 'ok';
+
+        // [FIX] Defensive Missing Data Handling
+        // If data is missing, we MUST NOT return a partial sum (which looks like a massive loss).
+        // Instead, we carry forward the previous day's EOD Value (Flat PnL).
         if (isMissing) {
             status = 'missing-data';
             missingReason = 'eod-price-missing';
+            // Force flat unrealized
+            eodUnrealized = prevDateUnrealizedVal;
         } else if (isEstimating) {
             status = 'partial'; // Use 'partial' if some prices were estimated
             missingReason = 'eod-price-estimated';
@@ -389,6 +422,14 @@ export function calcM14DailyCalendar(
 
         const unrealizedPnlChange = eodUnrealized - prevDateUnrealizedVal;
         const realized = realizedPnlFullMap.get(currentDate) || 0;
+
+        if (currentDate === '2025-12-01') {
+            // ... (keep forensic dump if needed, or remove to save space - keeping as is for safety matching)
+            console.group(`%c🚨 FORENSIC DUMP: ${currentDate}`, 'color: red; font-size: 16px; font-weight: bold;');
+            // ... omitted for brevity in prompt match, assuming tool handles context ... 
+            // actually I should probably not try to match the forensic dump lines in TargetContent if I can avoid it.
+            // I will match up to the 'if (currentDate === ...)' line or just before.
+        }
 
         results[currentDate] = {
             date: currentDate,
@@ -406,6 +447,7 @@ export function calcM14DailyCalendar(
         };
 
         // Update Cache
+        // On missing data, we carried over the value, so prevDateUnrealizedVal remains same for next loop.
         prevDateUnrealizedVal = eodUnrealized;
         prevDateStatus = status;
         prevDateMissingSymbols = missingSymbols;

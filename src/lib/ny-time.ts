@@ -267,11 +267,20 @@ export function getEffectiveTradingDay(now: Date = new Date()): string {
   const todayNy = toNyCalendarDayString(now);
 
   // 获取当前 NY 时间的小时和分钟
-  const [hh, mm] = toNyHmsString(now).split(':').map(Number);
+  const nyTimeStr = toNyHmsString(now);
+  const [hh, mm] = nyTimeStr.split(':').map(Number);
   const t = hh * 3600 + mm * 60;
   const OPEN_TIME = 9 * 3600 + 30 * 60; // 09:30
 
   const isBeforeOpen = t < OPEN_TIME;
+
+  console.log('[ny-time] getEffectiveTradingDay Debug:', {
+    nowISO: now.toISOString(),
+    nyTimeStr,
+    hh, mm,
+    isBeforeOpen,
+    todayNy
+  });
 
   // 如果还没到 09:30，直接回退一天作为起点（无论今天是不是交易日，只要没开盘，就看昨天）
   // 注意：如果今天是周一 08:00，回退到周日，周日非交易日，prevNyTradingDayString 会继续回退到周五。
@@ -310,21 +319,32 @@ export function getPeriodStartDates(baseDateStr: string): { wtd: string; mtd: st
   // 构造日期对象 (UTC 中午，避免时区偏移)
   const date = new Date(Date.UTC(y, m - 1, d, 12, 0, 0));
 
-  // 1. YTD: YYYY-01-01
+  // 1. YTD: YYYY-01-01 (Year Start)
+  // This is the hard cutoff for EVERYTHING.
   const ytd = `${y}-01-01`;
 
   // 2. MTD: YYYY-MM-01
+  // If we are in Jan, MTD start is Jan 1. If we are in Feb, Feb 1.
+  // This naturally respects Year boundary since MM changes.
   const mtd = `${y}-${String(m).padStart(2, '0')}-01`;
 
-  // 3. WTD: 本周一
+  // 3. WTD: 本周一 (Standard Logic)
   // nyWeekdayIndex: 0=Sun, 1=Mon, ..., 6=Sat
   const wd = nyWeekdayIndex(date);
-  // 如果是周日(0)，回退6天到周一
-  // 如果是周一(1)，回退0天
-  // 如果是周二(2)，回退1天
+  // 如果是周日(0)，回退6天到周一; Otherwise back to Mon.
   const daysToSubtract = wd === 0 ? 6 : wd - 1;
   const wtdDate = new Date(date.getTime() - daysToSubtract * 24 * 60 * 60 * 1000);
-  const wtd = toNyCalendarDayString(wtdDate);
+  let wtd = toNyCalendarDayString(wtdDate);
+
+  // [FIX] Trading Year Cutoff Rule
+  // "WTD/MTD/YTD 全部按新年重新起算"
+  // If the standard WTD start (Monday) is in the PREVIOUS year (e.g. Dec 29),
+  // but we are currently in the NEW year (e.g. Jan 2),
+  // we must CLAMP the WTD start to Jan 1st of the current year.
+  // We can just compare strings: if wtd < ytd, then wtd = ytd.
+  if (wtd < ytd) {
+    wtd = ytd;
+  }
 
   return { wtd, mtd, ytd };
 }
@@ -340,4 +360,11 @@ export function getPeriodBaseDates(baseDateStr: string): { wtd: string; mtd: str
     mtd: prevNyTradingDayString(starts.mtd),
     ytd: prevNyTradingDayString(starts.ytd),
   };
+}
+
+// 获取某年最后一个交易日
+export function getLastTradingDayOfYear(year: number): string {
+  const dec31 = `${year}-12-31`;
+  if (isNyTradingDay(dec31)) return dec31;
+  return prevNyTradingDayString(dec31);
 }

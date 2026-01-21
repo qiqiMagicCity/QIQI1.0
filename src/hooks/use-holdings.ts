@@ -16,6 +16,9 @@ export type UseHoldingsResult = {
   loading: boolean;
   isCalculating: boolean;
   transactions: any[]; // Or strict type if available
+  refreshData: () => void;
+  analysisYear?: number;
+  setAnalysisYear?: (y: number) => void;
 };
 
 export function useHoldings(): UseHoldingsResult {
@@ -26,10 +29,13 @@ export function useHoldings(): UseHoldingsResult {
     historicalPnl: context.historicalPnl,
     dailyPnlList: context.dailyPnlList,
     dailyPnlResults: context.dailyPnlResults,
-    pnlEvents: context.pnlEvents,
+    pnlEvents: (context.pnlEvents ?? []) as { date: string; pnl: number }[],
     fullEodMap: context.fullEodMap,
     loading: context.loading,
     isCalculating: context.isCalculating,
-    transactions: context.transactions
+    transactions: context.transactions,
+    refreshData: context.refreshData,
+    analysisYear: context.analysisYear, // [NEW]
+    setAnalysisYear: context.setAnalysisYear, // [NEW]
   };
 }

@@ -1,4 +1,4 @@
-import { getISOWeek } from "date-fns";
+import { getISOWeek, format as dateFormat } from "date-fns";
 import { Tx } from "@/hooks/use-user-transactions";
 import { isNyTradingDay } from "@/lib/ny-time";
 
@@ -107,11 +107,36 @@ export function calculateTransactionStats(
             .sort((a, b) => a.label.localeCompare(b.label));
     };
 
-    const weekly = aggregate((date) => {
-        const d = new Date(date);
-        const year = d.getFullYear();
-        const week = getISOWeek(d);
-        return `${year}-W${week.toString().padStart(2, '0')}`;
+    const weekly = aggregate((dateStr) => {
+        // [FIX] Strict Trading Year Cutoff:
+        // Even if ISO Week 01 spans Dec 29 - Jan 4, we MUST split it at Jan 1.
+        // Days in 2025 belong to 2025 stats (e.g. 2025-W53).
+        // Days in 2026 belong to 2026 stats (e.g. 2026-W01).
+
+        // Safe parsing of YYYY-MM-DD to avoid Timezone shifts
+        const [y, m, d] = dateStr.split('-').map(Number);
+        const dateObj = new Date(y, m - 1, d);
+
+        const calYear = y; // Calendar Year from string
+        const isoWeek = getISOWeek(dateObj);
+        const isoYear = parseInt(dateFormat(dateObj, 'RRRR'));
+
+        // If Calendar Year != ISO Year, it means we are in a straddle week (Start or End of Year)
+        if (calYear !== isoYear) {
+            // Case A: End of Year (e.g. Dec 31, 2025 is in W01 of 2026)
+            // We force it into a "Week 53" bucket of the Calendar Year to keep it in 2025 view.
+            if (calYear < isoYear) {
+                return `${calYear}-W53`;
+            }
+            // Case B: Start of Year (e.g. Jan 1, 2027 is in W53 of 2026) -> Very rare with ISO rules
+            // We force it into "Week 01" of the Calendar Year to keep it in 2027 view.
+            if (calYear > isoYear) {
+                return `${calYear}-W01`;
+            }
+        }
+
+        // Normal Case: Return ISO Week string (e.g., 2026-W01)
+        return `${calYear}-W${isoWeek.toString().padStart(2, '0')}`;
     });
 
     const monthly = aggregate((date) => date.substring(0, 7));

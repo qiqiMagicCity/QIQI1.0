@@ -116,19 +116,21 @@ export const FirebaseProvider: React.FC<FirebaseProviderProps> = ({
   // This prevents the application from getting stuck in an infinite "Verifying identity..." state
   // if the network is slow or Firebase is blocked.
   useEffect(() => {
+    console.log("[AuthDebug] Setting up auth timeout safety valve (3000ms)...");
     const timer = setTimeout(() => {
       setUserAuthState((prev) => {
         if (prev.isUserLoading) {
-          console.warn("FirebaseProvider: Auth check timed out. Forcing isUserLoading to false.");
+          console.warn("[AuthDebug] Auth check timed out. Forcing isUserLoading to false.");
+          // Also check if we have a user (unlikely if we are here)
           return {
             ...prev,
             isUserLoading: false,
-            userError: new Error("Auth check timed out"),
+            userError: new Error("Auth check timed out - assuming not logged in"),
           };
         }
         return prev;
       });
-    }, 5000); // 5 seconds timeout
+    }, 3000); // Reduced to 3 seconds for faster feedback during local dev
 
     return () => clearTimeout(timer);
   }, []);
