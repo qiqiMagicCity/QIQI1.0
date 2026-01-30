@@ -20,7 +20,6 @@ import { DebugM6Breakdown } from '@/components/dashboard/debug-m6-breakdown';
 import { useTheme } from '@/contexts/theme-provider';
 import { cn } from '@/lib/utils';
 import { TransactionAnalysisLiveSelfCheck } from '@/components/debug/transaction-analysis-self-check';
-import { SymbolSplit } from '@/components/settings/symbol-split';
 
 export default function SettingsPage() {
   const { ready, user } = useRequireAuth();
@@ -237,12 +236,11 @@ export default function SettingsPage() {
                   </CardHeader>
                   <CardContent>
                     <Tabs defaultValue="eod">
-                      <TabsList className="grid w-full grid-cols-5">
+                      <TabsList className="grid w-full grid-cols-4">
                         <TabsTrigger value="eod">EOD 数据检查</TabsTrigger>
                         <TabsTrigger value="m6">M6 当日盈亏</TabsTrigger>
                         <TabsTrigger value="m9">M9 累计盈亏</TabsTrigger>
                         <TabsTrigger value="account-analysis">账户分析自检</TabsTrigger>
-                        <TabsTrigger value="split">标的拆分</TabsTrigger>
                       </TabsList>
                       <TabsContent value="eod" className="mt-4">
                         <EodCheck />
@@ -256,9 +254,6 @@ export default function SettingsPage() {
                       <TabsContent value="account-analysis" className="mt-4">
                         <TransactionAnalysisLiveSelfCheck />
                       </TabsContent>
-                      <TabsContent value="split" className="mt-4">
-                        <SymbolSplit />
-                      </TabsContent>
                     </Tabs>
                   </CardContent>
                 </Card>
@@ -266,7 +261,7 @@ export default function SettingsPage() {
             </TabsContent>
           </Tabs>
         </div>
-      </main>
-    </div>
+      </main >
+    </div >
   );
 }

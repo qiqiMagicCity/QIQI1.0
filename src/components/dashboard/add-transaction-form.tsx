@@ -95,7 +95,8 @@ export function AddTransactionForm({ onSuccess, defaultValues }: AddTransactionF
   const isEditing = Boolean(editingId);
   const { toast } = useToast();
   const firestore = useFirestore();
-  const { user } = useUser();
+  const { user, impersonatedUid } = useUser();
+  const effectiveUid = impersonatedUid || user?.uid;
   const qtyRef = useRef<HTMLInputElement>(null);
   const priceRef = useRef<HTMLInputElement>(null);
   const [assetType, setAssetType] = useState<'stock' | 'option'>('stock');
@@ -183,7 +184,8 @@ export function AddTransactionForm({ onSuccess, defaultValues }: AddTransactionF
     if (!isEditing) return; // 新增模式不触发读取
     if (editingId && user && firestore) {
       const fetchTransaction = async () => {
-        const docRef = doc(firestore, "users", user.uid, "transactions", editingId);
+        if (!effectiveUid) return;
+        const docRef = doc(firestore, "users", effectiveUid, "transactions", editingId);
         const docSnap = await getDoc(docRef);
 
         if (docSnap.exists()) {
@@ -264,7 +266,9 @@ export function AddTransactionForm({ onSuccess, defaultValues }: AddTransactionF
       values.type = form.getValues('type'); // Ensure latest type is used
     }
 
-    if (!user || !firestore) {
+
+
+    if (!effectiveUid || !firestore) {
       toast({
         variant: "destructive",
         title: "错误",
@@ -287,7 +291,7 @@ export function AddTransactionForm({ onSuccess, defaultValues }: AddTransactionF
 
       const payload = {
         ...values,
-        userId: user.uid,
+        userId: effectiveUid,
         transactionDate,       // 用从 UTC 毫秒反推的 ISO
         transactionDateNy,     // 由时间戳再求 NY 日期，避免边界误差
         transactionTimestamp,
@@ -304,9 +308,9 @@ export function AddTransactionForm({ onSuccess, defaultValues }: AddTransactionF
       // -----------------------------------------------------------------------
 
       const writePromise = editingId
-        ? updateDoc(doc(firestore, "users", user.uid, "transactions", editingId), payload)
+        ? updateDoc(doc(firestore, "users", effectiveUid, "transactions", editingId), payload)
         : addDocumentNonBlocking(
-          collection(firestore, "users", user.uid, "transactions"),
+          collection(firestore, "users", effectiveUid, "transactions"),
           { ...payload, id: uuidv4() }
         );
 

@@ -178,8 +178,24 @@ function normalizeFireTx(raw: FireTx, source: 'transactions' | 'trades'): Tx {
   const rawTsCandidate = pickFirst<any>(raw, [
     'transactionTimestamp', 'timestamp', 'ts', 'time', 'date', 'transactionDate', 'tradeDate', 'optionDetails.tradeDate'
   ]) ?? pickFirst<any>(raw, ['optionDetails.expiry']);
+
   let ts = parseTsToMillis(rawTsCandidate);
-  if (ts === null) { ts = 0; warnings.push('ts_unparsed'); }
+
+  // [FIX] Fallback for simple date strings often used in manual entry (e.g. "YYYY-MM-DD")
+  if (ts === null && typeof rawTsCandidate === 'string') {
+    const simpleDate = new Date(rawTsCandidate);
+    if (!isNaN(simpleDate.getTime())) {
+      ts = simpleDate.getTime();
+    }
+  }
+
+  if (ts === null || ts === 0) {
+    // If still missing, and it's from 'trades' (manual), we might default to Now? 
+    // But for audit, it's better to flag. 
+    // Let's at least try to recover if it was just a parsing miss.
+    ts = 0;
+    warnings.push('ts_unparsed');
+  }
 
   // 动作归一：从多字段/别名合流；期权优先 BTO/…；股票识别 SHORT/COVER
   const bag = [

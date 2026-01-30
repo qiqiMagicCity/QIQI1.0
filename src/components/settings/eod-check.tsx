@@ -2,7 +2,8 @@
 
 import { useState } from 'react';
 import { doc, setDoc, increment } from 'firebase/firestore';
-import { useFirestore } from '@/firebase';
+import { useFirestore, functions } from '@/firebase';
+import { httpsCallable } from 'firebase/functions';
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -10,7 +11,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { useToast } from "@/hooks/use-toast";
-import { AlertCircle, Calendar as CalendarIcon, CheckCircle2, Filter, Loader2 } from "lucide-react";
+import { AlertCircle, Calendar as CalendarIcon, CheckCircle2, Filter, Loader2, Wrench } from "lucide-react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Calendar } from "@/components/ui/calendar";
 import { cn } from "@/lib/utils";
@@ -29,6 +30,7 @@ export function EodCheck() {
     const [marketClosed, setMarketClosed] = useState(false);
     const [missingSymbols, setMissingSymbols] = useState<{ symbol: string; status: string }[]>([]);
     const [statusMessage, setStatusMessage] = useState<string>('');
+    const [backfilling, setBackfilling] = useState(false);
 
     // Manual Dialog State
     const [isDialogOpen, setIsDialogOpen] = useState(false);
@@ -51,8 +53,29 @@ export function EodCheck() {
     // Stubbing missing functions/logic for build fix
     const getTargetSymbols = async (d: string) => {
         // Placeholder: should fetch actual holdings/transactions for the date
+        // In a real implementation this would fetch from 'holdings' collection or 'meta/eodSymbols'
         console.log("Getting targets for", d);
         return [];
+    };
+
+    const handleAutoBackfill = async () => {
+        setBackfilling(true);
+        try {
+            toast({ title: "补录请求已发送", description: "正在后台尝试从 Yahoo Finance 拉取并补录 EOD 数据..." });
+
+            const requestBackfill = httpsCallable(functions, 'requestBackfillEod');
+            // We pass the date. The cloud function should handle finding active symbols for this date.
+            await requestBackfill({ date: date });
+
+            // Optional: Auto-check after a delay
+            setTimeout(() => checkEod(), 5000);
+
+        } catch (e: any) {
+            console.error(e);
+            toast({ variant: 'destructive', title: "补录请求失败", description: e.message });
+        } finally {
+            setBackfilling(false);
+        }
     };
 
     const handleRetryCheck = () => {
@@ -172,7 +195,11 @@ export function EodCheck() {
                         </div>
                         <Button onClick={checkEod} disabled={checking}>
                             {checking ? <Loader2 className="animate-spin mr-2" /> : null}
-                            Check
+                            检查 (Check)
+                        </Button>
+                        <Button onClick={handleAutoBackfill} disabled={backfilling || checking} variant="outline" className="border-orange-200 hover:bg-orange-50 text-orange-700">
+                            {backfilling ? <Loader2 className="animate-spin mr-2 w-4 h-4" /> : <Wrench className="mr-2 w-4 h-4" />}
+                            一键补录 (Auto Backfill)
                         </Button>
                     </div>
                 </CardContent>

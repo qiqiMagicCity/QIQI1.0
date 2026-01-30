@@ -1,6 +1,7 @@
 "use client";
 
 import dynamic from "next/dynamic";
+import { useState, useEffect } from "react";
 import { DashboardHeader } from "@/components/dashboard/dashboard-header";
 import { CalculationGrid } from "@/components/dashboard/calculation-grid";
 import { HoldingsOverview } from "@/components/dashboard/holdings-overview";
@@ -14,6 +15,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { useHoldings } from "@/hooks/use-holdings";
 import { useUser } from "@/firebase";
 import { DollarSign, Wallet, TrendingUp } from "lucide-react";
+
 
 const TransactionHistory = dynamic(
   () =>
@@ -65,34 +67,55 @@ export default function Home() {
   const { user, isUserLoading } = useUser();
   const { summary, loading } = useHoldings();
 
+  // 增加超时显示登录按钮的机制
+  const [showManualLogin, setShowManualLogin] = useState(false);
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setShowManualLogin(true);
+    }, 2000); // 2秒后如果还在加载，显示手动登录按钮
+    return () => clearTimeout(timer);
+  }, []);
+
   if (!ready) {
-    // 守卫处理中：简单显示加载提示
-    // 守卫处理中：显示详细加载状态以辅助调试
+    // Determine specific state for better UX
+    const isStuck = !isUserLoading && !user; // Loaded but no user (and redirect hasn't happened yet)
+    const showButton = showManualLogin || isStuck;
+
     return (
-      <div className="flex flex-col items-center justify-center min-h-screen space-y-4 p-4">
-        <div className="flex items-center space-x-2">
-          <div className="h-4 w-4 animate-spin rounded-full border-2 border-primary border-t-transparent"></div>
-          <p className="text-muted-foreground font-medium">正在验证身份...</p>
+      <div className="flex flex-col items-center justify-center min-h-screen space-y-6 p-4 bg-background">
+        <div className="flex flex-col items-center space-y-4">
+          {isUserLoading ? (
+            <div className="h-8 w-8 animate-spin rounded-full border-4 border-primary border-t-transparent"></div>
+          ) : (
+            <div className="h-8 w-8 rounded-full bg-amber-500/20 text-amber-500 flex items-center justify-center">!</div>
+          )}
+
+          <div className="text-center space-y-1">
+            <p className="text-lg font-medium">
+              {isUserLoading ? '正在验证身份...' : '未检测到登录'}
+            </p>
+            <p className="text-sm text-muted-foreground">
+              {isUserLoading ? '正在连接安全服务' : '即将跳转至登录页面'}
+            </p>
+          </div>
         </div>
 
-        {/* 调试信息：帮助定位卡顿原因 */}
-        <div className="text-xs text-muted-foreground/50 font-mono bg-muted/20 p-2 rounded max-w-md break-all">
-          <p>Auth Status: {isUserLoading ? 'Verifying...' : 'Check Complete'}</p>
-          <p>Is Logged In: {user ? `Yes (${user.email})` : 'No'}</p>
-          <p>Page Ready: {ready ? 'Yes' : 'No'}</p>
-
-          <p className="mt-2 text-amber-500">
-            {!isUserLoading && !user ? '检测到未登录，正在尝试跳转至登录页...' : ''}
-            {isUserLoading && '正在连接认证服务...'}
-          </p>
-
-          {!ready && !loading && (
-            <div className="mt-4 pt-2 border-t border-dashed border-muted-foreground/30">
-              <a href="/login" className="text-primary underline hover:text-primary/80">
-                如果长时间未跳转，请点击此处登录 &rarr;
-              </a>
-            </div>
+        {/* 调试/手动操作区域 */}
+        <div className="flex flex-col items-center gap-4 animate-in fade-in slide-in-from-bottom-4 duration-700">
+          {showButton && (
+            <a
+              href="/login"
+              className="px-6 py-2 bg-primary text-primary-foreground hover:bg-primary/90 rounded-md text-sm font-medium transition-colors shadow-lg shadow-primary/20"
+            >
+              {isUserLoading ? '等待太久？点此登录' : '前往登录'}
+            </a>
           )}
+
+          <div className="text-xs text-muted-foreground/40 font-mono text-center max-w-[200px]">
+            <p>Status: {isUserLoading ? 'Verifying...' : 'Ready (No User)'}</p>
+            <p>Redirecting: {isStuck ? 'Yes' : 'No'}</p>
+          </div>
         </div>
       </div>
     );
@@ -115,6 +138,8 @@ export default function Home() {
               <TabsTrigger value="history">交易历史</TabsTrigger>
             </TabsList>
 
+
+
             <TabsContent value="home" className="mt-6">
               <div className="app-surface space-y-6">
                 {/* 首页大框 */}
@@ -126,6 +151,7 @@ export default function Home() {
                         组合概览与关键指标
                       </p>
                     </div>
+
                   </div>
 
                   <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 md:grid-cols-3">

@@ -29,8 +29,12 @@ export function EodAutoManager() {
             const todayNy = toNyCalendarDayString(now);
             const targetDate = prevNyTradingDayString(todayNy);
 
-            // Filter symbols that need backfill
-            const symbols = holdings.map(h => h.symbol);
+            // Filter symbols that need backfill (Exclude Options)
+            // Options are manually marked, so we don't need to auto-fetch strict EOD for them from external APIs
+            const symbols = holdings
+                .filter(h => h.assetType !== 'option')
+                .map(h => h.symbol);
+
             if (symbols.length === 0) return;
 
             // Check if we have data
@@ -50,7 +54,7 @@ export function EodAutoManager() {
                     await triggerManualBackfill(targetDate, batch, true);
                     toast({
                         title: '自动修复数据',
-                        description: `检测到 ${targetDate} 对 ${batch.length} 个标的缺失基准EOD，正在补录...`,
+                        description: `检测到 ${targetDate} 对 ${batch.length} 个标的缺失基准EOD (${batch.join(', ')})，正在补录...`,
                     });
                 } catch (e) {
                     console.error('[EodAutoManager] Auto backfill failed', e);
@@ -86,8 +90,11 @@ export function EodAutoManager() {
 
             console.log('[EodAutoManager] Market closed, checking if snapshot needed...');
 
-            // Check if we already have EOD for today
-            const symbols = holdings.map(h => h.symbol);
+            // Check if we already have EOD for today (Exclude Options from auto-snapshot too)
+            const symbols = holdings
+                .filter(h => h.assetType !== 'option')
+                .map(h => h.symbol);
+
             if (symbols.length === 0) return;
 
             const results = await getOfficialCloses(todayNy, symbols);

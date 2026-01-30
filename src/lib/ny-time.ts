@@ -179,14 +179,30 @@ export function nyLocalDateTimeToUtcMillis(yyyyMmDd: string, hhmmss: string): nu
 
 // 返回纽约时区的星期索引：0=周日 ... 6=周六
 export function nyWeekdayIndex(input: Date | number | string): number {
-  const d = (input instanceof Date) ? input : new Date(input);
-  // 使用带时区的 Intl 计算星期，避免本地时区偏差
-  const s = new Intl.DateTimeFormat('en-US', {
-    timeZone: 'America/New_York',
-    weekday: 'short',
-  }).format(d); // e.g. 'Sun' | 'Mon' ...
-  const map: Record<string, number> = { Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6 };
-  return map[s] ?? 0;
+  // Defensive normalization
+  let d: Date;
+  if (input instanceof Date) {
+    d = input;
+  } else {
+    d = new Date(input);
+  }
+
+  if (isNaN(d.getTime())) return 0; // Fallback
+
+  // 如果 input 已经是标准的 YYYY-MM-DD 字符串，我们可以直接构造 UTC Noon Date
+  // 这比 generic Date parsing 更安全
+  if (typeof input === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(input)) {
+    const [y, m, day] = input.split('-').map(Number);
+    const utc = new Date(Date.UTC(y, m - 1, day, 12, 0, 0));
+    return utc.getUTCDay();
+  }
+
+  // 对于其他 Date 对象，我们需要小心 "Local Time" 陷阱。
+  // Use existing helper to extract NY parts, then reconstruct UTC date to check day.
+  // This guarantees we respect NY timezone logic.
+  const p = getNyParts(d);
+  const utc = new Date(Date.UTC(p.year, p.month - 1, p.day, 12, 0, 0));
+  return utc.getUTCDay();
 }
 
 // 返回形如 "(周三)" 的中文短标签（纽约时区）
@@ -198,30 +214,43 @@ export function nyWeekdayLabel(input: Date | number | string): string {
 
 // 2025/2026 交易日假期表（权威数据源）
 // 移动自 use-holdings.ts，作为全局唯一的假期数据源
-export const US_MARKET_HOLIDAYS = new Set<string>([
+export const US_MARKET_HOLIDAY_NAMES: Record<string, string> = {
   // 2025
-  '2025-01-01',
-  '2025-01-20',
-  '2025-02-17',
-  '2025-04-18',
-  '2025-05-26',
-  '2025-06-19',
-  '2025-07-04',
-  '2025-09-01',
-  '2025-11-27',
-  '2025-12-25',
+  '2025-01-01': "New Year's Day",
+  '2025-01-20': 'Martin Luther King Jr. Day',
+  '2025-02-17': "Washington's Birthday",
+  '2025-04-18': 'Good Friday',
+  '2025-05-26': 'Memorial Day',
+  '2025-06-19': 'Juneteenth National Independence Day',
+  '2025-07-04': 'Independence Day',
+  '2025-09-01': 'Labor Day',
+  '2025-11-27': 'Thanksgiving Day',
+  '2025-12-25': 'Christmas Day',
   // 2026
-  '2026-01-01',
-  '2026-01-19',
-  '2026-02-16',
-  '2026-04-03',
-  '2026-05-25',
-  '2026-06-19',
-  '2026-07-03',
-  '2026-09-07',
-  '2026-11-26',
-  '2026-12-25',
-]);
+  '2026-01-01': "New Year's Day",
+  '2026-01-19': 'Martin Luther King Jr. Day',
+  '2026-02-16': "Washington's Birthday",
+  '2026-04-03': 'Good Friday',
+  '2026-05-25': 'Memorial Day',
+  '2026-06-19': 'Juneteenth National Independence Day',
+  '2026-07-03': 'Independence Day',
+  '2026-09-07': 'Labor Day',
+  '2026-11-26': 'Thanksgiving Day',
+  '2026-12-25': 'Christmas Day',
+};
+
+export const US_MARKET_HOLIDAYS = new Set<string>(Object.keys(US_MARKET_HOLIDAY_NAMES));
+
+export function getMarketClosedReason(dateStr: string): string | null {
+  if (US_MARKET_HOLIDAYS.has(dateStr)) {
+    return US_MARKET_HOLIDAY_NAMES[dateStr];
+  }
+  const index = nyWeekdayIndex(dateStr);
+  if (index === 0 || index === 6) {
+    return 'Weekend';
+  }
+  return null;
+}
 
 // 获取上一交易日（递归查找）
 export function prevNyTradingDayString(base: string): string {

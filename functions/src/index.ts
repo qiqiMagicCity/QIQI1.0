@@ -34,6 +34,7 @@ export {
 } from "./jobs/refresh-eod-symbols-from-transactions";
 export { manualRunEodForMetaSymbols } from "./jobs/manual-eod-from-meta";
 export { serverSideEodJob } from "./jobs/server-side-eod"; // [NEW] Full Auto EOD
+export { scheduledDailySnapshot, manualGenerateSnapshot } from "./jobs/generate-daily-snapshot"; // [NEW] Snapshot Job
 
 // Admin / Tools
 export { requestBackfillEod } from "./admin/request-backfill-eod";

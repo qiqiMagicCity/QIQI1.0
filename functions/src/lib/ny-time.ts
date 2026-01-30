@@ -1,3 +1,4 @@
+
 // src/lib/ny-time.ts
 
 // Unified New York "day" utilities.
@@ -179,14 +180,30 @@ export function nyLocalDateTimeToUtcMillis(yyyyMmDd: string, hhmmss: string): nu
 
 // 返回纽约时区的星期索引：0=周日 ... 6=周六
 export function nyWeekdayIndex(input: Date | number | string): number {
-  const d = (input instanceof Date) ? input : new Date(input);
-  // 使用带时区的 Intl 计算星期，避免本地时区偏差
-  const s = new Intl.DateTimeFormat('en-US', {
-    timeZone: 'America/New_York',
-    weekday: 'short',
-  }).format(d); // e.g. 'Sun' | 'Mon' ...
-  const map: Record<string, number> = { Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6 };
-  return map[s] ?? 0;
+  // Defensive normalization
+  let d: Date;
+  if (input instanceof Date) {
+    d = input;
+  } else {
+    d = new Date(input);
+  }
+
+  if (isNaN(d.getTime())) return 0; // Fallback
+
+  // 如果 input 已经是标准的 YYYY-MM-DD 字符串，我们可以直接构造 UTC Noon Date
+  // 这比 generic Date parsing 更安全
+  if (typeof input === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(input)) {
+    const [y, m, day] = input.split('-').map(Number);
+    const utc = new Date(Date.UTC(y, m - 1, day, 12, 0, 0));
+    return utc.getUTCDay();
+  }
+
+  // 对于其他 Date 对象，我们需要小心 "Local Time" 陷阱。
+  // Use existing helper to extract NY parts, then reconstruct UTC date to check day.
+  // This guarantees we respect NY timezone logic.
+  const p = getNyParts(d);
+  const utc = new Date(Date.UTC(p.year, p.month - 1, p.day, 12, 0, 0));
+  return utc.getUTCDay();
 }
 
 // 返回形如 "(周三)" 的中文短标签（纽约时区）
@@ -198,30 +215,43 @@ export function nyWeekdayLabel(input: Date | number | string): string {
 
 // 2025/2026 交易日假期表（权威数据源）
 // 移动自 use-holdings.ts，作为全局唯一的假期数据源
-export const US_MARKET_HOLIDAYS = new Set<string>([
+export const US_MARKET_HOLIDAY_NAMES: Record<string, string> = {
   // 2025
-  '2025-01-01',
-  '2025-01-20',
-  '2025-02-17',
-  '2025-04-18',
-  '2025-05-26',
-  '2025-06-19',
-  '2025-07-04',
-  '2025-09-01',
-  '2025-11-27',
-  '2025-12-25',
+  '2025-01-01': "New Year's Day",
+  '2025-01-20': 'Martin Luther King Jr. Day',
+  '2025-02-17': "Washington's Birthday",
+  '2025-04-18': 'Good Friday',
+  '2025-05-26': 'Memorial Day',
+  '2025-06-19': 'Juneteenth National Independence Day',
+  '2025-07-04': 'Independence Day',
+  '2025-09-01': 'Labor Day',
+  '2025-11-27': 'Thanksgiving Day',
+  '2025-12-25': 'Christmas Day',
   // 2026
-  '2026-01-01',
-  '2026-01-19',
-  '2026-02-16',
-  '2026-04-03',
-  '2026-05-25',
-  '2026-06-19',
-  '2026-07-03',
-  '2026-09-07',
-  '2026-11-26',
-  '2026-12-25',
-]);
+  '2026-01-01': "New Year's Day",
+  '2026-01-19': 'Martin Luther King Jr. Day',
+  '2026-02-16': "Washington's Birthday",
+  '2026-04-03': 'Good Friday',
+  '2026-05-25': 'Memorial Day',
+  '2026-06-19': 'Juneteenth National Independence Day',
+  '2026-07-03': 'Independence Day',
+  '2026-09-07': 'Labor Day',
+  '2026-11-26': 'Thanksgiving Day',
+  '2026-12-25': 'Christmas Day',
+};
+
+export const US_MARKET_HOLIDAYS = new Set<string>(Object.keys(US_MARKET_HOLIDAY_NAMES));
+
+export function getMarketClosedReason(dateStr: string): string | null {
+  if (US_MARKET_HOLIDAYS.has(dateStr)) {
+    return US_MARKET_HOLIDAY_NAMES[dateStr];
+  }
+  const index = nyWeekdayIndex(dateStr);
+  if (index === 0 || index === 6) {
+    return 'Weekend';
+  }
+  return null;
+}
 
 // 获取上一交易日（递归查找）
 export function prevNyTradingDayString(base: string): string {
@@ -267,11 +297,20 @@ export function getEffectiveTradingDay(now: Date = new Date()): string {
   const todayNy = toNyCalendarDayString(now);
 
   // 获取当前 NY 时间的小时和分钟
-  const [hh, mm] = toNyHmsString(now).split(':').map(Number);
+  const nyTimeStr = toNyHmsString(now);
+  const [hh, mm] = nyTimeStr.split(':').map(Number);
   const t = hh * 3600 + mm * 60;
   const OPEN_TIME = 9 * 3600 + 30 * 60; // 09:30
 
   const isBeforeOpen = t < OPEN_TIME;
+
+  console.log('[ny-time] getEffectiveTradingDay Debug:', {
+    nowISO: now.toISOString(),
+    nyTimeStr,
+    hh, mm,
+    isBeforeOpen,
+    todayNy
+  });
 
   // 如果还没到 09:30，直接回退一天作为起点（无论今天是不是交易日，只要没开盘，就看昨天）
   // 注意：如果今天是周一 08:00，回退到周日，周日非交易日，prevNyTradingDayString 会继续回退到周五。
@@ -310,21 +349,32 @@ export function getPeriodStartDates(baseDateStr: string): { wtd: string; mtd: st
   // 构造日期对象 (UTC 中午，避免时区偏移)
   const date = new Date(Date.UTC(y, m - 1, d, 12, 0, 0));
 
-  // 1. YTD: YYYY-01-01
+  // 1. YTD: YYYY-01-01 (Year Start)
+  // This is the hard cutoff for EVERYTHING.
   const ytd = `${y}-01-01`;
 
   // 2. MTD: YYYY-MM-01
+  // If we are in Jan, MTD start is Jan 1. If we are in Feb, Feb 1.
+  // This naturally respects Year boundary since MM changes.
   const mtd = `${y}-${String(m).padStart(2, '0')}-01`;
 
-  // 3. WTD: 本周一
+  // 3. WTD: 本周一 (Standard Logic)
   // nyWeekdayIndex: 0=Sun, 1=Mon, ..., 6=Sat
   const wd = nyWeekdayIndex(date);
-  // 如果是周日(0)，回退6天到周一
-  // 如果是周一(1)，回退0天
-  // 如果是周二(2)，回退1天
+  // 如果是周日(0)，回退6天到周一; Otherwise back to Mon.
   const daysToSubtract = wd === 0 ? 6 : wd - 1;
   const wtdDate = new Date(date.getTime() - daysToSubtract * 24 * 60 * 60 * 1000);
-  const wtd = toNyCalendarDayString(wtdDate);
+  let wtd = toNyCalendarDayString(wtdDate);
+
+  // [FIX] Trading Year Cutoff Rule
+  // "WTD/MTD/YTD 全部按新年重新起算"
+  // If the standard WTD start (Monday) is in the PREVIOUS year (e.g. Dec 29),
+  // but we are currently in the NEW year (e.g. Jan 2),
+  // we must CLAMP the WTD start to Jan 1st of the current year.
+  // We can just compare strings: if wtd < ytd, then wtd = ytd.
+  if (wtd < ytd) {
+    wtd = ytd;
+  }
 
   return { wtd, mtd, ytd };
 }
@@ -340,4 +390,11 @@ export function getPeriodBaseDates(baseDateStr: string): { wtd: string; mtd: str
     mtd: prevNyTradingDayString(starts.mtd),
     ytd: prevNyTradingDayString(starts.ytd),
   };
+}
+
+// 获取某年最后一个交易日
+export function getLastTradingDayOfYear(year: number): string {
+  const dec31 = `${year}-12-31`;
+  if (isNyTradingDay(dec31)) return dec31;
+  return prevNyTradingDayString(dec31);
 }

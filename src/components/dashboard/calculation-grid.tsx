@@ -562,20 +562,33 @@ export function CalculationGrid() {
         <div className="flex items-center gap-2">
           <span className="text-xs font-bold text-muted-foreground px-2">Analysis Year:</span>
           <div className="flex bg-background rounded-md p-1 border shadow-sm">
-            {[2026, 2025].map(year => (
-              <button
-                key={year}
-                onClick={() => setAnalysisYear && setAnalysisYear(year)}
-                className={cn(
-                  "px-4 py-1 text-xs font-bold rounded transition-all",
-                  analysisYear === year
-                    ? "bg-primary text-primary-foreground shadow-sm"
-                    : "text-muted-foreground hover:bg-muted"
-                )}
-              >
-                {year}
-              </button>
-            ))}
+            {(() => {
+              const currentYear = new Date().getFullYear();
+              // [FIX] Dynamic generic year list, ensuring we always show [Current, Previous]
+              // This fixes the issue where the picker might feel "stuck" if hardcoded years become stale.
+              const years = [currentYear, currentYear - 1];
+              return years.map(year => (
+                <button
+                  key={year}
+                  onClick={() => {
+                    console.log(`[YearSelector] User clicked ${year}`);
+                    if (setAnalysisYear) {
+                      setAnalysisYear(year);
+                    } else {
+                      console.error("[YearSelector] setAnalysisYear is missing!");
+                    }
+                  }}
+                  className={cn(
+                    "px-4 py-1 text-xs font-bold rounded transition-all",
+                    analysisYear === year
+                      ? "bg-primary text-primary-foreground shadow-sm"
+                      : "text-muted-foreground hover:bg-muted"
+                  )}
+                >
+                  {year}
+                </button>
+              ));
+            })()}
           </div>
         </div>
 

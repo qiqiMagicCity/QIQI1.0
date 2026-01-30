@@ -3,6 +3,8 @@
 import { useState, useMemo } from "react";
 import Link from "next/link";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useHoldings } from "@/hooks/use-holdings";
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip, Sector } from "recharts";
 import { CumulativePnlChart } from "./cumulative-pnl-chart";
@@ -13,6 +15,9 @@ import { AverageStatsChart } from "./average-stats-chart";
 import { ScatterStatsChart } from "./scatter-stats-chart";
 import { ProfitLossRatioChart } from "./profit-loss-ratio-chart";
 import { calculateTransactionStats } from "@/lib/analytics/transaction-analytics";
+import { buildHoldingsSnapshot } from '@/lib/holdings/fifo';
+import { getRestoredHistoricalPrice } from '@/lib/holdings/stock-splits';
+import { getPeriodStartDates, prevNyTradingDayString } from '@/lib/ny-time';
 
 import { getISOWeek } from "date-fns";
 
@@ -145,9 +150,24 @@ const renderActiveShape = (props: any) => {
 };
 
 export function StockDetails() {
-  const { rows: holdings, loading, historicalPnl, dailyPnlList, dailyPnlResults, summary, pnlEvents, transactions, analysisYear, setAnalysisYear } = useHoldings(); // [FIX] Use filtered transactions
+
+
+  const {
+    rows: holdings,
+    loading,
+    historicalPnl,
+    dailyPnlResults,
+    pnlEvents,
+    transactions,
+    analysisYear,
+    setAnalysisYear,
+    ytdBaseEodMap,
+    activeSplits
+  } = useHoldings();
+
   // const { data: transactions } = useUserTransactions(user?.uid); // [REMOVED] Raw fetch ignores Time Travel
   const [activeIndex, setActiveIndex] = useState(0);
+  const [leaderboardScope, setLeaderboardScope] = useState<'global' | 'yearly'>('global');
 
   const onPieEnter = (_: any, index: number) => {
     setActiveIndex(index);
@@ -165,26 +185,113 @@ export function StockDetails() {
       .sort((a, b) => b.value - a.value);
   }, [holdings]);
 
-  const combinedPnl = useMemo(() => {
+  const leaderboardData = useMemo(() => {
+    // Determine Target Year Logic
+    const currentYear = new Date().getFullYear();
+    const targetYear = analysisYear || currentYear;
+    const isGlobal = leaderboardScope === 'global';
+
     const pnlMap = new Map<string, number>();
 
-    // 1. Add Realized PnL (from historicalPnl)
-    historicalPnl.forEach(h => {
-      pnlMap.set(h.symbol, h.pnl);
-    });
+    // --- 1. Global View (Simple Lifetime Logic) ---
+    if (isGlobal) {
+      // Realized Lifetime
+      historicalPnl.forEach(h => pnlMap.set(h.symbol, (pnlMap.get(h.symbol) || 0) + h.pnl));
+      // Unrealized Current
+      if (holdings) {
+        holdings.forEach(h => pnlMap.set(h.symbol, (pnlMap.get(h.symbol) || 0) + (h.pnl || 0)));
+      }
+      return Array.from(pnlMap.entries()).map(([symbol, pnl]) => ({ symbol, pnl }));
+    }
 
-    // 2. Add Unrealized PnL (from current holdings)
-    if (holdings) {
-      holdings.forEach(h => {
-        const currentUnrealized = h.pnl || 0;
-        const existing = pnlMap.get(h.symbol) || 0;
-        pnlMap.set(h.symbol, existing + currentUnrealized);
+    // --- 2. Yearly View (Mark-to-Market Logic) ---
+    // Formula: PnL_Year = Realized_Year + Unrealized_End - Unrealized_Start
+
+    // A. Realized PnL (Sum of pnlEvents in Target Year)
+    const targetYearStr = String(targetYear);
+    if (pnlEvents) {
+      pnlEvents.forEach((e: any) => {
+        const d = e.closeDate || e.date;
+        if (d && d.startsWith(targetYearStr)) {
+          pnlMap.set(e.symbol, (pnlMap.get(e.symbol) || 0) + e.pnl);
+        }
       });
     }
 
-    // 3. Convert to array
+    // B. Unrealized End (From Current/Analysis Holdings)
+    // Note: 'holdings' in context is already time-traveled to end of analysis year
+    if (holdings) {
+      holdings.forEach(h => {
+        const val = pnlMap.get(h.symbol) || 0;
+        pnlMap.set(h.symbol, val + (h.pnl || 0));
+      });
+    }
+
+    // C. Unrealized Start (Subtract Start of Year Unrealized)
+    // We need to calculate what the unrealized PnL was on Jan 1st (Start of Year).
+
+    // c1. Determine "Start of Year" Date (Last trading day BEFORE Jan 1 technically, or Jan 1 open)
+    // The ytdBaseEodMap corresponds to getPeriodBaseDates(today).ytd
+    // Which is "End of Last Year". This is exactly what we want for "Start of This Year Values".
+
+    // We need to rebuild holdings specifically at that date.
+    // 'transactions' are filtered to end of year. We need to filter further to start of year.
+    // Actually buildHoldingsSnapshot accepts a 'targetDate'.
+    // We need the date string corresponding to ytdBaseEodMap.
+    // Since we don't have the explicit date string from context, recover it.
+    // Wait, ytdBaseEodMap items don't have date.
+    // But we know it represents "Start of Analysis Year".
+    // Let's deduce date: getPeriodBaseDates(effectiveDate).ytd
+
+    // Wait, if analysisYear != currentYear, ytdBaseEodMap in context might be for CURRENT year?
+    // Let's check HoldingsProvider again.
+    // effectiveTodayNy depends on analysisYear.
+    // fetchEod uses effectiveTodayNy.
+    // So ytdBaseEodMap IS correct for analysisYear (i.e. Dec 31 of Prev Year).
+
+    // Recover safe start date
+    // Effectively: prevNyTradingDayString(targetYear + "-01-01")?
+    // Or just use the targetDate logic.
+    // Let's use `targetYear-01-01` as reference.
+    // getPeriodBaseDates(`${targetYear}-01-01`)? No.
+    // The base date for YTD is usually PrevYear-12-31.
+
+    const startOfAnalysisYearDate = String(targetYear) + '-01-01'; // Nominal
+    const { ytd: ytdStartDate } = getPeriodStartDates(startOfAnalysisYearDate); // Returns targetYear-01-01
+    const ytdBaseDate = prevNyTradingDayString(ytdStartDate); // Returns PrevYear-12-31 (or similar)
+
+    // c2. Snapshot at Start (using transactions filtered by buildHoldingsSnapshot internal logic)
+    const { holdings: startHoldings } = buildHoldingsSnapshot(transactions || [], ytdBaseDate, activeSplits);
+
+    // c3. Calculate Unrealized and Subtract
+    startHoldings.forEach(h => {
+      const symbol = h.symbol;
+      // Lookup price in ytdBaseEodMap
+      const eod = ytdBaseEodMap && ytdBaseEodMap[symbol] ? ytdBaseEodMap[symbol] : null; // Context uses raw symbol keys usually? No context rekeys... 
+      // Wait, Context EOD maps are Record<NormalizedSymbol, Result>.
+      // buildHoldingsSnapshot returns normalized UpperCase symbols.
+      // Should match.
+
+      let price = 0;
+      if (eod && eod.status === 'ok' && eod.close != null) {
+        // Restore Price!
+        price = getRestoredHistoricalPrice(eod.close, symbol, ytdBaseDate, activeSplits);
+      }
+
+      if (price > 0 && h.netQty !== 0) {
+        const mv = h.netQty * price * h.multiplier;
+        const cost = h.costBasis; // Cost Basis at Start
+        const unrealizedStart = mv - cost;
+
+        // Subtract from Total
+        const val = pnlMap.get(symbol) || 0;
+        pnlMap.set(symbol, val - unrealizedStart);
+      }
+    });
+
     return Array.from(pnlMap.entries()).map(([symbol, pnl]) => ({ symbol, pnl }));
-  }, [historicalPnl, holdings]);
+
+  }, [historicalPnl, holdings, pnlEvents, leaderboardScope, analysisYear, transactions, ytdBaseEodMap, activeSplits]);
 
   // --- Aggregation Logic ---
   // [PERFORMANCE] Memoize the input data for calculateTransactionStats to prevent unnecessary re-runs
@@ -438,7 +545,7 @@ export function StockDetails() {
     // We often have transactions even if no current holdings.
   }
 
-  if (combinedPnl.length === 0 && (!transactions || transactions.length === 0)) {
+  if (leaderboardData.length === 0 && (!transactions || transactions.length === 0)) {
     return (
       <div className="flex flex-col items-center justify-center h-[300px] gap-4">
         <p className="text-muted-foreground">暂无持仓或交易数据</p>
@@ -528,15 +635,69 @@ export function StockDetails() {
       </section>
 
       <section id="top-pnl">
+        <div className="flex items-center justify-between mb-4 px-1">
+          <h3 className="text-lg font-medium text-zinc-200">
+            排行榜 (Leaderboard)
+            <span className="text-xs text-muted-foreground ml-2 font-normal">
+              {leaderboardScope === 'global' ? '全历史 (Lifetime)' : `年度 (Year ${analysisYear || new Date().getFullYear()})`}
+            </span>
+          </h3>
+          <div className="flex items-center gap-2 bg-zinc-900/50 p-1 rounded-lg border border-zinc-800">
+            <Button
+              variant={leaderboardScope === 'global' ? "secondary" : "ghost"}
+              size="sm"
+              className={`h-7 px-3 text-xs ${leaderboardScope === 'global' ? 'bg-zinc-800 text-zinc-100' : 'text-zinc-500 hover:text-zinc-300'}`}
+              onClick={() => setLeaderboardScope('global')}
+            >
+              Global
+            </Button>
+            <div className="flex items-center">
+              <Button
+                variant={leaderboardScope === 'yearly' ? "secondary" : "ghost"}
+                size="sm"
+                className={`h-7 px-3 text-xs rounded-r-none border-r-0 ${leaderboardScope === 'yearly' ? 'bg-emerald-900/40 text-emerald-400 border border-emerald-500/20' : 'text-zinc-500 hover:text-zinc-300'}`}
+                onClick={() => {
+                  setLeaderboardScope('yearly');
+                  if (!analysisYear) setAnalysisYear?.(new Date().getFullYear());
+                }}
+              >
+                Yearly
+              </Button>
+              {leaderboardScope === 'yearly' && (
+                <Select
+                  value={String(analysisYear || new Date().getFullYear())}
+                  onValueChange={(v: string) => setAnalysisYear?.(Number(v))}
+                >
+                  <SelectTrigger className="h-7 w-[70px] rounded-l-none border-l-0 bg-emerald-900/20 border-emerald-500/20 text-emerald-400 text-xs px-2 focus:ring-0 focus:ring-offset-0">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {availableYears.map(y => (
+                      <SelectItem key={y} value={String(y)} className="text-xs">
+                        {y}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              )}
+            </div>
+          </div>
+        </div>
+
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
           {/* Top 10 Winners (Total PnL) */}
           <Card>
             <CardHeader>
-              <CardTitle className="text-emerald-500">盈利 TOP 10</CardTitle>
+              <CardTitle className="text-emerald-500 flex justify-between">
+                <span>盈利 TOP 10</span>
+                <span className="text-xs font-normal text-muted-foreground self-center opacity-70">
+                  {leaderboardScope === 'global' ? 'All-Time' : `${analysisYear || new Date().getFullYear()}`}
+                </span>
+              </CardTitle>
             </CardHeader>
             <CardContent>
               <div className="space-y-2">
-                {combinedPnl
+                {leaderboardData
                   .filter(h => h.pnl > 0)
                   .sort((a, b) => b.pnl - a.pnl)
                   .slice(0, 10)
@@ -548,7 +709,7 @@ export function StockDetails() {
                       </span>
                     </div>
                   ))}
-                {combinedPnl.filter(h => h.pnl > 0).length === 0 && (
+                {leaderboardData.filter(h => h.pnl > 0).length === 0 && (
                   <p className="text-muted-foreground text-center py-4">暂无盈利记录</p>
                 )}
               </div>
@@ -558,11 +719,16 @@ export function StockDetails() {
           {/* Top 10 Losers (Total PnL) */}
           <Card>
             <CardHeader>
-              <CardTitle className="text-rose-500">亏损 TOP 10</CardTitle>
+              <CardTitle className="text-rose-500 flex justify-between">
+                <span>亏损 TOP 10</span>
+                <span className="text-xs font-normal text-muted-foreground self-center opacity-70">
+                  {leaderboardScope === 'global' ? 'All-Time' : `${analysisYear || new Date().getFullYear()}`}
+                </span>
+              </CardTitle>
             </CardHeader>
             <CardContent>
               <div className="space-y-2">
-                {combinedPnl
+                {leaderboardData
                   .filter(h => h.pnl < 0)
                   .sort((a, b) => a.pnl - b.pnl) // Ascending for negative numbers (biggest loss first)
                   .slice(0, 10)
@@ -574,7 +740,7 @@ export function StockDetails() {
                       </span>
                     </div>
                   ))}
-                {combinedPnl.filter(h => h.pnl < 0).length === 0 && (
+                {leaderboardData.filter(h => h.pnl < 0).length === 0 && (
                   <p className="text-muted-foreground text-center py-4">暂无亏损记录</p>
                 )}
               </div>

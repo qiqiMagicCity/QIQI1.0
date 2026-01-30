@@ -1,6 +1,6 @@
 import { Tx } from '@/hooks/use-user-transactions';
 import { OfficialCloseResult } from '@/lib/data/official-close-repo';
-import { toNyCalendarDayString, prevNyTradingDayString, isNyTradingDay } from '@/lib/ny-time';
+import { toNyCalendarDayString, prevNyTradingDayString, isNyTradingDay, getMarketClosedReason } from '@/lib/ny-time';
 import { normalizeSymbolClient } from '@/lib/utils';
 import { calcGlobalFifo } from './calc-m4-m5-2-global-fifo';
 import { STOCK_SPLITS, getRestoredHistoricalPrice } from '@/lib/holdings/stock-splits';
@@ -17,6 +17,7 @@ interface FifoState {
     longLayers: FifoLayer[];
     shortLayers: FifoLayer[];
     realizedPnl: number;
+    assetType?: 'stock' | 'option'; // [NEW] Track asset type for fallback logic
 }
 
 export interface DailyPnlResult {
@@ -31,6 +32,7 @@ export interface DailyPnlResult {
     prevEodUnrealized: number;
     status: 'ok' | 'partial' | 'missing-data' | 'market-closed';
     missingReason?: string;
+    marketClosedReason?: string; // [NEW] Detail why market is closed
     missingSymbols?: string[];
 }
 
@@ -41,7 +43,8 @@ export interface DailyPnlResult {
 export function calcM14DailyCalendar(
     transactions: Tx[],
     targetDates: string[],
-    eodMap: Record<string, OfficialCloseResult>
+    eodMap: Record<string, OfficialCloseResult>,
+    activeSplits = STOCK_SPLITS // [NEW] Injectable configuration, defaults to static for now
 ): Record<string, DailyPnlResult> {
     const results: Record<string, DailyPnlResult> = {};
     if (targetDates.length === 0) return results;
@@ -53,7 +56,7 @@ export function calcM14DailyCalendar(
 
     // Group Splits for fast lookup
     const splitsByDate = new Map<string, typeof STOCK_SPLITS>();
-    for (const split of STOCK_SPLITS) {
+    for (const split of activeSplits) {
         if (!split.effectiveDate) continue;
         const d = split.effectiveDate;
         if (!splitsByDate.has(d)) splitsByDate.set(d, []);
@@ -166,6 +169,7 @@ export function calcM14DailyCalendar(
 
         const state = getPositionState(tx.symbol);
         const assetType = tx.assetType || 'stock';
+        state.assetType = assetType; // [NEW] Capture asset type
         const mult = tx.multiplier ?? (assetType === 'option' ? 100 : 1);
 
         if (tx.side === 'BUY') {
@@ -200,7 +204,7 @@ export function calcM14DailyCalendar(
     const appliedSplits = new Set<string>(); // Key: `${date}_${symbol}`
 
     const applyPendingSplits = (upToDate: string) => {
-        for (const split of STOCK_SPLITS) {
+        for (const split of activeSplits) {
             const splitKey = `${split.effectiveDate}_${split.symbol}`;
             if (appliedSplits.has(splitKey)) continue;
 
@@ -268,7 +272,7 @@ export function calcM14DailyCalendar(
                 // Only use high-quality EOD for baseline to avoid skewing start
                 if (eod?.status === 'ok' && typeof eod.close === 'number') {
                     // [STANDARD] Use standardized price restoration
-                    const price = getRestoredHistoricalPrice(eod.close, symKey, baselineDate);
+                    const price = getRestoredHistoricalPrice(eod.close, symKey, baselineDate, activeSplits);
 
                     priceUsed = price.toFixed(2);
                     state.longLayers.forEach(l => {
@@ -344,10 +348,16 @@ export function calcM14DailyCalendar(
         let isMissing = false;
         let isEstimating = false; // [NEW] Flag for fallback usage
         let missingReason = '';
+        let marketClosedReason = '';
         const missingSymbols: string[] = [];
 
         if (!isNyTradingDay(currentDate)) {
             eodUnrealized = prevDateUnrealizedVal;
+
+            // Populate reason for closure
+            const reason = getMarketClosedReason(currentDate);
+            if (reason) marketClosedReason = reason;
+
             if (prevDateStatus === 'missing-data') {
                 isMissing = true;
                 missingReason = 'prev-eod-missing-for-holiday';
@@ -371,16 +381,24 @@ export function calcM14DailyCalendar(
 
                 if (eod?.status === 'ok' && typeof eod.close === 'number') {
                     // [STANDARD] Use standardized price restoration
-                    price = getRestoredHistoricalPrice(eod.close, symKey, currentDate);
+                    price = getRestoredHistoricalPrice(eod.close, symKey, currentDate, activeSplits);
                     lastKnownPrices.set(symKey, eod.close); // Cache RAW EOD
                 } else {
-                    // Fallback Strategy: Use last known RAW price AND restore it
+                    // Fallback Strategy
                     if (lastKnownPrices.has(symKey)) {
+                        // P3: Last Known Price (Applies to both Stock and Option)
                         const rawPrice = lastKnownPrices.get(symKey)!;
-                        price = getRestoredHistoricalPrice(rawPrice, symKey, currentDate);
+                        price = getRestoredHistoricalPrice(rawPrice, symKey, currentDate, activeSplits);
                         priceSource = 'fallback';
                         isEstimating = true;
+                    } else if (state.assetType === 'option') {
+                        // [FIX] P4: Option True Ignore Mode
+                        // If no Real-time/EOD (P2) and no Last Known (P3), 
+                        // we must EXCLUDE it to avoid 0-value crashes or false losses.
+                        // Implies: It contributes 0 change to PnL.
+                        continue;
                     } else {
+                        // Stock: Strict Missing Data Check
                         // No live data and no fallback, this symbol is truly missing
                         missingSymbols.push(symKey);
                         isMissing = true;
@@ -443,6 +461,7 @@ export function calcM14DailyCalendar(
             prevEodUnrealized: prevDateUnrealizedVal,
             status,
             missingReason: isMissing ? missingReason : undefined,
+            marketClosedReason: status === 'market-closed' ? marketClosedReason : undefined,
             missingSymbols: isMissing ? missingSymbols : undefined
         };
 

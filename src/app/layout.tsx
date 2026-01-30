@@ -10,6 +10,7 @@ import { HoldingsProvider } from '@/contexts/holdings-provider';
 import { ThemeProvider } from '@/contexts/theme-provider';
 import { PwaRegister } from '@/components/pwa-register';
 
+
 export const metadata: Metadata = {
   title: {
     default: "LuckTrading 777",

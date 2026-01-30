@@ -31,10 +31,29 @@ import {
   ArrowUpRight,
   Tag,
   ChevronRight,
+  Pencil,
+  Eye,
+  EyeOff,
+  Archive,
+  Search,
+  Layers
 } from 'lucide-react';
+import { Switch } from '@/components/ui/switch';
 import { ActionBadge } from '@/components/common/action-badge';
 import { toNyCalendarDayString, toNyHmsString, nyWeekdayLabel } from '@/lib/ny-time';
 import { ManualEodDialog } from './manual-eod-dialog';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { updateDoc, doc, collection, query, where, getDocs, setDoc } from 'firebase/firestore';
+import { useFirestore, useUser } from '@/firebase';
 
 const formatCurrency = (value: number | null | undefined) => {
   if (value == null || typeof value !== 'number') return '—';
@@ -128,91 +147,300 @@ const AnimatedNumber = ({ value, children, className = '' }: { value: number | n
   );
 };
 
-// 注意：这里先定义函数，最后统一做默认导出 + 具名导出
+// [NEW] Manual Mark Dialog Component
+const ManualMarkDialog = ({
+  open,
+  onOpenChange,
+  symbol,
+  currentPrice,
+  onSuccess
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  symbol: string;
+  currentPrice: number | null;
+  onSuccess: () => void;
+}) => {
+  const [priceStr, setPriceStr] = useState<string>('');
+  const [loading, setLoading] = useState(false);
+  const firestore = useFirestore();
+  // [FIX] Update ManualMarkDialog to use effectiveUid from context
+  const { effectiveUid } = useHoldings(); // Destructure effectiveUid from hook
+
+  useEffect(() => {
+    if (open) {
+      setPriceStr(currentPrice != null ? currentPrice.toString() : '');
+    }
+  }, [open, currentPrice]);
+
+  const handleSave = async () => {
+    if (!symbol || !effectiveUid) {
+      console.error('Missing symbol or effectiveUid');
+      return;
+    }
+    const val = parseFloat(priceStr);
+    if (isNaN(val)) return;
+
+    setLoading(true);
+    try {
+      // Direct update by ID (Symbol) - handles both existing and new docs
+      const normSym = symbol.trim().toUpperCase();
+      const docRef = doc(firestore, 'users', effectiveUid, 'holdings', normSym);
+
+      await setDoc(docRef, {
+        symbol: normSym,
+        manualMarkPrice: val,
+        updatedAt: Date.now()
+      }, { merge: true });
+
+      onSuccess();
+      onOpenChange(false);
+    } catch (err) {
+      console.error('Failed to update manual mark price:', err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-[425px]">
+        <DialogHeader>
+          <DialogTitle>手动盯市 (Mark-to-Market)</DialogTitle>
+          <DialogDescription>
+            为期权 <b>{symbol}</b> 设置手动市场价格。
+            <br />
+            这将作为该期权的最新市价用于计算市值和盈亏。
+          </DialogDescription>
+        </DialogHeader>
+        <div className="grid gap-4 py-4">
+          <div className="grid grid-cols-4 items-center gap-4">
+            <Label htmlFor="price" className="text-right">
+              新价格
+            </Label>
+            <Input
+              id="price"
+              type="number"
+              step="0.01"
+              value={priceStr}
+              onChange={(e) => setPriceStr(e.target.value)}
+              className="col-span-3"
+              autoFocus
+              placeholder="例如: 1.55"
+            />
+          </div>
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={() => onOpenChange(false)} disabled={loading}>取消</Button>
+          <Button onClick={handleSave} disabled={loading}>
+            {loading ? '保存中...' : '保存'}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+// Helper to parse option symbol "NVO261218C50" -> { underlying: 'NVO', date: '...', strike: '50', right: 'C' }
+function parseOptionSymbol(raw: string) {
+  const regex = /^([A-Z]+)(\d{6})([CP])([\d\.]+)$/;
+  const match = raw.match(regex);
+  if (!match) return null;
+
+  const [, underlying, dateStr, right, strike] = match;
+  // Parse YYMMDD
+  const yy = parseInt(dateStr.slice(0, 2), 10);
+  const mm = parseInt(dateStr.slice(2, 4), 10);
+  const dd = parseInt(dateStr.slice(4, 6), 10);
+
+  const fullYear = 2000 + yy;
+  // Format Date: "Dec 18 '26"
+  const dateObj = new Date(fullYear, mm - 1, dd);
+  const fmtDate = dateObj.toLocaleDateString('en-US', { year: '2-digit', month: 'short', day: 'numeric' }); // Dec 18, 26
+
+  return {
+    underlying,
+    fmtDate,
+    right, // C or P
+    strike,
+    typeDisplay: right === 'C' ? 'Call' : 'Put'
+  };
+}
+
 const HoldingRowItem = ({
   row,
   fetchingSymbol,
   manualEodState,
   setManualEodState,
+  onManualMark,
+  toggleHidden,
+  isRowHidden,
 }: {
   row: any;
   fetchingSymbol: string | null;
   manualEodState: any;
   setManualEodState: (s: any) => void;
+  onManualMark: (symbol: string, currentPrice: number | null) => void;
+  toggleHidden: (symbol: string) => void;
+  isRowHidden?: boolean;
 }) => {
   const [expanded, setExpanded] = useState(false);
 
+  // Detect Asset Type
+  const isOption = row.assetType === 'option';
+
+  // Layout Logic: Parse Option if needed
+  const optDetails = isOption ? parseOptionSymbol(row.symbol) : null;
+
   return (
     <>
-      <TableRow className="group hover:bg-slate-50/50 dark:hover:bg-slate-900/50 transition-colors">
+      <TableRow
+        className={`group transition-all border-b border-border/40 
+        ${isRowHidden
+            ? 'opacity-50 grayscale bg-muted/20'
+            : isOption
+              ? 'bg-gradient-to-r from-orange-50/70 via-white/0 to-white/0 dark:from-orange-950/20 dark:via-transparent dark:to-transparent hover:from-orange-100/80 dark:hover:from-orange-900/30'
+              : 'hover:bg-muted/50'
+          }
+        `}
+      >
         {/* 1. Logo & Toggle */}
-        <TableCell className="text-[13px] md:text-sm text-center px-2">
-          <div className="flex items-center justify-center gap-1">
+        <TableCell className="text-[13px] md:text-sm text-center px-2 py-3">
+          <div className="flex items-center justify-center gap-1 group/arch">
+            {/* Show Archive Button on Hover (or if row is hidden, show restore icon) */}
+            <div className="relative">
+              <div className={`transition-opacity ${isRowHidden ? 'opacity-0' : 'opacity-100 group-hover/arch:opacity-0'}`}>
+                {/* Use Underlying for Logo if Option */}
+                <CompanyLogo symbol={optDetails?.underlying || row.symbol} size={24} className={!(row.lots?.length) ? "mx-auto" : ""} />
+              </div>
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  if (confirm(isRowHidden ? `恢复显示 ${row.symbol}?` : `确认隐藏 ${row.symbol}? \n\n隐藏后它将不再参与任何总资产计算。`)) {
+                    toggleHidden(row.symbol);
+                  }
+                }}
+                className={`absolute inset-0 flex items-center justify-center text-slate-400 hover:text-orange-500 transition-opacity ${isRowHidden ? 'opacity-100' : 'opacity-0 group-hover/arch:opacity-100'}`}
+                title={isRowHidden ? "恢复显示 (Unhide)" : "隐藏此持仓 (Archive)"}
+              >
+                {isRowHidden ? <Eye className="h-4 w-4" /> : <EyeOff className="h-4 w-4" />}
+              </button>
+            </div>
+
             {(row.lots && row.lots.length > 0) && (
               <button
                 onClick={() => setExpanded(!expanded)}
-                className="p-1 text-slate-400 hover:text-foreground hover:bg-slate-200 dark:hover:bg-slate-800 rounded transition"
+                className="p-1 text-slate-400 hover:text-foreground hover:bg-slate-200 dark:hover:bg-slate-800 rounded transition ml-1"
                 title="查看成本明细"
               >
                 {expanded ? <ChevronsDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
               </button>
             )}
-            <CompanyLogo symbol={row.symbol} size={24} className={!(row.lots?.length) ? "mx-auto" : ""} />
           </div>
         </TableCell>
 
-        {/* 2. Symbol */}
-        <TableCell className="font-mono font-bold text-base md:text-lg px-2">
-          {row.symbol}
+        {/* 2. Symbol Column (Unified Typography) */}
+        <TableCell className="px-2 py-3">
+          {isOption && optDetails ? (
+            <div className="flex flex-col">
+              <span className="font-bold text-base leading-none text-foreground/90">{optDetails.underlying}</span>
+              <span className="text-[10px] text-muted-foreground font-mono mt-0.5 opacity-70">{row.symbol}</span>
+            </div>
+          ) : (
+            <div className="flex flex-col">
+              {/* Match Option Underlying Style exactly */}
+              <span className="font-bold text-base leading-none text-foreground/90">{row.symbol}</span>
+              {/* Optional: Add full name as small text if needed, or keep generic */}
+            </div>
+          )}
         </TableCell>
 
-        {/* 3. Name */}
-        <TableCell className="text-sm md:text-base px-2">
-          <SymbolName symbol={row.symbol} />
+        {/* 3. Name / Contract Details Column */}
+        <TableCell className="px-2 py-3">
+          {isOption && optDetails ? (
+            <div className="flex flex-col gap-1">
+              <div className="flex items-center gap-2">
+                <Badge variant="outline" className={`h-5 px-1.5 text-[11px] font-mono border-0 font-bold
+                      ${optDetails.right === 'C'
+                    ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-400'
+                    : 'bg-rose-50 text-rose-700 dark:bg-rose-500/10 dark:text-rose-400'
+                  }`}>
+                  {optDetails.typeDisplay} {optDetails.strike}
+                </Badge>
+                <span className="text-sm font-medium text-foreground/90">{optDetails.fmtDate}</span>
+              </div>
+              {/* Fallback Name if needed, or remove. Usually "Name" for option is junk. */}
+            </div>
+          ) : (
+            <span className="text-sm text-muted-foreground"><SymbolName symbol={row.symbol} /></span>
+          )}
         </TableCell>
 
-        {/* 4. Type */}
-        <TableCell className="text-sm md:text-base px-2">
-          <div className="flex flex-col gap-1">
-            <Badge
-              className={`border-none gap-1 w-fit ${row.assetType === 'option'
-                ? 'bg-orange-600 text-white'
-                : 'bg-slate-700 text-white'
-                }`}
-            >
-              <AssetTypeIcon
-                assetType={row.assetType as any}
-                className="h-3 w-3"
-              />
-              <span>{row.assetType === 'option' ? '期权' : '股票'}</span>
-            </Badge>
+        {/* 4. Type / Direction Badge */}
+        <TableCell className="px-2 py-3">
+          <div className="flex flex-wrap gap-1.5">
+            {/* Main Asset Type Badge */}
+            {!isOption ? (
+              <Badge variant="secondary" className="h-5 px-1.5 text-[10px] bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-400">
+                股票
+              </Badge>
+            ) : (
+              // We already showed Call/Put nicely in Name col, maybe just show "Long/Short" here?
+              // Or keep "Option" generic indicator?
+              // Let's keep it clean.
+              <div className="flex items-center text-[10px] text-muted-foreground font-medium">
+                <Layers className="w-3 h-3 mr-1 opacity-70" />
+                期权
+              </div>
+            )}
+
+            {/* Position Direction */}
             {row.netQty > 0 && (
-              <Badge className="bg-emerald-600 text-white border-none w-fit text-[10px] px-1.5 py-0 h-5">
+              <Badge className="h-5 px-1.5 text-[10px] border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950/30 dark:text-emerald-400 hover:bg-emerald-100">
                 多头
               </Badge>
             )}
             {row.netQty < 0 && (
-              <Badge className="bg-red-600 text-white border-none w-fit text-[10px] px-1.5 py-0 h-5">
+              <Badge className="h-5 px-1.5 text-[10px] border-rose-200 bg-rose-50 text-rose-700 dark:border-rose-900 dark:bg-rose-950/30 dark:text-rose-400 hover:bg-rose-100">
                 空头
               </Badge>
             )}
           </div>
         </TableCell>
 
-        {/* 5. Last Price */}
-        <TableCell className="text-right font-mono text-sm md:text-base px-2">
+        {/* 5. Last Price (Updated logic for Options) */}
+        <TableCell className="text-right font-mono text-sm md:text-base px-2 py-3">
           <div className="flex flex-col items-end gap-0.5">
             <span className={getTodayPlClassName(row.todayPl)}>
-              {fetchingSymbol === row.symbol ? (
-                <span className="mr-1 inline-block w-2 h-2 rounded-full bg-green-500 animate-ping" title="正在更新..."></span>
-              ) : row.todayPlStatus === 'stale-last' ? (
-                <span className="mr-1 inline-block w-2 h-2 rounded-full bg-orange-500 animate-pulse" title="数据陈旧"></span>
-              ) : row.priceStatus === 'live' ? (
-                <span className="mr-1 inline-block w-2 h-2 rounded-full bg-green-500" title="实时数据"></span>
-              ) : null}
-              <AnimatedNumber value={row.last} className="inline-block">
-                {formatCurrencyNoSign(row.last)}
-              </AnimatedNumber>
+              {/* [MODIFIED] Option Manual Mark UI */}
+              {isOption ? (
+                <div
+                  className="flex items-center gap-1 cursor-pointer group/pencil hover:bg-slate-100 dark:hover:bg-slate-800 rounded px-1 -mr-1 transition-colors"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onManualMark(row.symbol, row.last);
+                  }}
+                  title="点击手动修改价格"
+                >
+                  <AnimatedNumber value={row.last} className="inline-block border-b border-dashed border-slate-400 group-hover/pencil:border-emerald-500">
+                    {formatCurrencyNoSign(row.last)}
+                  </AnimatedNumber>
+                  <Pencil className="w-3 h-3 text-slate-400 group-hover/pencil:text-emerald-500 opacity-0 group-hover/pencil:opacity-100 transition-opacity" />
+                </div>
+              ) : (
+                <>
+                  {fetchingSymbol === row.symbol ? (
+                    <span className="mr-1 inline-block w-2 h-2 rounded-full bg-green-500 animate-ping" title="正在更新..."></span>
+                  ) : row.todayPlStatus === 'stale-last' ? (
+                    <span className="mr-1 inline-block w-2 h-2 rounded-full bg-orange-500 animate-pulse" title="数据陈旧"></span>
+                  ) : row.priceStatus === 'live' ? (
+                    <span className="mr-1 inline-block w-2 h-2 rounded-full bg-green-500" title="实时数据"></span>
+                  ) : null}
+                  <AnimatedNumber value={row.last} className="inline-block">
+                    {formatCurrencyNoSign(row.last)}
+                  </AnimatedNumber>
+                </>
+              )}
             </span>
             {row.priceStatus && (
               <TooltipProvider>
@@ -244,6 +472,7 @@ const HoldingRowItem = ({
                     </div>
                   </TooltipContent>
                 </Tooltip>
+
               </TooltipProvider>
             )}
           </div>
@@ -329,7 +558,7 @@ const HoldingRowItem = ({
                     <div>Ref Date (基准日): {row.refDateUsed ?? 'N/A'}</div>
                     <div>Status: {row.todayPlStatus}</div>
                     <div className="text-xs text-muted-foreground mt-1">
-                      PnL = (Ref - Prev) * Qty
+                      PnL = (Ref - Prev) * Qty {row.multiplier !== 1 ? `* ${row.multiplier}` : ''}
                     </div>
                   </div>
                 </TooltipContent>
@@ -463,11 +692,27 @@ const HoldingRowItem = ({
 };
 
 function HoldingsOverview() {
-  const { rows, loading, transactions, refreshData } = useHoldings();
+  const { rows, loading, transactions, refreshData, showHidden, setShowHidden, toggleHidden } = useHoldings();
   const { fetchingSymbol } = usePriceCenterContext();
+
 
   // Manual EOD State
   const [manualEodState, setManualEodState] = useState<{ open: boolean; symbol: string; date: string } | null>(null);
+
+  // [NEW] Manual Mark State
+  const [manualMarkState, setManualMarkState] = useState<{ open: boolean; symbol: string; currentPrice: number | null }>({
+    open: false,
+    symbol: '',
+    currentPrice: null
+  });
+
+  const handleManualMark = (symbol: string, currentPrice: number | null) => {
+    setManualMarkState({ open: true, symbol, currentPrice });
+  };
+
+  const handleManualMarkSuccess = () => {
+    refreshData();
+  };
 
   type SortKey = 'symbol' | 'assetType' | 'last' | 'netQty' | 'avgCost' | 'costBasis' | 'todayPl' | 'dayChange' | 'dayChangePct';
   type SortDirection = 'asc' | 'desc' | null;
@@ -493,10 +738,14 @@ function HoldingsOverview() {
   };
 
   const sortedRows = useMemo(() => {
-    // [MODIFIED] Strict Filter: Active Positions Only
-    // We strictly filter out closed positions (Net Qty ~ 0), ignoring "floating point dust".
-    // Even if a closed position has Today PnL, we hide it from this view per user request.
-    const activeRows = rows.filter((row) => Math.abs(row.netQty) > 0.0001);
+    // [MODIFIED] Filter Logic:
+    // 1. Show Active Positions (Net Qty > 0)
+    // 2. Show Positions with Activity Today (Day Change != 0), even if closed (Net Qty = 0)
+    //    This ensures that if you sell everything today, you still see the result of that trade for the rest of the day.
+    const activeRows = rows.filter((row) =>
+      Math.abs(row.netQty) > 0.0001 ||
+      (row.dayChange && Math.abs(row.dayChange) > 0.0001)
+    );
 
     if (!sortConfig.direction) return activeRows;
 
@@ -615,7 +864,20 @@ function HoldingsOverview() {
       <section id="holdings" className="scroll-mt-20">
         <Card>
           <CardHeader className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
-            <CardTitle className="text-base md:text-lg">持仓概览</CardTitle>
+            <div className="flex items-center gap-4">
+              <CardTitle className="text-base md:text-lg">持仓概览</CardTitle>
+              <div className="flex items-center gap-2">
+                <Switch
+                  checked={showHidden}
+                  onCheckedChange={setShowHidden}
+                  id="show-hidden-mode"
+                  className="scale-75 origin-left"
+                />
+                <Label htmlFor="show-hidden-mode" className="text-xs text-muted-foreground font-normal cursor-pointer">
+                  {showHidden ? "显示隐藏项" : "隐藏项 (Hide)"}
+                </Label>
+              </div>
+            </div>
           </CardHeader>
 
           {/* 整个表格默认字体稍微放大：移动端 13px，桌面端 text-sm */}
@@ -677,7 +939,7 @@ function HoldingsOverview() {
                     </TableRow>
                   )}
 
-                  {!loading && sortedRows.length === 0 && (
+                  {!loading && sortedRows.filter(r => !r.isHidden).length === 0 && (
                     <TableRow>
                       <TableCell colSpan={15} className="h-24 text-center">
                         无持仓（请先录入交易）
@@ -686,13 +948,16 @@ function HoldingsOverview() {
                   )}
 
                   {!loading &&
-                    sortedRows.map((row) => (
+                    sortedRows.filter(r => !r.isHidden).map((row) => (
                       <HoldingRowItem
                         key={`${row.symbol}-${row.assetType}-${row.multiplier ?? 1}`}
                         row={row}
                         fetchingSymbol={fetchingSymbol}
                         manualEodState={manualEodState}
                         setManualEodState={setManualEodState}
+                        onManualMark={handleManualMark}
+                        toggleHidden={toggleHidden}
+                        isRowHidden={row.isHidden}
                       />
                     ))}
                 </TableBody>
@@ -701,6 +966,58 @@ function HoldingsOverview() {
           </CardContent>
         </Card>
       </section>
+
+      {/* [NEW] Residual Data / Hidden Holdings Table */}
+      {showHidden && sortedRows.filter(r => r.isHidden).length > 0 && (
+        <section id="hidden-holdings" className="mt-8">
+          <Card className="border-dashed border-slate-400/50 bg-slate-50/30 dark:bg-slate-900/10">
+            <CardHeader>
+              <div className="flex items-center gap-2 text-muted-foreground">
+                <Archive className="h-5 w-5" />
+                <CardTitle className="text-base md:text-lg">残留数据 (隐藏部分)</CardTitle>
+              </div>
+            </CardHeader>
+            <CardContent className="p-0 text-[13px] md:text-sm">
+              <div className="w-full overflow-x-auto">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead className="text-center px-2 w-[50px]">logo</TableHead>
+                      <SortableHeader sortKey="symbol" className="px-2">代码</SortableHeader>
+                      <TableHead className="px-2">中文名</TableHead>
+                      <SortableHeader sortKey="assetType" className="px-2">类型</SortableHeader>
+                      <SortableHeader sortKey="last" className="text-right px-2">现价</SortableHeader>
+                      <SortableHeader sortKey="netQty" className="text-right px-2"><span className="text-sky-400">持仓</span></SortableHeader>
+                      <SortableHeader sortKey="avgCost" className="text-right px-2"><span className="text-amber-400/50">成本</span></SortableHeader>
+                      <SortableHeader sortKey="costBasis" className="text-right px-2">NCI</SortableHeader>
+                      <TableHead className="text-right px-2 text-violet-400/50">保本价</TableHead>
+                      <SortableHeader sortKey="todayPl" className="text-right px-2">日盈亏</SortableHeader>
+                      <SortableHeader sortKey="dayChangePct" className="text-right px-2">日变动</SortableHeader>
+                      <TableHead className="text-right px-2 text-muted-foreground">持仓盈亏</TableHead>
+                      <TableHead className="text-right px-2 text-muted-foreground">已实现</TableHead>
+                      <TableHead className="text-center px-2 text-muted-foreground w-[50px]">详情</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {sortedRows.filter(r => r.isHidden).map((row) => (
+                      <HoldingRowItem
+                        key={`${row.symbol}-${row.assetType}-${row.multiplier ?? 1}`}
+                        row={row}
+                        fetchingSymbol={fetchingSymbol}
+                        manualEodState={manualEodState}
+                        setManualEodState={setManualEodState}
+                        onManualMark={handleManualMark}
+                        toggleHidden={toggleHidden}
+                        isRowHidden={row.isHidden}
+                      />
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
+            </CardContent>
+          </Card>
+        </section>
+      )}
 
       {/* Manual EOD Dialog */}
       {
@@ -716,6 +1033,16 @@ function HoldingsOverview() {
           />
         )
       }
+
+      {/* [NEW] Manual Mark Dialog */}
+      <ManualMarkDialog
+        open={manualMarkState.open}
+        onOpenChange={(open) => setManualMarkState(prev => ({ ...prev, open }))}
+        symbol={manualMarkState.symbol}
+        currentPrice={manualMarkState.currentPrice}
+        onSuccess={handleManualMarkSuccess}
+      />
+
 
       {/* [NEW] Recent Transactions Section (Full Detail) */}
       <section className="mt-8">

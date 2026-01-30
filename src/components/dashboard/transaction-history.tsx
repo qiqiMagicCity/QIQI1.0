@@ -154,9 +154,10 @@ export function TransactionHistory() {
 
   const { toast } = useToast();
   const firestore = useFirestore();
-  const { user } = useUser();
+  const { user, impersonatedUid } = useUser();
+  const effectiveUid = impersonatedUid || user?.uid;
 
-  const { data, loading, error, warnings } = useUserTransactions(user?.uid);
+  const { data, loading, error, warnings } = useUserTransactions(effectiveUid);
 
   // 计算当前月的起止日期（纽约时间字符串）
   const startNy = toNyCalendarDayString(startOfMonth(currentMonth));
@@ -170,10 +171,11 @@ export function TransactionHistory() {
 
     const filtered = data.filter(tx => {
       // 1. 标的搜索 (精确匹配)
+      // 1. 标的搜索 (模糊匹配：支持搜索 "NKE" 匹配 "NKE" 和 "NKE 260109 C 65")
       if (searchSymbol) {
         const sym = tx.symbol.toUpperCase();
         const q = searchSymbol.toUpperCase().trim();
-        if (sym !== q) return false;
+        if (!sym.includes(q)) return false;
       }
 
       // 2. 日期搜索 (精确匹配纽约日期)
@@ -329,6 +331,7 @@ export function TransactionHistory() {
                 <TableHeader>
                   <TableRow>
                     <TableHead className="w-[160px]">日期</TableHead>
+                    <TableHead className="text-xs text-gray-400 w-[150px]">DEBUG: ID</TableHead>
                     <TableHead className="w-[100px]">标的代码</TableHead>
                     <TableHead className="hidden sm:table-cell w-[200px]">标的中文名</TableHead>
                     <TableHead className="w-[80px]">类型</TableHead>
@@ -381,6 +384,9 @@ export function TransactionHistory() {
                           <div className="text-xs text-muted-foreground -mt-1">
                             {tx.transactionTimestamp ? nyWeekdayLabel(tx.transactionTimestamp) : null}
                           </div>
+                        </TableCell>
+                        <TableCell className="text-[10px] text-gray-400 font-mono select-all break-all cursor-text max-w-[150px]">
+                          {tx.id}
                         </TableCell>
                         <TableCell className="font-mono">{tx.symbol === 'UNKNOWN' ? '—' : tx.symbol}</TableCell>
                         <TableCell className="hidden sm:table-cell">

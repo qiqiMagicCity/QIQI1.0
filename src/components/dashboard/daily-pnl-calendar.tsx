@@ -100,17 +100,28 @@ export function DailyPnlCalendar() {
     const previousMonth = () => setCurrentMonth(subMonths(currentMonth, 1));
     const nextMonth = () => setCurrentMonth(addMonths(currentMonth, 1));
 
-    // Grid alignment: The first day of the month needs to be aligned.
-    // 0 = Sunday, 1 = Monday, ... 6 = Saturday
-    const colStartClasses = [
-        '',
-        'col-start-2',
-        'col-start-3',
-        'col-start-4',
-        'col-start-5',
-        'col-start-6',
-        'col-start-7',
-    ];
+    // Grid alignment: Start from SUNDAY
+    // day.getDay(): 0=Sun, 1=Mon, ..., 6=Sat
+    // Grid Cols are 1-based.
+    // Sun(0) -> col-start-1
+    // Mon(1) -> col-start-2
+    // ...
+    // Sat(6) -> col-start-7
+    const getColStartClass = (day: Date) => {
+        const d = day.getDay(); // 0-6
+        const col = d + 1; // 1-7
+        // Explicit strings for Tailwind JIT to detect
+        switch (col) {
+            case 1: return "col-start-1";
+            case 2: return "col-start-2";
+            case 3: return "col-start-3";
+            case 4: return "col-start-4";
+            case 5: return "col-start-5";
+            case 6: return "col-start-6";
+            case 7: return "col-start-7";
+            default: return "col-start-1";
+        }
+    };
 
     if (loading) {
         return (
@@ -196,7 +207,7 @@ export function DailyPnlCalendar() {
                 {/* Grid Header */}
                 <div className="mb-2 grid grid-cols-7 gap-1 text-center">
                     {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map(day => (
-                        <div key={day} className="text-[10px] font-bold uppercase tracking-wider text-zinc-600">
+                        <div key={day} className="text-[10px] font-bold uppercase tracking-wider text-zinc-500">
                             {day}
                         </div>
                     ))}
@@ -248,7 +259,7 @@ export function DailyPnlCalendar() {
                                 key={day.toString()}
                                 className={cn(
                                     "group relative flex flex-col justify-between rounded-lg border transition-all duration-300 min-h-[90px] p-2",
-                                    dayIdx === 0 && colStartClasses[day.getDay()],
+                                    dayIdx === 0 && getColStartClass(day),
 
                                     // Base Styles
                                     "bg-zinc-900/30 backdrop-blur-sm",
@@ -260,8 +271,12 @@ export function DailyPnlCalendar() {
                                     !isMarketClosed && hasData && !isMissingData && isProfit && "bg-gradient-to-br from-emerald-500/10 to-emerald-500/5 border-emerald-500/20 hover:border-emerald-500/40 hover:from-emerald-500/20",
                                     !isMarketClosed && hasData && !isMissingData && isLoss && "bg-gradient-to-br from-rose-500/10 to-rose-500/5 border-rose-500/20 hover:border-rose-500/40 hover:from-rose-500/20",
 
-                                    // Market Closed Style (Dimmed)
-                                    isMarketClosed && "bg-zinc-900/10 opacity-75 border-transparent",
+                                    // Market Closed Style (Dimmed) - Weekend vs Holiday
+                                    // [MODIFIED] Weekend: Semi-transparent Glass ("Ghost/Chill" vibe)
+                                    isMarketClosed && res?.marketClosedReason === 'Weekend' && "bg-white/5 backdrop-blur-[2px] border-white/5 hover:bg-white/10 transition-colors",
+
+                                    // Holiday
+                                    isMarketClosed && res?.marketClosedReason !== 'Weekend' && "bg-indigo-900/30 shadow-[inset_0_0_10px_rgba(49,46,129,0.4)] border-indigo-500/30",
 
                                     // Hover Lift
                                     !isToday && "hover:-translate-y-1 hover:shadow-lg hover:z-10",
@@ -269,14 +284,17 @@ export function DailyPnlCalendar() {
                                 )}
                                 onClick={() => setSelectedDate(dateKey)}
                                 title={isMissingData ? "EOD数据待更新" :
-                                    isMarketClosed ? "市场休市" :
+                                    isMarketClosed ? `市场休市: ${res?.marketClosedReason || '非交易日'}` :
                                         (hasData ? `Total: ${fmtFull(total)}\n存量(Stock): ${fmtFull(unrealizedChange)}\n增量(Incr): ${fmtFull(realized)}` : undefined)}
                             >
                                 {/* Date Number */}
                                 <div className="flex justify-between items-start">
                                     <span className={cn(
                                         "text-[10px] font-medium transition-colors",
-                                        isToday ? "text-emerald-400" : "text-zinc-600 group-hover:text-zinc-400"
+                                        isToday ? "text-emerald-400" : (
+                                            // Make date lighter on dark image
+                                            isMarketClosed && res?.marketClosedReason === 'Weekend' ? "text-zinc-400/80" : "text-zinc-600 group-hover:text-zinc-400"
+                                        )
                                     )}>
                                         {format(day, 'd')}
                                     </span>
@@ -284,8 +302,31 @@ export function DailyPnlCalendar() {
 
                                 {/* Main PnL Value (Total) OR Status Badge */}
                                 {isMarketClosed ? (
-                                    <div className="flex items-center justify-center flex-1">
-                                        <span className="text-[10px] font-medium text-zinc-600 border border-zinc-800 rounded px-1.5 py-0.5 bg-zinc-900/50">休市</span>
+                                    <div className="flex flex-col items-center justify-center flex-1 w-full px-1">
+                                        {/* Badge - Hide badge for weekend if we want clean look, or style it nicely */}
+                                        {res?.marketClosedReason === 'Weekend' ? (
+                                            // "Nano Banana" Style: Minimalist text or icon instead of badge
+                                            <div className="flex flex-col items-center gap-1 opacity-70">
+                                                {/* Coffee Icon (Lucide) - need to import Coffee if using it, or just text */}
+                                                <span className="text-[10px] font-serif italic tracking-widest text-amber-100 drop-shadow-md">Holiday</span>
+                                            </div>
+                                        ) : (
+                                            <>
+                                                <span className={cn(
+                                                    "text-[9px] font-bold uppercase tracking-wider border rounded px-1.5 py-0.5 mb-1",
+                                                    "text-indigo-200 border-indigo-400/50 bg-indigo-600/40 shadow-[0_0_5px_rgba(99,102,241,0.25)]"
+                                                )}>
+                                                    休市
+                                                </span>
+
+                                                {/* Holiday Name */}
+                                                {res?.marketClosedReason && (
+                                                    <span className="text-[9px] text-indigo-300/90 font-medium text-center leading-tight line-clamp-2 px-1 max-w-[110px]">
+                                                        {res.marketClosedReason}
+                                                    </span>
+                                                )}
+                                            </>
+                                        )}
                                     </div>
                                 ) : (hasData && !isMissingData ? (
                                     <div className="flex flex-col gap-1 my-1">
@@ -300,8 +341,8 @@ export function DailyPnlCalendar() {
                                     </div>
                                 ) : (
                                     isMissingData ? (
-                                        <div className="flex items-center justify-center flex-1">
-                                            <span className="text-[10px] font-medium text-zinc-700">待更新</span>
+                                        <div className="flex items-center justify-center flex-1 bg-amber-500/20 w-full rounded animate-pulse border border-amber-500/30">
+                                            <span className="text-[10px] font-bold text-amber-500">待更新</span>
                                         </div>
                                     ) : (
                                         isFuture ? (

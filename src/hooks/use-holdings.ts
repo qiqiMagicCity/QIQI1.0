@@ -19,6 +19,12 @@ export type UseHoldingsResult = {
   refreshData: () => void;
   analysisYear?: number;
   setAnalysisYear?: (y: number) => void;
+  ytdBaseEodMap?: Record<string, OfficialCloseResult>; // [NEW]
+  activeSplits?: any[]; // [NEW]
+  showHidden: boolean;
+  setShowHidden: (show: boolean) => void;
+  toggleHidden: (symbol: string) => void;
+  effectiveUid: string | null; // [NEW] Needed for writes
 };
 
 export function useHoldings(): UseHoldingsResult {
@@ -35,7 +41,13 @@ export function useHoldings(): UseHoldingsResult {
     isCalculating: context.isCalculating,
     transactions: context.transactions,
     refreshData: context.refreshData,
-    analysisYear: context.analysisYear, // [NEW]
-    setAnalysisYear: context.setAnalysisYear, // [NEW]
+    analysisYear: context.analysisYear,
+    setAnalysisYear: context.setAnalysisYear,
+    ytdBaseEodMap: context.ytdBaseEodMap, // [NEW]
+    activeSplits: context.activeSplits, // [NEW]
+    showHidden: context.showHidden,
+    setShowHidden: context.setShowHidden,
+    toggleHidden: context.toggleHidden,
+    effectiveUid: context.effectiveUid, // [NEW]
   };
 }

@@ -14,10 +14,14 @@ import { WorldClocks } from "./world-clocks";
 import { useAuth, useUser } from "@/firebase";
 import { signOut } from "firebase/auth";
 import Link from "next/link";
+import { useState } from "react";
+import { AdminImpersonationDialog } from "@/components/admin/admin-impersonation-dialog";
+import { ShieldAlert } from "lucide-react";
 
 export function DashboardHeader() {
-  const { user } = useUser();
+  const { user, isAdmin } = useUser();
   const auth = useAuth();
+  const [showAdminDialog, setShowAdminDialog] = useState(false);
 
   const handleSignOut = async () => {
     try {
@@ -36,47 +40,59 @@ export function DashboardHeader() {
 
   return (
     <header className="sticky top-0 z-30 flex h-[40px] items-center justify-between gap-4 border-b-2 border-primary bg-background/50 backdrop-blur-sm px-4 md:px-6">
-        <WorldClocks />
-        <div className="flex items-center gap-4">
-            <Button variant="ghost" size="icon" className="rounded-full">
-                <Search className="h-5 w-5" />
-                <span className="sr-only">搜索</span>
+      <WorldClocks />
+      <div className="flex items-center gap-4">
+        <Button variant="ghost" size="icon" className="rounded-full">
+          <Search className="h-5 w-5" />
+          <span className="sr-only">搜索</span>
+        </Button>
+        <Button variant="ghost" size="icon" className="rounded-full relative">
+          <Bell className="h-5 w-5" />
+          <span className="sr-only">通知</span>
+          <span className="absolute top-1.5 right-1.5 flex h-2.5 w-2.5">
+            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-primary opacity-75"></span>
+            <span className="relative inline-flex rounded-full h-2 w-2 bg-primary/90"></span>
+          </span>
+        </Button>
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button variant="outline" className="px-3 py-1 h-auto text-sm rounded-full border-2 border-primary border-dashed">
+              <span>欢迎, {getWelcomeText()}</span>
             </Button>
-            <Button variant="ghost" size="icon" className="rounded-full relative">
-                <Bell className="h-5 w-5" />
-                <span className="sr-only">通知</span>
-                <span className="absolute top-1.5 right-1.5 flex h-2.5 w-2.5">
-                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-primary opacity-75"></span>
-                  <span className="relative inline-flex rounded-full h-2 w-2 bg-primary/90"></span>
-                </span>
-            </Button>
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button variant="outline" className="px-3 py-1 h-auto text-sm rounded-full border-2 border-primary border-dashed">
-                  <span>欢迎, {getWelcomeText()}</span>
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="w-56">
-                <DropdownMenuLabel>{user ? user.displayName || user.email : '我的账户'}</DropdownMenuLabel>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" className="w-56">
+            <DropdownMenuLabel>{user ? user.displayName || user.email : '我的账户'}</DropdownMenuLabel>
+            <DropdownMenuSeparator />
+            <Link href="/settings">
+              <DropdownMenuItem className="cursor-pointer">
+                <Settings className="mr-2 h-4 w-4" />
+                <span>设置</span>
+              </DropdownMenuItem>
+            </Link>
+            <DropdownMenuItem>
+              <LifeBuoy className="mr-2 h-4 w-4" />
+              <span>支持</span>
+            </DropdownMenuItem>
+
+            {isAdmin && (
+              <>
                 <DropdownMenuSeparator />
-                <Link href="/settings">
-                  <DropdownMenuItem className="cursor-pointer">
-                    <Settings className="mr-2 h-4 w-4" />
-                    <span>设置</span>
-                  </DropdownMenuItem>
-                </Link>
-                <DropdownMenuItem>
-                  <LifeBuoy className="mr-2 h-4 w-4" />
-                  <span>支持</span>
+                <DropdownMenuItem onClick={() => setShowAdminDialog(true)} className="cursor-pointer text-red-600 focus:text-red-600 focus:bg-red-50 dark:focus:bg-red-900/20">
+                  <ShieldAlert className="mr-2 h-4 w-4" />
+                  <span>管理员控制台</span>
                 </DropdownMenuItem>
-                <DropdownMenuSeparator />
-                <DropdownMenuItem onClick={handleSignOut} className="cursor-pointer">
-                  <LogOut className="mr-2 h-4 w-4" />
-                  <span>登出</span>
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
-        </div>
+              </>
+            )}
+
+            <DropdownMenuSeparator />
+            <DropdownMenuItem onClick={handleSignOut} className="cursor-pointer">
+              <LogOut className="mr-2 h-4 w-4" />
+              <span>登出</span>
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+      </div>
+      <AdminImpersonationDialog open={showAdminDialog} onOpenChange={setShowAdminDialog} />
     </header>
   );
 }
