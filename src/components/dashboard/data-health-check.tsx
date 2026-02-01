@@ -6,62 +6,9 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Loader2, CheckCircle2, AlertTriangle, Trash2, Wrench, RefreshCw, Layers } from 'lucide-react';
 import { format } from 'date-fns';
+import { nyLocalDateTimeToUtcMillis, toNyCalendarDayString, toNyHmsString } from '@/lib/ny-time';
 
-// ---------------------------------------------------------------------------
-// 核心逻辑：精准的纽约时间反推 (复用自 BulkAdd 修复版)
-// ---------------------------------------------------------------------------
-function nyLocalToUtcMillis(dateNy: string, timeStr: string): number {
-    // timeStr: "HH:mm:ss" or "HH:mm"
-    const [y, m, d] = dateNy.split('-').map((s) => parseInt(s, 10));
-    const [hh, mm, ss] = timeStr.split(':').map((s) => parseInt(s, 10));
 
-    // Initial Guess: +5h
-    let utcGuess = Date.UTC(y, m - 1, d, hh + 5, mm, ss || 0);
-
-    const nyFormatter = new Intl.DateTimeFormat('en-US', {
-        timeZone: 'America/New_York',
-        year: 'numeric', month: 'numeric', day: 'numeric',
-        hour: 'numeric', minute: 'numeric', second: 'numeric',
-        hour12: false
-    });
-
-    for (let i = 0; i < 3; i++) {
-        const parts = nyFormatter.formatToParts(new Date(utcGuess));
-        const p: Record<string, number> = {};
-        parts.forEach(part => {
-            if (part.type !== 'literal') p[part.type] = parseInt(part.value, 10);
-        });
-
-        const derivedTs = Date.UTC(p.year, p.month - 1, p.day, p.hour, p.minute, p.second);
-        const targetTs = Date.UTC(y, m - 1, d, hh, mm, ss || 0);
-
-        const diff = targetTs - derivedTs;
-        if (diff === 0) break;
-        utcGuess += diff;
-    }
-    return utcGuess;
-}
-
-// ---------------------------------------------------------------------------
-// 辅助逻辑：UTC 转 NY Local (用于填补数据缺失)
-// ---------------------------------------------------------------------------
-function utcMillisToNyLocal(ts: number) {
-    const formatter = new Intl.DateTimeFormat('en-US', {
-        timeZone: 'America/New_York',
-        year: 'numeric', month: '2-digit', day: '2-digit',
-        hour: '2-digit', minute: '2-digit', second: '2-digit',
-        hour12: false
-    });
-    const parts = formatter.formatToParts(new Date(ts));
-    const p: Record<string, string> = {};
-    parts.forEach(part => p[part.type] = part.value);
-
-    // YYYY-MM-DD
-    const dateNy = `${p.year}-${p.month}-${p.day}`;
-    // HH:mm:ss
-    const time = `${p.hour}:${p.minute}:${p.second}`;
-    return { dateNy, time };
-}
 
 type IssueType = 'OFFSET_ERROR' | 'DUPLICATE_PHANTOM' | 'CROSS_COLLECTION_DUPE' | 'LEGACY_FORMAT' | 'DIRTY_DATA' | 'RAPID_DUPLICATE';
 
@@ -185,7 +132,7 @@ export function DataHealthCheck() {
                 // If missing, derive from TS
                 if (!dateNy || !timeStr) {
                     if (ts > 0) {
-                        const derived = utcMillisToNyLocal(ts);
+                        const derived = { dateNy: toNyCalendarDayString(ts), time: toNyHmsString(ts) };
                         if (!dateNy) {
                             dateNy = derived.dateNy;
                             tsSource = 'derived';
@@ -232,7 +179,7 @@ export function DataHealthCheck() {
                 if (timeStr.split(':').length === 2) timeStr += ':00';
 
                 // Calculate "Correct TS" based on DateNy + Time
-                const correctTs = nyLocalToUtcMillis(dateNy, timeStr);
+                const correctTs = nyLocalDateTimeToUtcMillis(dateNy, timeStr);
 
                 // CreatedAt extraction (Robust)
                 let createdAt = 0;

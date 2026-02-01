@@ -2,8 +2,8 @@
 
 import { useState } from 'react';
 import { doc, setDoc, increment } from 'firebase/firestore';
-import { useFirestore, functions } from '@/firebase';
-import { httpsCallable } from 'firebase/functions';
+import { useFirestore, useFirebaseApp } from '@/firebase';
+import { getFunctions, httpsCallable } from 'firebase/functions';
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -23,6 +23,8 @@ import { saveManualEod } from '@/lib/data/official-close-repo';
 export function EodCheck() {
     const { toast } = useToast();
     const firestore = useFirestore();
+    const app = useFirebaseApp();
+    const functions = getFunctions(app);
 
     const [date, setDate] = useState<string>(() => nowNyCalendarDayString());
     const [checking, setChecking] = useState(false);

@@ -45,7 +45,7 @@ interface MetricItem {
 }
 
 export function CalculationGrid() {
-  const { summary, loading, refreshData, analysisYear, setAnalysisYear } = useHoldings();
+  const { summary, loading, refreshData, analysisYear, setAnalysisYear, availableYears } = useHoldings();
 
   if (loading) {
     return (
@@ -563,10 +563,11 @@ export function CalculationGrid() {
           <span className="text-xs font-bold text-muted-foreground px-2">Analysis Year:</span>
           <div className="flex bg-background rounded-md p-1 border shadow-sm">
             {(() => {
-              const currentYear = new Date().getFullYear();
-              // [FIX] Dynamic generic year list, ensuring we always show [Current, Previous]
-              // This fixes the issue where the picker might feel "stuck" if hardcoded years become stale.
-              const years = [currentYear, currentYear - 1];
+              // [FIX] Use dynamic available years from Context (Data-Driven)
+              const years = availableYears && availableYears.length > 0
+                ? availableYears
+                : [new Date().getFullYear()]; // Fallback if data not loaded
+
               return years.map(year => (
                 <button
                   key={year}
@@ -574,8 +575,6 @@ export function CalculationGrid() {
                     console.log(`[YearSelector] User clicked ${year}`);
                     if (setAnalysisYear) {
                       setAnalysisYear(year);
-                    } else {
-                      console.error("[YearSelector] setAnalysisYear is missing!");
                     }
                   }}
                   className={cn(

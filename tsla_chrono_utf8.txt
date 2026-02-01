@@ -1,0 +1,50 @@
+﻿=== TSLA Chronological Ledger Audit ===
+
+Loaded 1592 TSLA transactions.
+Logic: Chronological Running Balance. Goal: Find 'Point of No Return'.
+
+--- [Verification] First 10 Transactions ---
+[1] 2024-02-15 18:46:00 | SHORT |     -50.00 |     -50.00 | FY6IO0417gXTSPWqW9Hi
+[2] 2024-02-15 18:52:00 | COVER |      50.00 |       0.00 | vxaSIRD3kLtJJlWCLjhp
+[3] 2024-02-16 18:53:00 | BUY   |     100.00 |     100.00 | QuBbGsPMYMMYvc1mwr8s
+[4] 2024-02-20 14:37:00 | BUY   |      33.00 |     133.00 | 1dRZuodUCTMuKXrllTQi
+[5] 2024-02-20 17:59:00 | BUY   |      33.00 |     166.00 | WwqmgR2t2YOWu1Bp61zy
+[6] 2024-02-22 19:03:00 | SELL  |     -36.00 |     130.00 | RYJ5mNDOKlaK5Weioekv
+[7] 2024-02-23 15:45:00 | BUY   |      36.00 |     166.00 | Z3qOcfDBurQhzWKPs5CZ
+[8] 2024-02-27 17:13:00 | SELL  |     -16.00 |     150.00 | 6CZ0EAok2PUH2gaffobk
+[9] 2024-02-29 18:03:00 | BUY   |      16.00 |     166.00 | vqMeUnzyIuE7uHtHpYle
+[10] 2024-03-04 16:09:00 | BUY   |      37.00 |     203.00 | LRyeBMAUKF1uKJVEXefJ
+...
+
+--- [Analysis] Identifying the Breakpoint ---
+Final Balance: -273.00
+Last time Balance was >= 0: Transaction #1513 (Index 1512)
+
+>>> THE BREAKPOINT IS HERE: Transaction #1514 <<<
+At this moment, the balance went negative and NEVER returned to zero.
+
+Context Ledger:
+    [1511] 2025-09-04 16:23:00 | SELL  |    -200.00 |    -273.00 | usFKZhxpVCQwqMQqXJff
+    [1512] 2025-09-08 13:39:00 | BUY   |     150.00 |    -123.00 | 3qC8f7hi4H2pM0lBQNKD
+    [1513] 2025-09-08 13:50:00 | BUY   |     150.00 |      27.00 | dtWDXBTyjveZlIJYlPgF
+>>> [1514] 2025-09-08 13:59:00 | SELL  |    -300.00 |    -273.00 | MjdpYlnxT1ELuMOQl7ll
+    [1515] 2025-09-12 18:33:00 | SHORT |     -65.00 |    -338.00 | Ps9ER2mNyXbqYT5sQJZE
+    [1516] 2025-09-12 18:35:00 | COVER |      65.00 |    -273.00 | LGChAXC0yFpneVofFr2s
+    [1517] 2025-09-30 14:51:00 | BUY   |     180.00 |     -93.00 | hVHRvRM4AO2CjMYzbkhg
+    [1518] 2025-09-30 14:56:00 | SELL  |    -180.00 |    -273.00 | 1VgshokEXq5cTOkAjepl
+    [1519] 2025-10-01 17:00:00 | BUY   |     250.00 |     -23.00 | bkBxOxrTyUOcsFYMW9CO
+    [1520] 2025-10-01 17:05:00 | SELL  |    -250.00 |    -273.00 | 5lrXKd0Ebv9wFIQRarhN
+    [1521] 2025-10-01 17:15:00 | BUY   |     250.00 |     -23.00 | R2UybGJurCOy1r0DR4mC
+    [1522] 2025-10-01 17:20:00 | SELL  |    -250.00 |    -273.00 | CtSviYmWvcNtHIWykFsR
+    [1523] 2025-10-01 17:38:00 | BUY   |     100.00 |    -173.00 | BXZIxFVCroWQm8Sn927q
+    [1524] 2025-10-01 17:38:00 | BUY   |      54.00 |    -119.00 | JbR7Rt1R48yMqi0uFoxl
+    [1525] 2025-10-01 17:38:00 | BUY   |      96.00 |     -23.00 | XDCgQDDcLtGYIqVLPETf
+    [1526] 2025-10-01 17:39:00 | SELL  |    -250.00 |    -273.00 | ysbTFskPFtAjf76Mhf4Q
+    [1527] 2025-10-01 17:57:00 | BUY   |     250.00 |     -23.00 | nWx33oGBMbmLK42WMwHz
+    [1528] 2025-10-01 18:00:00 | SELL  |    -250.00 |    -273.00 | 1UYCvGZs2almmlF3bGZl
+    [1529] 2025-10-02 18:12:00 | BUY   |     200.00 |     -73.00 | RuYDm1YsYlKMefsXS1Aj
+    [1530] 2025-10-02 18:16:00 | SELL  |    -200.00 |    -273.00 | yIhuEzJSYir4oXqUMo5q
+    [1531] 2025-10-02 19:02:00 | BUY   |     200.00 |     -73.00 | Gar5l3HmIkQ7rESQvP65
+    [1532] 2025-10-02 19:06:00 | SELL  |      -1.00 |     -74.00 | Bl6zBBG3rK0dGGP0NYXZ
+    [1533] 2025-10-02 19:06:00 | SELL  |     -98.00 |    -172.00 | H5YhEgUI2G8EzIJhppUV
+... (59 more transactions remaining in negative territory) ...

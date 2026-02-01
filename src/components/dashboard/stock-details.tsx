@@ -162,7 +162,8 @@ export function StockDetails() {
     analysisYear,
     setAnalysisYear,
     ytdBaseEodMap,
-    activeSplits
+    activeSplits,
+    availableYears: providerYears // [NEW] From Provider
   } = useHoldings();
 
   // const { data: transactions } = useUserTransactions(user?.uid); // [REMOVED] Raw fetch ignores Time Travel
@@ -308,6 +309,9 @@ export function StockDetails() {
 
   // --- Available Years ---
   const availableYears = useMemo(() => {
+    // Use Provider's comprehensive list if available
+    if (providerYears && providerYears.length > 0) return providerYears;
+
     const years = new Set<number>();
     const current = new Date().getFullYear();
     years.add(current);
@@ -321,7 +325,7 @@ export function StockDetails() {
       });
     }
     return Array.from(years).sort((a, b) => b - a);
-  }, [pnlEvents]);
+  }, [pnlEvents, providerYears]);
 
   const displayedWinRateStats = useMemo(() => {
     // Re-calculate stats from events to support filtering
@@ -765,6 +769,7 @@ export function StockDetails() {
           type="pnl"
           analysisYear={analysisYear}
           setAnalysisYear={setAnalysisYear}
+          availableYears={availableYears}
         />
       </section>
 
@@ -776,6 +781,7 @@ export function StockDetails() {
           type="value"
           analysisYear={analysisYear}
           setAnalysisYear={setAnalysisYear}
+          availableYears={availableYears}
         />
       </section>
 
@@ -787,6 +793,7 @@ export function StockDetails() {
           type="efficiency"
           analysisYear={analysisYear}
           setAnalysisYear={setAnalysisYear}
+          availableYears={availableYears}
         />
       </section>
 
@@ -801,6 +808,7 @@ export function StockDetails() {
           onDimensionChange={setScatterDimension}
           analysisYear={analysisYear}
           setAnalysisYear={setAnalysisYear}
+          availableYears={availableYears}
         />
       </section>
 

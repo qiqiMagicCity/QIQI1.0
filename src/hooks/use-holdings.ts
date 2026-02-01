@@ -25,6 +25,7 @@ export type UseHoldingsResult = {
   setShowHidden: (show: boolean) => void;
   toggleHidden: (symbol: string) => void;
   effectiveUid: string | null; // [NEW] Needed for writes
+  availableYears?: number[]; // [NEW] From Provider
 };
 
 export function useHoldings(): UseHoldingsResult {
@@ -49,5 +50,6 @@ export function useHoldings(): UseHoldingsResult {
     setShowHidden: context.setShowHidden,
     toggleHidden: context.toggleHidden,
     effectiveUid: context.effectiveUid, // [NEW]
+    availableYears: context.availableYears, // [NEW]
   };
 }

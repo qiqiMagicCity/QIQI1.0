@@ -63,7 +63,7 @@ async function main() {
             const probeId = `${pd}_${sym}`;
             const snap = await db.collection('officialCloses').doc(probeId).get();
             if (snap.exists && snap.data()?.close) {
-                lastClose = snap.data().close;
+                lastClose = snap.data()!.close;
                 process.stdout.write(`基准($${lastClose})来自${pd} `);
                 break;
             }
@@ -85,7 +85,7 @@ async function main() {
             const doc = await ref.get();
             if (doc.exists && doc.data()?.status === 'ok') {
                 // 如果已有数据，更新基准价，以便后续日期的走势更自然
-                lastClose = doc.data()?.close;
+                lastClose = doc.data()!.close;
                 continue;
             }
 

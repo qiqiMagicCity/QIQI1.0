@@ -20,9 +20,10 @@ interface AverageStatsChartProps {
     type: 'pnl' | 'volume' | 'value' | 'efficiency';
     analysisYear?: number;
     setAnalysisYear?: (year: number) => void;
+    availableYears?: number[];
 }
 
-export function AverageStatsChart({ title, data, type, analysisYear, setAnalysisYear }: AverageStatsChartProps) {
+export function AverageStatsChart({ title, data, type, analysisYear, setAnalysisYear, availableYears: propAvailableYears }: AverageStatsChartProps) {
     const isPnl = type === 'pnl';
     const isValue = type === 'value';
     const isEfficiency = type === 'efficiency';
@@ -43,18 +44,21 @@ export function AverageStatsChart({ title, data, type, analysisYear, setAnalysis
     const monthlyData = filterByYear(data.monthly);
     const yearlyData = data.yearly; // Show all history
 
-    // Derive available years from yearlyData for the switch
-    const availableYears = data.yearly.map(d => parseInt(d.label, 10)).filter(y => !isNaN(y)).sort((a, b) => b - a);
+    // Derive available years from yearlyData AND prop
+    const derivedYears = data.yearly.map(d => parseInt(d.label, 10)).filter(y => !isNaN(y));
+    const mergedYears = new Set([...derivedYears, ...(propAvailableYears || [])]);
+
     // Ensure current analysis year is in list if not found
-    if (analysisYear && !availableYears.includes(analysisYear)) {
-        availableYears.unshift(analysisYear);
-    }
+    if (analysisYear) mergedYears.add(analysisYear);
+
     // Fallback if no data
-    if (availableYears.length === 0) {
+    if (mergedYears.size === 0) {
         const now = new Date().getFullYear();
-        availableYears.push(now);
-        availableYears.push(now - 1);
+        mergedYears.add(now);
+        mergedYears.add(now - 1);
     }
+
+    const availableYears = Array.from(mergedYears).sort((a, b) => b - a);
 
     const formatValue = (val: number) => {
         if (isPnl || isValue) {

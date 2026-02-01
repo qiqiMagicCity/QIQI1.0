@@ -1,5 +1,6 @@
 'use client';
 import { useState, useMemo, useRef, useEffect } from 'react';
+import { format } from 'date-fns';
 import { useHoldings } from '@/hooks/use-holdings';
 import { usePriceCenterContext } from '@/price/RealTimePricesProvider';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -256,7 +257,7 @@ function parseOptionSymbol(raw: string) {
   const fullYear = 2000 + yy;
   // Format Date: "Dec 18 '26"
   const dateObj = new Date(fullYear, mm - 1, dd);
-  const fmtDate = dateObj.toLocaleDateString('en-US', { year: '2-digit', month: 'short', day: 'numeric' }); // Dec 18, 26
+  const fmtDate = format(dateObj, "MMM d, ''yy"); // Dec 18, '26
 
   return {
     underlying,
@@ -295,19 +296,27 @@ const HoldingRowItem = ({
   return (
     <>
       <TableRow
-        className={`group transition-all border-b border-border/40 
+        className={`group transition-all border-b border-border/40 relative
         ${isRowHidden
             ? 'opacity-50 grayscale bg-muted/20'
             : isOption
-              ? 'bg-gradient-to-r from-orange-50/70 via-white/0 to-white/0 dark:from-orange-950/20 dark:via-transparent dark:to-transparent hover:from-orange-100/80 dark:hover:from-orange-900/30'
+              // 1. Border: Solid 2px Left AND Right Borders (Symmetrical)
+              // 2. Bg: Richer Violet/Indigo tint with a subtle inner glow
+              ? 'bg-gradient-to-r from-violet-500/10 via-transparent to-violet-500/10 border-l-2 border-l-violet-500 border-r-2 border-r-violet-500 shadow-[inset_0_0_20px_-10px_rgba(139,92,246,0.3)] hover:bg-violet-500/15'
               : 'hover:bg-muted/50'
           }
         `}
       >
-        {/* 1. Logo & Toggle */}
+        {/* 1. Logo & Toggle & Status Orb */}
         <TableCell className="text-[13px] md:text-sm text-center px-2 py-3">
-          <div className="flex items-center justify-center gap-1 group/arch">
-            {/* Show Archive Button on Hover (or if row is hidden, show restore icon) */}
+          <div className="flex items-center justify-center gap-2 group/arch">
+
+            {/* [New] The "Alive" Indicator: A pulsing Status Orb */}
+            {isOption && !isRowHidden && (
+              <div className="w-1.5 h-1.5 rounded-full bg-violet-400 shadow-[0_0_8px_2px_rgba(139,92,246,0.6)] animate-pulse shrink-0" title="活跃期权合约" />
+            )}
+
+            {/* Logo Container */}
             <div className="relative">
               <div className={`transition-opacity ${isRowHidden ? 'opacity-0' : 'opacity-100 group-hover/arch:opacity-0'}`}>
                 {/* Use Underlying for Logo if Option */}
@@ -394,16 +403,55 @@ const HoldingRowItem = ({
               </div>
             )}
 
-            {/* Position Direction */}
-            {row.netQty > 0 && (
-              <Badge className="h-5 px-1.5 text-[10px] border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950/30 dark:text-emerald-400 hover:bg-emerald-100">
-                多头
-              </Badge>
-            )}
-            {row.netQty < 0 && (
-              <Badge className="h-5 px-1.5 text-[10px] border-rose-200 bg-rose-50 text-rose-700 dark:border-rose-900 dark:bg-rose-950/30 dark:text-rose-400 hover:bg-rose-100">
-                空头
-              </Badge>
+            {/* Position Direction / Option Strategy */}
+            {isOption && optDetails ? (
+              (() => {
+                const isLong = row.netQty > 0;
+                const right = optDetails.right as 'C' | 'P'; // Safe casting
+                const strat = isLong
+                  ? (right === 'C'
+                    ? { label: '做多·看涨', sub: 'Long Call', tip: '杠杆看涨', color: 'emerald' }
+                    : { label: '做多·看跌', sub: 'Long Put', tip: '对冲/做空', color: 'emerald' })
+                  : (right === 'C'
+                    ? { label: '卖出·备兑', sub: 'Covered Call', tip: '增强收益/不看大涨', color: 'orange' }
+                    : { label: '卖出·抄底', sub: 'Short Put', tip: '权利金/等待建仓', color: 'orange' });
+
+                const colorClasses = strat.color === 'emerald'
+                  ? 'border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950/30 dark:text-emerald-400 hover:bg-emerald-100'
+                  : 'border-orange-200 bg-orange-50 text-orange-700 dark:border-orange-900 dark:bg-orange-950/30 dark:text-orange-400 hover:bg-orange-100';
+
+                return (
+                  <TooltipProvider>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <Badge className={`h-5 px-1.5 text-[10px] cursor-help border ${colorClasses}`}>
+                          {strat.label}
+                        </Badge>
+                      </TooltipTrigger>
+                      <TooltipContent>
+                        <div className="text-xs">
+                          <p className="font-bold">{strat.sub}</p>
+                          <p className="opacity-80">{strat.tip}</p>
+                        </div>
+                      </TooltipContent>
+                    </Tooltip>
+                  </TooltipProvider>
+                );
+              })()
+            ) : (
+              // Stock / Fallback Logic
+              <>
+                {row.netQty > 0 && (
+                  <Badge className="h-5 px-1.5 text-[10px] border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950/30 dark:text-emerald-400 hover:bg-emerald-100">
+                    多头
+                  </Badge>
+                )}
+                {row.netQty < 0 && (
+                  <Badge className="h-5 px-1.5 text-[10px] border-rose-200 bg-rose-50 text-rose-700 dark:border-rose-900 dark:bg-rose-950/30 dark:text-rose-400 hover:bg-rose-100">
+                    空头
+                  </Badge>
+                )}
+              </>
             )}
           </div>
         </TableCell>
@@ -806,6 +854,16 @@ function HoldingsOverview() {
       if (aVal == null) return 1; // null 排后面
       if (bVal == null) return -1;
 
+      // 优先级 0：Option 永远沉底 (Force Option to Bottom)
+      // Since a and b are row objects, we can access .assetType directly.
+      const aIsOpt = a.assetType === 'option';
+      const bIsOpt = b.assetType === 'option';
+
+      if (aIsOpt !== bIsOpt) {
+        // If one is option and the other is not, Option always goes LAST (bottom)
+        return aIsOpt ? 1 : -1;
+      }
+
       // 比较
       if (typeof aVal === 'string' && typeof bVal === 'string') {
         return sortConfig.direction === 'asc'
@@ -948,18 +1006,55 @@ function HoldingsOverview() {
                   )}
 
                   {!loading &&
-                    sortedRows.filter(r => !r.isHidden).map((row) => (
-                      <HoldingRowItem
-                        key={`${row.symbol}-${row.assetType}-${row.multiplier ?? 1}`}
-                        row={row}
-                        fetchingSymbol={fetchingSymbol}
-                        manualEodState={manualEodState}
-                        setManualEodState={setManualEodState}
-                        onManualMark={handleManualMark}
-                        toggleHidden={toggleHidden}
-                        isRowHidden={row.isHidden}
-                      />
-                    ))}
+                    sortedRows.filter(r => !r.isHidden).map((row, index, arr) => {
+                      // DIVIDER LOGIC:
+                      // Check IF current row is OPTION and previous row was STOCK
+                      // Note: We need to check against the *filtered* array logic, but since we are inside map of filtered,
+                      // index refers to position in the filtered list. That's perfect.
+                      const prevRow = index > 0 ? arr[index - 1] : null;
+                      const showDivider = row.assetType === 'option' && (!prevRow || prevRow.assetType !== 'option');
+
+                      return (
+                        <div key={`${row.symbol}-${row.assetType}-${row.multiplier ?? 1}`} style={{ display: 'contents' }}>
+                          {showDivider && (
+                            <TableRow className="hover:bg-transparent border-b-0">
+                              <TableCell colSpan={15} className="p-0">
+                                <div className="flex items-center justify-center py-8 relative group/divider">
+                                  {/* Elegant Fading Line */}
+                                  <div className="absolute inset-0 flex items-center px-4" aria-hidden="true">
+                                    <div className="w-full h-px bg-gradient-to-r from-transparent via-slate-300 dark:via-slate-700 to-transparent opacity-50"></div>
+                                  </div>
+
+                                  {/* Minimalist Pill Badge */}
+                                  <div className="relative flex justify-center">
+                                    <span className="
+                                       bg-background px-5 py-1 
+                                       rounded-full text-[11px] font-medium tracking-widest 
+                                       text-slate-500 dark:text-slate-400 
+                                       border border-slate-200 dark:border-slate-800 
+                                       shadow-sm flex items-center gap-2
+                                       select-none
+                                     ">
+                                      <Layers className="w-3.5 h-3.5 opacity-70" />
+                                      期权区 · OPTIONS
+                                    </span>
+                                  </div>
+                                </div>
+                              </TableCell>
+                            </TableRow>
+                          )}
+                          <HoldingRowItem
+                            row={row}
+                            fetchingSymbol={fetchingSymbol}
+                            manualEodState={manualEodState}
+                            setManualEodState={setManualEodState}
+                            onManualMark={handleManualMark}
+                            toggleHidden={toggleHidden}
+                            isRowHidden={row.isHidden}
+                          />
+                        </div>
+                      );
+                    })}
                 </TableBody>
               </Table>
             </div>

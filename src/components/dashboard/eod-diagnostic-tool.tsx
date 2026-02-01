@@ -13,8 +13,8 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { functions } from "@/firebase";
-import { httpsCallable } from "firebase/functions";
+import { getFunctions, httpsCallable } from "firebase/functions";
+import { getApp } from "firebase/app";
 import { Loader2, Wrench } from "lucide-react";
 import { toast } from "sonner"; // Assuming sonner is available
 import { useUser } from "@/firebase";
@@ -31,6 +31,7 @@ export function EodDiagnosticTool() {
         setLoading(true);
         setResult(null);
         try {
+            const functions = getFunctions(getApp());
             const requestBackfillEod = httpsCallable(functions, "requestBackfillEod");
             // The function likely takes { symbol: string[] } or similar.
             // Checking functions/src/admin/request-backfill-eod.ts if possible, but let's guess standard payload.

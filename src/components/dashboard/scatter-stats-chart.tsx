@@ -22,14 +22,18 @@ interface ScatterStatsChartProps {
     onDimensionChange?: (d: 'symbol' | 'day') => void;
     analysisYear?: number;
     setAnalysisYear?: (year: number) => void;
+    availableYears?: number[];
 }
 
-export function ScatterStatsChart({ title, data, mode, onModeChange, dimension = 'symbol', onDimensionChange, analysisYear, setAnalysisYear }: ScatterStatsChartProps) {
+export function ScatterStatsChart({ title, data, mode, onModeChange, dimension = 'symbol', onDimensionChange, analysisYear, setAnalysisYear, availableYears: propAvailableYears }: ScatterStatsChartProps) {
 
     // Helper to generate year list (same as AverageStatsChart)
     const currentYear = new Date().getFullYear();
-    const availableYears = [currentYear, currentYear - 1]; // Simplified for now, or pass in?
-    // Better to dynamic if possible, but hardcoded [2026, 2025] matches other parts for now.
+    const availableYears = propAvailableYears && propAvailableYears.length > 0
+        ? propAvailableYears
+        : [currentYear, currentYear - 1];
+
+    // ... (rest of render)
 
     // ... (rest of render)
 

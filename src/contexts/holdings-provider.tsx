@@ -393,6 +393,7 @@ interface HoldingsContextValue {
     activeSplits: any; // [NEW] Shared split config (was Record<string, number>, now SplitEvent[])
     effectiveUid: string | null; // [NEW] Exposed for UI components to write to correct path
     refreshData: () => void;
+    availableYears: number[]; // [NEW] Dynamic list of available years
     analysisYear: number;
     setAnalysisYear: (y: number) => void;
     showHidden: boolean;
@@ -409,6 +410,23 @@ export function HoldingsProvider({ children }: { children: React.ReactNode }) {
 
     // [FIXED] Use standard hook and local refresh state
     const { data: allTransactions, loading: txLoading } = useUserTransactions(effectiveUid);
+
+    // [NEW] Calculate available years dynamically from transaction history
+    const availableYears = useMemo(() => {
+        const currentYear = new Date().getFullYear();
+        const yearsSet = new Set<number>([currentYear]);
+
+        if (allTransactions) {
+            allTransactions.forEach(tx => {
+                const y = new Date(tx.transactionTimestamp).getFullYear();
+                if (!isNaN(y) && y > 1900 && y <= currentYear + 1) { // Basic sanity check
+                    yearsSet.add(y);
+                }
+            });
+        }
+        return Array.from(yearsSet).sort((a, b) => b - a); // Descending (2026, 2025, 2024...)
+    }, [allTransactions]);
+
     const [refreshVersion, setRefreshVersion] = useState(0);
 
     const [analysisYear, setAnalysisYear] = useState<number>(new Date().getFullYear());
@@ -497,21 +515,7 @@ export function HoldingsProvider({ children }: { children: React.ReactNode }) {
     const transactions = useMemo(() => {
         if (!allTransactions) return [];
 
-        // [DEBUG-CONTROL] INJECT FAKE TRANSACTION
-        // If this works, the aggregation engine is fine, and the source data is missing.
-        const fakeTx = {
-            id: 'debug_inject_500',
-            symbol: 'AAPL',
-            qty: 500,
-            price: 150,
-            side: 'BUY',
-            transactionTimestamp: new Date('2025-06-01').getTime(), // Safe date in past
-            type: 'stock',
-            assetType: 'stock',
-            multiplier: 1
-        };
-        // Clone and inject
-        const withFake = [...allTransactions, fakeTx];
+
 
         // If we are in Live Mode (analysisYear === 0), show ALL transactions.
         // This avoids issues where a transaction is dated slightly in the future (timezone drift) 
@@ -1679,9 +1683,6 @@ export function HoldingsProvider({ children }: { children: React.ReactNode }) {
                     }
                     return breakdown.sort((a, b) => b.total - a.total);
                 })(),
-                pnlEvents: auditTrail, // Assuming auditTrail is what we want for pnlEvents here or keep as is
-                // [NEW] Debug field to check why AAPL is stuck
-                debug_audit_symbol: 'AAPL',
                 totalHistoricalRealizedPnl: (totalRealizedPnl || 0)
             };
 
@@ -1691,7 +1692,7 @@ export function HoldingsProvider({ children }: { children: React.ReactNode }) {
                 console.log(`[AUDIT-FINAL] AAPL Row Detected in Provider Output:`, {
                     netQty: targetRow.netQty,
                     isFiniteQty: Number.isFinite(targetRow.netQty),
-                    costBasis: targetRow.costBasis,
+                    avgCost: targetRow.avgCost,
                     lotsCount: targetRow.lots?.length,
                     isHidden: targetRow.isHidden,
                     assetType: targetRow.assetType
@@ -1756,8 +1757,9 @@ export function HoldingsProvider({ children }: { children: React.ReactNode }) {
         showHidden,
         setShowHidden,
         toggleHidden,
-        effectiveUid
-    }), [rows, summary, historicalPnl, dailyPnlList, dailyPnlResults, pnlEvents, fullEodMap, ytdBaseEodMap, activeSplits, loading, transactions, analysisYear, showHidden, effectiveUid]);
+        effectiveUid,
+        availableYears, // [NEW] Included in context
+    }), [rows, summary, historicalPnl, dailyPnlList, dailyPnlResults, pnlEvents, fullEodMap, ytdBaseEodMap, activeSplits, loading, transactions, analysisYear, showHidden, effectiveUid, availableYears]);
 
     return (
         <HoldingsContext.Provider value={value}>

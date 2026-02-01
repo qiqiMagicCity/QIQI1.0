@@ -7,7 +7,7 @@ import { v4 as uuidv4 } from 'uuid';
 
 import { useFirestore, useUser } from '@/firebase';
 import { addDocumentNonBlocking } from '@/firebase/non-blocking-updates';
-import { toNyCalendarDayString } from '@/lib/ny-time';
+import { toNyCalendarDayString, nyLocalDateTimeToUtcMillis, toNyHmsString } from '@/lib/ny-time';
 
 import { Textarea } from '@/components/ui/textarea';
 import { Button } from '@/components/ui/button';
@@ -48,39 +48,9 @@ type ParsedTrade = {
  * Uses Intl.DateTimeFormat to reverse-engineer the UTC timestamp.
  */
 function nyLocalToUtcMillis(dateNy: string, hour: number, minute: number): number {
-  const [y, m, d] = dateNy.split('-').map((s) => parseInt(s, 10));
-
-  // Deterministic Strategy: NY is either UTC-5 (EST) or UTC-4 (EDT).
-  // We calculate both possibilities and verify which one maps back to the input NY time.
-  const candStandard = Date.UTC(y, m - 1, d, hour + 5, minute, 0); // UTC-5
-  const candDaylight = Date.UTC(y, m - 1, d, hour + 4, minute, 0); // UTC-4
-
-  const formatter = new Intl.DateTimeFormat('en-US', {
-    timeZone: 'America/New_York',
-    year: 'numeric', month: 'numeric', day: 'numeric',
-    hour: 'numeric', minute: 'numeric',
-    hour12: false
-  });
-
-  const check = (ts: number) => {
-    const parts = formatter.formatToParts(new Date(ts));
-    const p: any = {};
-    parts.forEach(part => p[part.type] = part.value);
-
-    // Loose comparison (parseInt to handle '01' vs 1)
-    return parseInt(p.year) === y &&
-      parseInt(p.month) === m &&
-      parseInt(p.day) === d &&
-      parseInt(p.hour) === hour &&
-      parseInt(p.minute) === minute;
-  };
-
-  if (check(candStandard)) return candStandard;
-  if (check(candDaylight)) return candDaylight;
-
-  // Fallback: If ambiguity (e.g. 1:30 AM during Fall Back), default to Standard (Winter).
-  // Or if drastic failure, return Standard to keep date stable.
-  return candStandard;
+  const timeStr = `${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}:00`;
+  // Use authoritative ny-time library logic which handles DST safely
+  return nyLocalDateTimeToUtcMillis(dateNy, timeStr);
 }
 
 /**
@@ -771,7 +741,7 @@ export function BulkAddTransactionForm({ onSuccess }: { onSuccess?: () => void }
                 }
 
                 const tsDate = new Date(d.transactionTimestamp);
-                const nyTime = tsDate.toLocaleTimeString('en-US', { timeZone: 'America/New_York', hour12: false });
+                const nyTime = toNyHmsString(tsDate);
 
                 debugStr += `   [${method}] ID:${doc.id.slice(0, 6)}.. ${d.symbol} ${d.type || d.side} ${d.quantity} @ ${d.price}\n`;
                 debugStr += `      Ts:${d.transactionTimestamp} (NY: ${nyTime}) DateNy:"${d.transactionDateNy}"\n`;

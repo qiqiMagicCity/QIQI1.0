@@ -4,7 +4,7 @@ const raw = `91213265: 您的期權訂單Buy Open10張合約GME 02/06/2026 24.00
     91213265: 您的期權訂單Buy Open10張合約GME 02/06/2026 24.000 P已成交9張合約，成交價為$1.11。
 15:17PM 01/26/26`;
 
-function nyLocalToUtcMillis(dateNy: string, hour: number, minute: number): number {
+export function nyLocalToUtcMillis(dateNy: string, hour: number, minute: number): number {
     const [y, m, d] = dateNy.split('-').map((s) => parseInt(s, 10));
     const utcHour = hour + 5;
     return Date.UTC(y, m - 1, d, utcHour, minute, 0);

@@ -87,8 +87,8 @@ async function main() {
 
     console.log(`[FORENSIC] Found ${siblings.length} sibling AAPL transactions.`);
 
-    let goodRecord = null;
-    const badRecord = { id: TARGET_ID, ...foundPayload };
+    let goodRecord: any = null;
+    const badRecord: any = { id: TARGET_ID, ...foundPayload };
 
     siblings.forEach(sib => {
         console.log(`--- Candidate ID: ${sib.id} ---`);
