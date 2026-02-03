@@ -1,6 +1,6 @@
 'use client';
 
-import React, { createContext, useContext, useEffect, useMemo, useState } from 'react';
+import React, { createContext, useContext, useEffect, useMemo, useState, useRef } from 'react';
 import { useUser } from '@/firebase';
 import { useFirestore } from '@/firebase/index'; // Explicitly import useFirestore
 import { doc, getDoc, updateDoc, setDoc, onSnapshot, collection } from 'firebase/firestore'; // Add missing Firestore imports
@@ -397,8 +397,9 @@ interface HoldingsContextValue {
     analysisYear: number;
     setAnalysisYear: (y: number) => void;
     showHidden: boolean;
-    setShowHidden: (s: boolean) => void;
+    setShowHidden: (show: boolean) => void;
     toggleHidden: (symbol: string) => void;
+    allTransactions: Tx[]; // [NEW] Expose FULL history for audit
 }
 
 
@@ -774,37 +775,58 @@ export function HoldingsProvider({ children }: { children: React.ReactNode }) {
     // [NEW] Fetch Dynamic Corporate Actions (Splits)
     const { splits: activeSplits } = useCorporateActions();
 
-    // 2. Perform M14 Calculation
-    const memoizedM14BaseResults = useMemo(() => {
-        const todayNy = effectiveTodayNy; // [FIX]
-        // [FIX] Consistent Date Generation (Noon UTC)
-        const { ytd: ytdStartStr } = getPeriodStartDates(todayNy);
-        const ytdRange = eachDayOfInterval({
-            start: new Date(`${ytdStartStr}T12:00:00Z`),
-            end: new Date(`${todayNy}T12:00:00Z`)
+    // 2. Perform M14 Calculation (Web Worker)
+    const [memoizedM14BaseResults, setMemoizedM14BaseResults] = useState<Record<string, DailyPnlResult>>({});
+    const [isM14Calculating, setIsM14Calculating] = useState(false);
+    const workerRef = useRef<Worker | null>(null);
+
+    // Initialize Worker
+    useEffect(() => {
+        // Create worker instance
+        const worker = new Worker(new URL('../workers/pnl.worker.ts', import.meta.url));
+        workerRef.current = worker;
+
+        // Handle messages from worker
+        worker.onmessage = (event) => {
+            const { results, error } = event.data;
+            if (error) {
+                console.error('[HoldingsProvider] Worker Error:', error);
+                // Optionally handle error state
+            } else {
+                setMemoizedM14BaseResults(results);
+            }
+            setIsM14Calculating(false);
+        };
+
+        // Cleanup
+        return () => {
+            worker.terminate();
+        };
+    }, []);
+
+    // Trigger Calculation in Worker
+    useEffect(() => {
+        if (!workerRef.current) return;
+
+        setIsM14Calculating(true);
+
+        // Send data to worker
+        // Note: structuredClone is used internally by postMessage, so we can pass objects directly.
+        // However, large objects (like fullEodMap) might be cloned.
+        workerRef.current.postMessage({
+            transactions, // Or visibleTransactions? check original logic. Original used activeSplits.
+            visibleTransactions, // PASSING VISIBLE TX
+            fullEodMap,
+            activeSplits,
+            effectiveTodayNy
         });
-        const ytdTargetDates = ytdRange.map(d => toNyCalendarDayString(d));
 
-        // Ensure we explicitly include the "Base Dates"
-        const periodBaseDates = getPeriodBaseDates(todayNy);
-        const refDateUsed = prevNyTradingDayString(todayNy);
-
-        const extraDates = [
-            periodBaseDates.ytd,
-            periodBaseDates.mtd,
-            periodBaseDates.wtd,
-            refDateUsed
-        ].filter(d => !ytdTargetDates.includes(d) && d < todayNy).sort();
-
-        const allTargets = Array.from(new Set([...extraDates, ...ytdTargetDates])).sort();
-
-        // [NEW] Pass dynamic splits to calculation engine
-        return calcM14DailyCalendar(visibleTransactions || [], allTargets, fullEodMap, activeSplits);
     }, [
         effectiveTodayNy,
         fullEodMap,
-        visibleTransactions, // [FIX] Depend on visibleTransactions
-        activeSplits
+        visibleTransactions,
+        activeSplits,
+        transactions // Adding transactions as dependency just in case worker uses full list logic later
     ]);
 
     const { rows, summary, historicalPnl, dailyPnlList, dailyPnlResults, pnlEvents } = useMemo(
@@ -1735,7 +1757,24 @@ export function HoldingsProvider({ children }: { children: React.ReactNode }) {
         ]
     );
 
-    const loading = txLoading || eodLoading;
+    // [NEW] Expose Audit Context for Console Snippet
+    useEffect(() => {
+        if (typeof window !== 'undefined') {
+            (window as any).__AUDIT_CTX__ = {
+                transactions, // Full transaction history
+                allTransactions, // Explicitly expose ALL transactions
+                getOfficialClosesRange,
+                calcM14DailyCalendar,
+                toNyCalendarDayString,
+                eachDayOfInterval,
+                activeSplits,
+                uniqueSymbols: Array.from(new Set(allTransactions?.map(t => normalizeSymbolClient(t.symbol)).filter(Boolean) || []))
+            };
+            console.log("✅ __AUDIT_CTX__ exposed. Ready for console audit.");
+        }
+    }, [transactions, allTransactions, activeSplits]);
+
+    const loading = txLoading || eodLoading || isM14Calculating;
 
     // Construct Context Value
     const value = useMemo(() => ({
@@ -1759,7 +1798,8 @@ export function HoldingsProvider({ children }: { children: React.ReactNode }) {
         toggleHidden,
         effectiveUid,
         availableYears, // [NEW] Included in context
-    }), [rows, summary, historicalPnl, dailyPnlList, dailyPnlResults, pnlEvents, fullEodMap, ytdBaseEodMap, activeSplits, loading, transactions, analysisYear, showHidden, effectiveUid, availableYears]);
+        allTransactions: allTransactions || [], // [NEW] Bind full history
+    }), [rows, summary, historicalPnl, dailyPnlList, dailyPnlResults, pnlEvents, fullEodMap, ytdBaseEodMap, activeSplits, loading, transactions, analysisYear, showHidden, effectiveUid, availableYears, allTransactions]);
 
     return (
         <HoldingsContext.Provider value={value}>

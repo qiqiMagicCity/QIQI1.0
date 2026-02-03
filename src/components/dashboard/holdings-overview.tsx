@@ -1,5 +1,5 @@
 'use client';
-import { useState, useMemo, useRef, useEffect } from 'react';
+import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { format } from 'date-fns';
 import { useHoldings } from '@/hooks/use-holdings';
 import { usePriceCenterContext } from '@/price/RealTimePricesProvider';
@@ -1015,7 +1015,7 @@ function HoldingsOverview() {
                       const showDivider = row.assetType === 'option' && (!prevRow || prevRow.assetType !== 'option');
 
                       return (
-                        <div key={`${row.symbol}-${row.assetType}-${row.multiplier ?? 1}`} style={{ display: 'contents' }}>
+                        <React.Fragment key={`${row.symbol}-${row.assetType}-${row.multiplier ?? 1}`}>
                           {showDivider && (
                             <TableRow className="hover:bg-transparent border-b-0">
                               <TableCell colSpan={15} className="p-0">
@@ -1052,7 +1052,7 @@ function HoldingsOverview() {
                             toggleHidden={toggleHidden}
                             isRowHidden={row.isHidden}
                           />
-                        </div>
+                        </React.Fragment>
                       );
                     })}
                 </TableBody>
@@ -1063,56 +1063,58 @@ function HoldingsOverview() {
       </section>
 
       {/* [NEW] Residual Data / Hidden Holdings Table */}
-      {showHidden && sortedRows.filter(r => r.isHidden).length > 0 && (
-        <section id="hidden-holdings" className="mt-8">
-          <Card className="border-dashed border-slate-400/50 bg-slate-50/30 dark:bg-slate-900/10">
-            <CardHeader>
-              <div className="flex items-center gap-2 text-muted-foreground">
-                <Archive className="h-5 w-5" />
-                <CardTitle className="text-base md:text-lg">残留数据 (隐藏部分)</CardTitle>
-              </div>
-            </CardHeader>
-            <CardContent className="p-0 text-[13px] md:text-sm">
-              <div className="w-full overflow-x-auto">
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead className="text-center px-2 w-[50px]">logo</TableHead>
-                      <SortableHeader sortKey="symbol" className="px-2">代码</SortableHeader>
-                      <TableHead className="px-2">中文名</TableHead>
-                      <SortableHeader sortKey="assetType" className="px-2">类型</SortableHeader>
-                      <SortableHeader sortKey="last" className="text-right px-2">现价</SortableHeader>
-                      <SortableHeader sortKey="netQty" className="text-right px-2"><span className="text-sky-400">持仓</span></SortableHeader>
-                      <SortableHeader sortKey="avgCost" className="text-right px-2"><span className="text-amber-400/50">成本</span></SortableHeader>
-                      <SortableHeader sortKey="costBasis" className="text-right px-2">NCI</SortableHeader>
-                      <TableHead className="text-right px-2 text-violet-400/50">保本价</TableHead>
-                      <SortableHeader sortKey="todayPl" className="text-right px-2">日盈亏</SortableHeader>
-                      <SortableHeader sortKey="dayChangePct" className="text-right px-2">日变动</SortableHeader>
-                      <TableHead className="text-right px-2 text-muted-foreground">持仓盈亏</TableHead>
-                      <TableHead className="text-right px-2 text-muted-foreground">已实现</TableHead>
-                      <TableHead className="text-center px-2 text-muted-foreground w-[50px]">详情</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {sortedRows.filter(r => r.isHidden).map((row) => (
-                      <HoldingRowItem
-                        key={`${row.symbol}-${row.assetType}-${row.multiplier ?? 1}`}
-                        row={row}
-                        fetchingSymbol={fetchingSymbol}
-                        manualEodState={manualEodState}
-                        setManualEodState={setManualEodState}
-                        onManualMark={handleManualMark}
-                        toggleHidden={toggleHidden}
-                        isRowHidden={row.isHidden}
-                      />
-                    ))}
-                  </TableBody>
-                </Table>
-              </div>
-            </CardContent>
-          </Card>
-        </section>
-      )}
+      {
+        showHidden && sortedRows.filter(r => r.isHidden).length > 0 && (
+          <section id="hidden-holdings" className="mt-8">
+            <Card className="border-dashed border-slate-400/50 bg-slate-50/30 dark:bg-slate-900/10">
+              <CardHeader>
+                <div className="flex items-center gap-2 text-muted-foreground">
+                  <Archive className="h-5 w-5" />
+                  <CardTitle className="text-base md:text-lg">残留数据 (隐藏部分)</CardTitle>
+                </div>
+              </CardHeader>
+              <CardContent className="p-0 text-[13px] md:text-sm">
+                <div className="w-full overflow-x-auto">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead className="text-center px-2 w-[50px]">logo</TableHead>
+                        <SortableHeader sortKey="symbol" className="px-2">代码</SortableHeader>
+                        <TableHead className="px-2">中文名</TableHead>
+                        <SortableHeader sortKey="assetType" className="px-2">类型</SortableHeader>
+                        <SortableHeader sortKey="last" className="text-right px-2">现价</SortableHeader>
+                        <SortableHeader sortKey="netQty" className="text-right px-2"><span className="text-sky-400">持仓</span></SortableHeader>
+                        <SortableHeader sortKey="avgCost" className="text-right px-2"><span className="text-amber-400/50">成本</span></SortableHeader>
+                        <SortableHeader sortKey="costBasis" className="text-right px-2">NCI</SortableHeader>
+                        <TableHead className="text-right px-2 text-violet-400/50">保本价</TableHead>
+                        <SortableHeader sortKey="todayPl" className="text-right px-2">日盈亏</SortableHeader>
+                        <SortableHeader sortKey="dayChangePct" className="text-right px-2">日变动</SortableHeader>
+                        <TableHead className="text-right px-2 text-muted-foreground">持仓盈亏</TableHead>
+                        <TableHead className="text-right px-2 text-muted-foreground">已实现</TableHead>
+                        <TableHead className="text-center px-2 text-muted-foreground w-[50px]">详情</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {sortedRows.filter(r => r.isHidden).map((row) => (
+                        <HoldingRowItem
+                          key={`${row.symbol}-${row.assetType}-${row.multiplier ?? 1}`}
+                          row={row}
+                          fetchingSymbol={fetchingSymbol}
+                          manualEodState={manualEodState}
+                          setManualEodState={setManualEodState}
+                          onManualMark={handleManualMark}
+                          toggleHidden={toggleHidden}
+                          isRowHidden={row.isHidden}
+                        />
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
+              </CardContent>
+            </Card>
+          </section>
+        )
+      }
 
       {/* Manual EOD Dialog */}
       {

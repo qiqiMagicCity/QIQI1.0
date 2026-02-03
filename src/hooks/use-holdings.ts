@@ -26,11 +26,13 @@ export type UseHoldingsResult = {
   toggleHidden: (symbol: string) => void;
   effectiveUid: string | null; // [NEW] Needed for writes
   availableYears?: number[]; // [NEW] From Provider
+  allTransactions: any[]; // [NEW] For Audit
 };
 
 export function useHoldings(): UseHoldingsResult {
   const context = useHoldingsContext();
   return {
+    allTransactions: context.allTransactions,
     rows: context.rows,
     summary: context.summary,
     historicalPnl: context.historicalPnl,

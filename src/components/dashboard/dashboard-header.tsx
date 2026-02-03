@@ -17,6 +17,8 @@ import Link from "next/link";
 import { useState } from "react";
 import { AdminImpersonationDialog } from "@/components/admin/admin-impersonation-dialog";
 import { ShieldAlert } from "lucide-react";
+import { NotificationBell } from "./notification-bell";
+import { CommunityLinks } from "./community-links";
 
 export function DashboardHeader() {
   const { user, isAdmin } = useUser();
@@ -42,18 +44,8 @@ export function DashboardHeader() {
     <header className="sticky top-0 z-30 flex h-[40px] items-center justify-between gap-4 border-b-2 border-primary bg-background/50 backdrop-blur-sm px-4 md:px-6">
       <WorldClocks />
       <div className="flex items-center gap-4">
-        <Button variant="ghost" size="icon" className="rounded-full">
-          <Search className="h-5 w-5" />
-          <span className="sr-only">搜索</span>
-        </Button>
-        <Button variant="ghost" size="icon" className="rounded-full relative">
-          <Bell className="h-5 w-5" />
-          <span className="sr-only">通知</span>
-          <span className="absolute top-1.5 right-1.5 flex h-2.5 w-2.5">
-            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-primary opacity-75"></span>
-            <span className="relative inline-flex rounded-full h-2 w-2 bg-primary/90"></span>
-          </span>
-        </Button>
+        <CommunityLinks />
+        <NotificationBell />
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <Button variant="outline" className="px-3 py-1 h-auto text-sm rounded-full border-2 border-primary border-dashed">
