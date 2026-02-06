@@ -17,6 +17,23 @@ export const yahooProvider: CloseProvider = {
         const startTs = Date.now();
         const upperSymbol = symbol.toUpperCase().trim();
 
+        // Auto-detect Short Option Symbol and convert to OCC for Yahoo API call
+        // But we DO NOT change upperSymbol, so that the result is saved under the requested (Short) symbol.
+        let fetchSymbol = upperSymbol;
+        const optionMatch = upperSymbol.match(/^([A-Z]+)(\d{6})([CP])([\d.]+)$/);
+        if (optionMatch) {
+            const [, ticker, date, type, priceStr] = optionMatch;
+            if (priceStr.length !== 8 || priceStr.includes('.')) {
+                const priceNum = parseFloat(priceStr);
+                if (!isNaN(priceNum)) {
+                    const scaled = Math.round(priceNum * 1000);
+                    const padded = String(scaled).padStart(8, '0');
+                    fetchSymbol = `${ticker}${date}${type}${padded}`;
+                    console.log(`[yahoo] Converted Short Symbol ${upperSymbol} -> OCC ${fetchSymbol}`);
+                }
+            }
+        }
+
         // 1. Resolve yahooFinance instance via require (bypass ESM/TS interop issues)
         let yf: any;
         try {
@@ -40,10 +57,10 @@ export const yahooProvider: CloseProvider = {
         // dateYYYYMMDD is "2023-11-24".
         const queryDate = new Date(dateYYYYMMDD);
 
-        // Safety: Fetch 2 year history to be sure we cover splits/adjustments context if needed,
-        // and to match our "bulk" philosophy.
+        // Safety: Fetch 1 year history (Standard for Annual PnL/YTD charts)
+        // Reduced from 2 years to save memory/processing, while ensuring we cover "Start of Year" for YTD.
         const fromDate = new Date(queryDate);
-        fromDate.setFullYear(fromDate.getFullYear() - 2);
+        fromDate.setFullYear(fromDate.getFullYear() - 1);
 
         const nextDate = new Date(queryDate);
         nextDate.setDate(nextDate.getDate() + 2); // Go slightly past to ensure coverage
@@ -55,9 +72,9 @@ export const yahooProvider: CloseProvider = {
 
         let result: any[];
         try {
-            console.log(`[yahoo] Fetching ${upperSymbol} period1=${queryOptions.period1} period2=${queryOptions.period2}`);
+            console.log(`[yahoo] Fetching ${fetchSymbol} period1=${queryOptions.period1} period2=${queryOptions.period2}`);
             // Use historical method
-            result = await yf.historical(upperSymbol, queryOptions);
+            result = await yf.historical(fetchSymbol, queryOptions);
         } catch (e: any) {
             // e.g. "Not Found"
             throw {

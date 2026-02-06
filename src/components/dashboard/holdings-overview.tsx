@@ -262,6 +262,7 @@ function parseOptionSymbol(raw: string) {
   return {
     underlying,
     fmtDate,
+    dateStr, // Return raw dateStr for numeric display
     right, // C or P
     strike,
     typeDisplay: right === 'C' ? 'Call' : 'Put'
@@ -276,6 +277,7 @@ const HoldingRowItem = ({
   onManualMark,
   toggleHidden,
   isRowHidden,
+  isAutoHealing,
 }: {
   row: any;
   fetchingSymbol: string | null;
@@ -284,6 +286,7 @@ const HoldingRowItem = ({
   onManualMark: (symbol: string, currentPrice: number | null) => void;
   toggleHidden: (symbol: string) => void;
   isRowHidden?: boolean;
+  isAutoHealing: boolean;
 }) => {
   const [expanded, setExpanded] = useState(false);
 
@@ -308,19 +311,24 @@ const HoldingRowItem = ({
         `}
       >
         {/* 1. Logo & Toggle & Status Orb */}
-        <TableCell className="text-[13px] md:text-sm text-center px-2 py-3">
-          <div className="flex items-center justify-center gap-2 group/arch">
+        <TableCell className="text-[13px] md:text-sm text-center px-1 py-3 w-[70px]">
+          <div className="flex items-center justify-center gap-1 group/arch">
 
             {/* [New] The "Alive" Indicator: A pulsing Status Orb */}
             {isOption && !isRowHidden && (
               <div className="w-1.5 h-1.5 rounded-full bg-violet-400 shadow-[0_0_8px_2px_rgba(139,92,246,0.6)] animate-pulse shrink-0" title="活跃期权合约" />
             )}
 
-            {/* Logo Container */}
-            <div className="relative">
-              <div className={`transition-opacity ${isRowHidden ? 'opacity-0' : 'opacity-100 group-hover/arch:opacity-0'}`}>
+            {/* Logo Container - Add shrink-0 */}
+            <div className="relative shrink-0">
+              <div className={`transition-opacity ${isRowHidden ? 'opacity-20 blur-[1px]' : 'opacity-100'} group-hover/arch:opacity-30`}>
                 {/* Use Underlying for Logo if Option */}
-                <CompanyLogo symbol={optDetails?.underlying || row.symbol} size={24} className={!(row.lots?.length) ? "mx-auto" : ""} />
+                <CompanyLogo
+                  symbol={row.symbol}
+                  underlying={optDetails?.underlying} // [FIX] Pass underlying for correct logo
+                  size={24}
+                  className={!(row.lots?.length) ? "mx-auto" : ""}
+                />
               </div>
               <button
                 onClick={(e) => {
@@ -349,44 +357,46 @@ const HoldingRowItem = ({
         </TableCell>
 
         {/* 2. Symbol Column (Unified Typography) */}
-        <TableCell className="px-2 py-3">
+        <TableCell className="px-1 py-3 w-[70px]">
           {isOption && optDetails ? (
-            <div className="flex flex-col">
-              <span className="font-bold text-base leading-none text-foreground/90">{optDetails.underlying}</span>
-              <span className="text-[10px] text-muted-foreground font-mono mt-0.5 opacity-70">{row.symbol}</span>
+            <div className="flex flex-col truncate">
+              <span className="font-bold text-sm leading-none text-foreground/90 truncate">{optDetails.underlying}</span>
+              <span className="text-[9px] text-muted-foreground font-mono mt-0.5 opacity-70 truncate">{row.symbol}</span>
             </div>
           ) : (
-            <div className="flex flex-col">
-              {/* Match Option Underlying Style exactly */}
-              <span className="font-bold text-base leading-none text-foreground/90">{row.symbol}</span>
-              {/* Optional: Add full name as small text if needed, or keep generic */}
+            <div className="flex flex-col truncate">
+              <span className="font-bold text-sm leading-none text-foreground/90 truncate">{row.symbol}</span>
             </div>
           )}
         </TableCell>
 
-        {/* 3. Name / Contract Details Column */}
-        <TableCell className="px-2 py-3">
+        {/* 3. Name / Contract Details / Date (Merged) */}
+        <TableCell className="px-1 py-3 w-[120px]">
           {isOption && optDetails ? (
-            <div className="flex flex-col gap-1">
-              <div className="flex items-center gap-2">
-                <Badge variant="outline" className={`h-5 px-1.5 text-[11px] font-mono border-0 font-bold
-                      ${optDetails.right === 'C'
+            <div className="flex flex-col gap-0.5 truncate">
+              <div className="flex items-center gap-1.5">
+                <Badge variant="outline" className={`h-auto py-0 px-1 text-[10px] font-mono border-0 font-bold whitespace-nowrap
+                        ${optDetails.right === 'C'
                     ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-400'
                     : 'bg-rose-50 text-rose-700 dark:bg-rose-500/10 dark:text-rose-400'
                   }`}>
-                  {optDetails.typeDisplay} {optDetails.strike}
+                  <span className="mr-0.5">{optDetails.typeDisplay}</span>
+                  <span>{optDetails.strike}</span>
                 </Badge>
-                <span className="text-sm font-medium text-foreground/90">{optDetails.fmtDate}</span>
+                {/* Date Numeric Format: '260918 */}
+                <span className="text-[11px] font-mono text-muted-foreground/80">
+                  {/* {optDetails.fmtDate} Replaced with numeric */}
+                  '{optDetails.dateStr}
+                </span>
               </div>
-              {/* Fallback Name if needed, or remove. Usually "Name" for option is junk. */}
             </div>
           ) : (
-            <span className="text-sm text-muted-foreground"><SymbolName symbol={row.symbol} /></span>
+            <span className="text-xs text-muted-foreground truncate block"><SymbolName symbol={row.symbol} /></span>
           )}
         </TableCell>
 
         {/* 4. Type / Direction Badge */}
-        <TableCell className="px-2 py-3">
+        <TableCell className="px-1 py-3 w-[80px]">
           <div className="flex flex-wrap gap-1.5">
             {/* Main Asset Type Badge */}
             {!isOption ? (
@@ -457,7 +467,7 @@ const HoldingRowItem = ({
         </TableCell>
 
         {/* 5. Last Price (Updated logic for Options) */}
-        <TableCell className="text-right font-mono text-sm md:text-base px-2 py-3">
+        <TableCell className="text-right font-mono text-sm md:text-base px-1 py-3 w-[90px]">
           <div className="flex flex-col items-end gap-0.5">
             <span className={getTodayPlClassName(row.todayPl)}>
               {/* [MODIFIED] Option Manual Mark UI */}
@@ -474,30 +484,52 @@ const HoldingRowItem = ({
                     {formatCurrencyNoSign(row.last)}
                   </AnimatedNumber>
                   <Pencil className="w-3 h-3 text-slate-400 group-hover/pencil:text-emerald-500 opacity-0 group-hover/pencil:opacity-100 transition-opacity" />
+
+                  {/* [NEW] EOD Fallback Indicator */}
+                  {/* @ts-ignore - isEodFallback added to context but might be missing in type def here if not updated */}
+                  {row.isEodFallback && (
+                    <TooltipProvider>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <div className="ml-1 text-amber-500 cursor-help" title="使用 EOD 收盘价">
+                            <span className="text-[10px] font-bold border border-amber-500 rounded px-0.5">EOD</span>
+                          </div>
+                        </TooltipTrigger>
+                        <TooltipContent>
+                          <p className="text-xs">无实时行情，使用昨日收盘价估算。</p>
+                        </TooltipContent>
+                      </Tooltip>
+                    </TooltipProvider>
+                  )}
+
                 </div>
               ) : (
-                <>
-                  {fetchingSymbol === row.symbol ? (
-                    <span className="mr-1 inline-block w-2 h-2 rounded-full bg-green-500 animate-ping" title="正在更新..."></span>
-                  ) : row.todayPlStatus === 'stale-last' ? (
-                    <span className="mr-1 inline-block w-2 h-2 rounded-full bg-orange-500 animate-pulse" title="数据陈旧"></span>
-                  ) : row.priceStatus === 'live' ? (
-                    <span className="mr-1 inline-block w-2 h-2 rounded-full bg-green-500" title="实时数据"></span>
-                  ) : null}
+                <div className="flex items-center justify-end gap-1">
+                  {/* [FIX] Fixed-width container for status dot to prevent layout shift */}
+                  <div className="w-3 flex justify-center shrink-0">
+                    {fetchingSymbol === row.symbol ? (
+                      <span className="w-1.5 h-1.5 rounded-full bg-blue-500 animate-spin" title="正在更新..."></span>
+                    ) : (row.priceStatus === 'live' || row.todayPlStatus === 'live') ? (
+                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse shadow-[0_0_4px_rgba(16,185,129,0.5)]" title="实时数据 (Live)"></span>
+                    ) : (row.priceStatus === 'stale' || row.todayPlStatus === 'stale-last') ? (
+                      <span className="w-1.5 h-1.5 rounded-full bg-amber-500" title="数据陈旧 (Stale)"></span>
+                    ) : null}
+                  </div>
+
                   <AnimatedNumber value={row.last} className="inline-block">
                     {formatCurrencyNoSign(row.last)}
                   </AnimatedNumber>
-                </>
+                </div>
               )}
             </span>
-            {row.priceStatus && (
+            {row.priceStatus && row.priceStatus !== 'live' && (
               <TooltipProvider>
                 <Tooltip>
                   <TooltipTrigger asChild>
                     <div className="cursor-help">
                       <StatusBadge
                         status={mapRtStatusToUiStatus(row.priceStatus)}
-                        className="inline-flex items-center shrink-0 rounded-full px-2 text-[11px] h-5"
+                        className="inline-flex items-center shrink-0 rounded-full px-2 text-[11px] h-5 scale-90 origin-right"
                       />
                     </div>
                   </TooltipTrigger>
@@ -520,14 +552,13 @@ const HoldingRowItem = ({
                     </div>
                   </TooltipContent>
                 </Tooltip>
-
               </TooltipProvider>
             )}
           </div>
         </TableCell>
 
         {/* 6. Net Qty */}
-        <TableCell className="text-center font-mono text-sm md:text-base px-2 text-sky-400">
+        <TableCell className="text-center font-mono text-sm md:text-base px-1 text-sky-400 w-[80px]">
           {Number.isInteger(row.netQty) ? row.netQty : row.netQty.toFixed(2)}
           {row.assetType === 'option' && (
             <span className="text-muted-foreground text-xs ml-1">
@@ -537,12 +568,12 @@ const HoldingRowItem = ({
         </TableCell>
 
         {/* 7. Avg Cost */}
-        <TableCell className="text-right font-mono text-sm md:text-base px-2 text-amber-400">
+        <TableCell className="text-right font-mono text-sm md:text-base px-1 text-amber-400 w-[90px]">
           {row.avgCost !== null ? row.avgCost.toFixed(4) : '—'}
         </TableCell>
 
         {/* 8. NCI */}
-        <TableCell className="text-center font-mono text-sm md:text-base text-blue-600 px-2">
+        <TableCell className="text-center font-mono text-sm md:text-base text-blue-600 px-1 w-[100px]">
           {formatCurrencyNoSign(
             row.avgCost != null
               ? Math.abs(row.netQty) * (row.multiplier ?? 1) * row.avgCost
@@ -551,12 +582,12 @@ const HoldingRowItem = ({
         </TableCell>
 
         {/* 9. Break Even */}
-        <TableCell className="text-right font-mono text-sm md:text-base px-2 text-violet-400">
+        <TableCell className="text-right font-mono text-sm md:text-base px-1 text-violet-400 w-[80px]">
           {row.breakEvenPrice != null ? formatCurrencyNoSign(row.breakEvenPrice) : '—'}
         </TableCell>
 
         {/* 10. Today Pl */}
-        <TableCell className="text-right font-mono text-sm md:text-base px-2">
+        <TableCell className="text-right font-mono text-sm md:text-base px-1 w-[100px]">
           <div className="flex items-center justify-end gap-2">
             <TooltipProvider>
               <Tooltip>
@@ -573,22 +604,26 @@ const HoldingRowItem = ({
                         {(row.todayPlStatus === 'missing-ref-eod' ||
                           row.todayPlStatus === 'missing-today-eod' ||
                           row.todayPlStatus === 'pending-eod-fetch') ? (
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              if (row.refDateUsed) {
-                                setManualEodState({
-                                  open: true,
-                                  symbol: row.symbol,
-                                  date: row.refDateUsed
-                                });
-                              }
-                            }}
-                            className="text-red-400 hover:text-red-300 underline decoration-dashed underline-offset-2 cursor-pointer transition-colors"
-                            title="点击手动录入数据"
-                          >
-                            缺失EOD
-                          </button>
+                          isAutoHealing ? (
+                            <span className="text-orange-400 animate-pulse font-mono text-[10px]">同步中...</span>
+                          ) : (
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                if (row.refDateUsed) {
+                                  setManualEodState({
+                                    open: true,
+                                    symbol: row.symbol,
+                                    date: row.refDateUsed
+                                  });
+                                }
+                              }}
+                              className="text-red-400 hover:text-red-300 underline decoration-dashed underline-offset-2 cursor-pointer transition-colors"
+                              title="点击手动录入数据"
+                            >
+                              缺失EOD
+                            </button>
+                          )
                         ) : row.todayPlStatus === 'degraded' ? (
                           '缺实价'
                         ) : (
@@ -616,7 +651,7 @@ const HoldingRowItem = ({
         </TableCell>
 
         {/* 11. Day Change */}
-        <TableCell className="text-right font-mono text-sm md:text-base px-2">
+        <TableCell className="text-right font-mono text-sm md:text-base px-1 w-[100px]">
           {(() => {
             if (row.dayChange == null || row.dayChangePct == null) {
               return <span className="text-muted-foreground">—</span>;
@@ -637,7 +672,7 @@ const HoldingRowItem = ({
         </TableCell>
 
         {/* 12. Holding PnL */}
-        <TableCell className="text-right font-mono text-sm md:text-base px-2">
+        <TableCell className="text-right font-mono text-sm md:text-base px-1 w-[100px]">
           {(() => {
             if (row.pnl == null || row.pnlPct == null) {
               return <span className="text-muted-foreground">—</span>;
@@ -656,7 +691,7 @@ const HoldingRowItem = ({
         </TableCell>
 
         {/* 13. Realized PnL */}
-        <TableCell className="text-right font-mono text-sm md:text-base px-2">
+        <TableCell className="text-right font-mono text-sm md:text-base px-1 w-[90px]">
           {(() => {
             const val = row.realizedPnl ?? 0;
             return (
@@ -670,7 +705,7 @@ const HoldingRowItem = ({
         </TableCell>
 
         {/* 14. Detail Link */}
-        <TableCell className="text-center px-2">
+        <TableCell className="text-center px-1 w-[40px]">
           <Link
             href={`/symbol/${row.symbol}`}
             className="inline-flex items-center justify-center w-8 h-8 rounded-full hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors text-slate-400 hover:text-emerald-500"
@@ -740,7 +775,7 @@ const HoldingRowItem = ({
 };
 
 function HoldingsOverview() {
-  const { rows, loading, transactions, refreshData, showHidden, setShowHidden, toggleHidden } = useHoldings();
+  const { rows, loading, transactions, refreshData, showHidden, setShowHidden, toggleHidden, isAutoHealing } = useHoldings();
   const { fetchingSymbol } = usePriceCenterContext();
 
 
@@ -923,7 +958,18 @@ function HoldingsOverview() {
         <Card>
           <CardHeader className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
             <div className="flex items-center gap-4">
-              <CardTitle className="text-base md:text-lg">持仓概览</CardTitle>
+              <CardTitle className="text-base md:text-lg flex items-center gap-2">
+                持仓概览
+                {isAutoHealing && (
+                  <Badge variant="outline" className="text-[10px] h-5 px-1.5 gap-1 border-orange-200 bg-orange-50 text-orange-600 animate-pulse">
+                    <span className="relative flex h-2 w-2">
+                      <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-orange-400 opacity-75"></span>
+                      <span className="relative inline-flex rounded-full h-2 w-2 bg-orange-500"></span>
+                    </span>
+                    同步中...
+                  </Badge>
+                )}
+              </CardTitle>
               <div className="flex items-center gap-2">
                 <Switch
                   checked={showHidden}
@@ -941,23 +987,24 @@ function HoldingsOverview() {
           {/* 整个表格默认字体稍微放大：移动端 13px，桌面端 text-sm */}
           <CardContent className="p-0 text-[13px] md:text-sm">
             <div className="w-full overflow-x-auto">
-              <Table>
+              <Table className="table-fixed">
                 <TableHeader>
                   <TableRow>
-                    <TableHead className="text-center px-2 w-[50px]">logo</TableHead>
-                    <SortableHeader sortKey="symbol" className="px-2">代码</SortableHeader>
-                    <TableHead className="px-2">中文名</TableHead>
-                    <SortableHeader sortKey="assetType" className="px-2">类型</SortableHeader>
-                    <SortableHeader sortKey="last" className="text-right px-2">
+                    <TableHead className="text-center px-1 w-[70px]">logo</TableHead>
+                    <SortableHeader sortKey="symbol" className="px-1 w-[70px]">代码</SortableHeader>
+                    {/* Merged Name & Date & Details */}
+                    <TableHead className="px-1 w-[120px]">合约/名称</TableHead>
+                    <SortableHeader sortKey="assetType" className="px-1 w-[80px]">类型</SortableHeader>
+                    <SortableHeader sortKey="last" className="text-right px-1 w-[90px]">
                       现价
                     </SortableHeader>
-                    <SortableHeader sortKey="netQty" className="text-right px-2">
+                    <SortableHeader sortKey="netQty" className="text-right px-1 w-[80px]">
                       <span className="text-sky-400">持仓</span>
                     </SortableHeader>
-                    <SortableHeader sortKey="avgCost" className="text-right px-2">
+                    <SortableHeader sortKey="avgCost" className="text-right px-1 w-[90px]">
                       <span className="text-amber-400">成本</span>
                     </SortableHeader>
-                    <SortableHeader sortKey="costBasis" className="text-right px-2">
+                    <SortableHeader sortKey="costBasis" className="text-right px-1 w-[100px]">
                       <TooltipProvider>
                         <Tooltip>
                           <TooltipTrigger asChild>
@@ -967,22 +1014,22 @@ function HoldingsOverview() {
                         </Tooltip>
                       </TooltipProvider>
                     </SortableHeader>
-                    <TableHead className="text-right px-2 text-violet-400">
-                      保本价
+                    <TableHead className="text-right px-1 text-violet-400 w-[80px]">
+                      保本
                     </TableHead>
-                    <SortableHeader sortKey="todayPl" className="text-right px-2">
+                    <SortableHeader sortKey="todayPl" className="text-right px-1 w-[100px]">
                       日盈亏
                     </SortableHeader>
-                    <SortableHeader sortKey="dayChangePct" className="text-right px-2">
+                    <SortableHeader sortKey="dayChangePct" className="text-right px-1 w-[100px]">
                       日变动
                     </SortableHeader>
-                    <TableHead className="text-right px-2 text-muted-foreground">
-                      持仓盈亏
+                    <TableHead className="text-right px-1 text-muted-foreground w-[100px]">
+                      总盈亏
                     </TableHead>
-                    <TableHead className="text-right px-2 text-muted-foreground">
+                    <TableHead className="text-right px-1 text-muted-foreground w-[90px]">
                       已实现
                     </TableHead>
-                    <TableHead className="text-center px-2 text-muted-foreground w-[50px]">
+                    <TableHead className="text-center px-1 text-muted-foreground w-[40px]">
                       详情
                     </TableHead>
                   </TableRow>
@@ -1051,6 +1098,7 @@ function HoldingsOverview() {
                             onManualMark={handleManualMark}
                             toggleHidden={toggleHidden}
                             isRowHidden={row.isHidden}
+                            isAutoHealing={isAutoHealing}
                           />
                         </React.Fragment>
                       );
@@ -1105,6 +1153,7 @@ function HoldingsOverview() {
                           onManualMark={handleManualMark}
                           toggleHidden={toggleHidden}
                           isRowHidden={row.isHidden}
+                          isAutoHealing={isAutoHealing}
                         />
                       ))}
                     </TableBody>

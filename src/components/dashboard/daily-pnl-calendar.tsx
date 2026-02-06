@@ -15,7 +15,7 @@ import { DailyPnlBreakdownDialog } from '@/components/dashboard/daily-pnl-breakd
 import { AuditDialog } from '@/components/dashboard/audit-dialog'; // [NEW]
 
 export function DailyPnlCalendar() {
-    const { summary, dailyPnlResults: providerResults, loading: providerLoading, isCalculating, analysisYear } = useHoldings();
+    const { summary, dailyPnlResults: providerResults, loading: providerLoading, isCalculating, analysisYear, isAutoHealing, autoHealProgress } = useHoldings();
 
     // [COMPLIANT] Rule 2.1: Initialize calendar view based on NY Date.
     const todayNy = getEffectiveTradingDay();
@@ -261,7 +261,7 @@ export function DailyPnlCalendar() {
                     </div>
 
                     {/* Calendar Grid */}
-                    <div className="grid grid-cols-7 gap-1.5">
+                    <div className="grid grid-cols-7 gap-1.5 md:gap-2">
                         {days.map((day, dayIdx) => {
                             const dateKey = format(day, 'yyyy-MM-dd');
                             const res = dailyPnlResults[dateKey];
@@ -305,7 +305,7 @@ export function DailyPnlCalendar() {
                                 <div
                                     key={day.toString()}
                                     className={cn(
-                                        "group relative flex flex-col justify-between rounded-lg border transition-all duration-300 min-h-[90px] p-2",
+                                        "group relative flex flex-col justify-between rounded-lg border transition-all duration-300 min-h-[90px] md:min-h-[110px] p-2",
                                         dayIdx === 0 && getColStartClass(day),
 
                                         // Base Styles
@@ -315,18 +315,18 @@ export function DailyPnlCalendar() {
                                         isToday ? "border-emerald-500/50 ring-1 ring-emerald-500/50 shadow-[0_0_15px_rgba(16,185,129,0.15)] z-10" : "border-white/5",
 
                                         // PnL Styles (Gradient Backgrounds) -> Only for open market days
-                                        !isMarketClosed && hasData && !isMissingData && isProfit && "bg-gradient-to-br from-emerald-500/10 to-emerald-500/5 border-emerald-500/20 hover:border-emerald-500/40 hover:from-emerald-500/20",
-                                        !isMarketClosed && hasData && !isMissingData && isLoss && "bg-gradient-to-br from-rose-500/10 to-rose-500/5 border-rose-500/20 hover:border-rose-500/40 hover:from-rose-500/20",
+                                        !isMarketClosed && hasData && !isMissingData && isProfit && "bg-gradient-to-br from-emerald-500/10 to-emerald-500/5 border-emerald-500/20 lg:hover:border-emerald-500/40 lg:hover:from-emerald-500/20",
+                                        !isMarketClosed && hasData && !isMissingData && isLoss && "bg-gradient-to-br from-rose-500/10 to-rose-500/5 border-rose-500/20 lg:hover:border-rose-500/40 lg:hover:from-rose-500/20",
 
                                         // Market Closed Style (Dimmed) - Weekend vs Holiday
                                         // [MODIFIED] Weekend: Semi-transparent Glass ("Ghost/Chill" vibe)
-                                        isMarketClosed && res?.marketClosedReason === 'Weekend' && "bg-white/5 backdrop-blur-[2px] border-white/5 hover:bg-white/10 transition-colors",
+                                        isMarketClosed && res?.marketClosedReason === 'Weekend' && "bg-white/5 backdrop-blur-[2px] border-white/5 lg:hover:bg-white/10 transition-colors",
 
                                         // Holiday
                                         isMarketClosed && res?.marketClosedReason !== 'Weekend' && "bg-indigo-900/30 shadow-[inset_0_0_10px_rgba(49,46,129,0.4)] border-indigo-500/30",
 
                                         // Hover Lift
-                                        !isToday && "hover:-translate-y-1 hover:shadow-lg hover:z-10",
+                                        !isToday && "lg:hover:-translate-y-1 lg:hover:shadow-lg lg:hover:z-10",
                                         "cursor-pointer" // [NEW] Make interactive
                                     )}
                                     onClick={() => setSelectedDate(dateKey)}
@@ -337,7 +337,7 @@ export function DailyPnlCalendar() {
                                     {/* Date Number */}
                                     <div className="flex justify-between items-start">
                                         <span className={cn(
-                                            "text-[10px] font-medium transition-colors",
+                                            "text-[10px] md:text-xs font-medium transition-colors",
                                             isToday ? "text-emerald-400" : (
                                                 // Make date lighter on dark image
                                                 isMarketClosed && res?.marketClosedReason === 'Weekend' ? "text-zinc-400/80" : "text-zinc-600 group-hover:text-zinc-400"
@@ -379,7 +379,7 @@ export function DailyPnlCalendar() {
                                         <div className="flex flex-col gap-1 my-1">
                                             <div className={cn(
                                                 "font-mono font-bold tracking-tight text-center leading-none",
-                                                Math.abs(total!) > 99999 ? "text-lg" : "text-xl", // Adaptive size
+                                                Math.abs(total!) > 99999 ? "text-lg md:text-xl" : "text-xl md:text-2xl", // Adaptive size
                                                 isProfit ? "text-emerald-400 drop-shadow-[0_0_8px_rgba(52,211,153,0.3)]" :
                                                     (isLoss ? "text-rose-400 drop-shadow-[0_0_8px_rgba(251,113,133,0.3)]" : "text-zinc-500")
                                             )}>
@@ -406,8 +406,8 @@ export function DailyPnlCalendar() {
                                             {/* Pos (Left) */}
                                             <div className="flex flex-col items-start min-w-0">
                                                 <HoverCard openDelay={200} closeDelay={100}>
-                                                    <HoverCardTrigger asChild>
-                                                        <span className="text-[9px] font-bold text-zinc-500 uppercase tracking-wider leading-none mb-0.5 cursor-help">持仓</span>
+                                                    <HoverCardTrigger asChild onClick={(e) => e.stopPropagation()}>
+                                                        <span className="text-[9px] md:text-[10px] font-bold text-zinc-500 uppercase tracking-wider leading-none mb-0.5 cursor-help">持仓</span>
                                                     </HoverCardTrigger>
                                                     <HoverCardContent className="w-64 bg-zinc-950 border-zinc-800 text-zinc-300 text-xs p-3 shadow-xl backdrop-blur-xl">
                                                         <div className="space-y-2">
@@ -421,7 +421,7 @@ export function DailyPnlCalendar() {
                                                     </HoverCardContent>
                                                 </HoverCard>
                                                 <span className={cn(
-                                                    "text-sm font-extrabold tracking-tighter leading-none truncate w-full",
+                                                    "text-sm md:text-base font-extrabold tracking-tighter leading-none truncate w-full",
                                                     ((unrealizedChange || 0) + (res?.realizedPnlPosition || 0)) >= 0 ? "text-emerald-400" : "text-rose-400"
                                                 )}>
                                                     {fmt((unrealizedChange || 0) + (res?.realizedPnlPosition || 0))}
@@ -431,8 +431,8 @@ export function DailyPnlCalendar() {
                                             {/* Bk (Center) */}
                                             <div className="flex flex-col items-center min-w-0 border-l border-r border-white/5">
                                                 <HoverCard openDelay={200} closeDelay={100}>
-                                                    <HoverCardTrigger asChild>
-                                                        <span className="text-[9px] font-bold text-indigo-400/70 uppercase tracking-wider leading-none mb-0.5 cursor-help">账本</span>
+                                                    <HoverCardTrigger asChild onClick={(e) => e.stopPropagation()}>
+                                                        <span className="text-[9px] md:text-[10px] font-bold text-indigo-400/70 uppercase tracking-wider leading-none mb-0.5 cursor-help">账本</span>
                                                     </HoverCardTrigger>
                                                     <HoverCardContent className="w-64 bg-zinc-950 border-zinc-800 text-zinc-300 text-xs p-3 shadow-xl backdrop-blur-xl">
                                                         <div className="space-y-2">
@@ -446,7 +446,7 @@ export function DailyPnlCalendar() {
                                                     </HoverCardContent>
                                                 </HoverCard>
                                                 <span className={cn(
-                                                    "text-sm font-extrabold tracking-tighter leading-none truncate w-full text-center",
+                                                    "text-sm md:text-base font-extrabold tracking-tighter leading-none truncate w-full text-center",
                                                     (res?.realizedPnlDay || 0) >= 0 ? "text-indigo-300" : "text-rose-300"
                                                 )}>
                                                     {fmt(res?.realizedPnlDay || 0)}
@@ -456,8 +456,8 @@ export function DailyPnlCalendar() {
                                             {/* Tr (Right) */}
                                             <div className="flex flex-col items-end min-w-0">
                                                 <HoverCard openDelay={200} closeDelay={100}>
-                                                    <HoverCardTrigger asChild>
-                                                        <span className="text-[9px] font-bold text-amber-500/70 uppercase tracking-wider leading-none mb-0.5 cursor-help">撮合</span>
+                                                    <HoverCardTrigger asChild onClick={(e) => e.stopPropagation()}>
+                                                        <span className="text-[9px] md:text-[10px] font-bold text-amber-500/70 uppercase tracking-wider leading-none mb-0.5 cursor-help">撮合</span>
                                                     </HoverCardTrigger>
                                                     <HoverCardContent className="w-64 bg-zinc-950 border-zinc-800 text-zinc-300 text-xs p-3 shadow-xl backdrop-blur-xl">
                                                         <div className="space-y-2">
@@ -471,7 +471,7 @@ export function DailyPnlCalendar() {
                                                     </HoverCardContent>
                                                 </HoverCard>
                                                 <span className={cn(
-                                                    "text-sm font-extrabold tracking-tighter leading-none truncate w-full text-right",
+                                                    "text-sm md:text-base font-extrabold tracking-tighter leading-none truncate w-full text-right",
                                                     (res?.m5_1 || 0) >= 0 ? "text-amber-400" : "text-rose-400"
                                                 )}>
                                                     {fmt(res?.m5_1 || 0)}
@@ -484,22 +484,49 @@ export function DailyPnlCalendar() {
                         })}
                     </div>
 
-                    {/* [NEW] Missing EOD Report Section - Simple Text List */}
-                    {missingItems.length > 0 && (
-                        <div className="border-t border-rose-500/20 bg-rose-500/5 backdrop-blur-md p-3 animate-in slide-in-from-top-2 duration-300">
-                            <div className="flex items-center gap-2 mb-2">
-                                <AlertTriangle className="h-3 w-3 text-rose-500" />
-                                <h4 className="text-[10px] font-bold uppercase tracking-wider text-rose-500">缺失数据清单 (Missing EOD)</h4>
+                    {/* [NEW] Auto-Heal Progress or Missing Report */}
+                    {(isAutoHealing && autoHealProgress) ? (
+                        <div className="border-t border-emerald-500/20 bg-emerald-500/5 backdrop-blur-md p-3 animate-in slide-in-from-top-2 duration-300">
+                            <div className="flex items-center gap-2 mb-1">
+                                <RefreshCcw className="h-3 w-3 text-emerald-500 animate-spin" />
+                                <h4 className="text-[10px] font-bold uppercase tracking-wider text-emerald-500">
+                                    系统自动修复中 (System Auto-Healing)
+                                </h4>
                             </div>
-
-                            <ul className="space-y-1 max-h-[100px] overflow-y-auto custom-scrollbar list-disc list-inside">
-                                {missingItems.map(item => (
-                                    <li key={item.date} className="text-[10px] text-rose-400 font-mono">
-                                        <span className="font-bold">{item.date}:</span> {item.symbols.join(', ')}
-                                    </li>
-                                ))}
-                            </ul>
+                            <div className="flex flex-col gap-1 ml-5">
+                                <div className="flex justify-between text-[10px] font-mono text-emerald-400/80">
+                                    <span>Task: {autoHealProgress.current} / {autoHealProgress.total}</span>
+                                    <span>{Math.round((autoHealProgress.current / autoHealProgress.total) * 100)}%</span>
+                                </div>
+                                {/* Progress Bar */}
+                                <div className="h-1 w-full bg-emerald-500/20 rounded-full overflow-hidden">
+                                    <div
+                                        className="h-full bg-emerald-500 transition-all duration-500 ease-out"
+                                        style={{ width: `${(autoHealProgress.current / autoHealProgress.total) * 100}%` }}
+                                    />
+                                </div>
+                                <p className="text-[9px] text-emerald-500/60 font-mono truncate mt-0.5">
+                                    Current: {autoHealProgress.status}
+                                </p>
+                            </div>
                         </div>
+                    ) : (
+                        missingItems.length > 0 && (
+                            <div className="border-t border-rose-500/20 bg-rose-500/5 backdrop-blur-md p-3 animate-in slide-in-from-top-2 duration-300">
+                                <div className="flex items-center gap-2 mb-2">
+                                    <AlertTriangle className="h-3 w-3 text-rose-500" />
+                                    <h4 className="text-[10px] font-bold uppercase tracking-wider text-rose-500">缺失数据清单 (Missing EOD)</h4>
+                                </div>
+
+                                <ul className="space-y-1 max-h-[100px] overflow-y-auto custom-scrollbar list-disc list-inside">
+                                    {missingItems.map(item => (
+                                        <li key={item.date} className="text-[10px] text-rose-400 font-mono">
+                                            <span className="font-bold">{item.date}:</span> {item.symbols.join(', ')}
+                                        </li>
+                                    ))}
+                                </ul>
+                            </div>
+                        )
                     )}
 
                     {/* Inspector Dialog */}

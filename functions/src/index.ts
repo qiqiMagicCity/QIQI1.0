@@ -42,3 +42,6 @@ export { rebuildHistoricalEod } from "./admin/rebuild-historical-eod";
 export { setEodSymbols } from "./admin/set-eod-symbols";
 export { saveRealTimeEod } from "./admin/save-realtime-eod";
 export { processStockSplit } from "./admin/process-stock-split";
+
+// Triggers
+export { onHoldingCreate } from "./triggers/on-holding-create";

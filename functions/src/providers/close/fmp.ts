@@ -30,8 +30,10 @@ export const fmpProvider: CloseProvider = {
     if (Number.isNaN(targetDate.getTime())) {
       throw new Error(`Invalid date format: ${dateYYYYMMDD}`);
     }
+    // [MODIFIED] User Request: Only fetch 7 days back, not 5 years.
+    // This reduces data load while still providing enough buffer for weekends/holidays.
     const fromDate = new Date(targetDate);
-    fromDate.setFullYear(fromDate.getFullYear() - 5);
+    fromDate.setDate(fromDate.getDate() - 7);
     const fromYMD = formatDate(fromDate);
 
     // FMP 5 年历史 Stable Endpoint（稳定端点）

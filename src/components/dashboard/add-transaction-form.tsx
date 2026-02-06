@@ -40,6 +40,7 @@ import { useCopyToClipboard } from "@/hooks/use-copy-to-clipboard";
 import { useSearchParams, useRouter } from "next/navigation";
 import { doc, getDoc, updateDoc } from "firebase/firestore";
 import { TimePicker } from "@/components/ui/time-picker";
+import { useHoldingsContext } from "@/contexts/holdings-provider";
 
 
 const formSchema = z.object({
@@ -99,6 +100,7 @@ export function AddTransactionForm({ onSuccess, defaultValues }: AddTransactionF
   const effectiveUid = impersonatedUid || user?.uid;
   const qtyRef = useRef<HTMLInputElement>(null);
   const priceRef = useRef<HTMLInputElement>(null);
+  const { rebuildHistory } = useHoldingsContext() as any;
   const [assetType, setAssetType] = useState<'stock' | 'option'>('stock');
 
   // Option-specific state
@@ -306,6 +308,17 @@ export function AddTransactionForm({ onSuccess, defaultValues }: AddTransactionF
       // Optimization: Fire & Forget / Optimistic Update
       // Don't await the server acknowledgment. Close UI immediately.
       // -----------------------------------------------------------------------
+
+      // [INTEGRITY FIX] Invalidate Stale Snapshots (Async, Non-blocking)
+      // Any snapshot AFTER this transaction date is now potentially stale.
+      // We start this operation parallel to the transaction write.
+      import('@/lib/snapshots/invalidation').then(async ({ invalidateSnapshots }) => {
+        await invalidateSnapshots(effectiveUid, transactionDateNy);
+        // [AUTO-HEAL] Trigger Background Rebuild
+        if (rebuildHistory) {
+          rebuildHistory();
+        }
+      }).catch(err => console.warn("Failed to trigger snapshot invalidation", err));
 
       const writePromise = editingId
         ? updateDoc(doc(firestore, "users", effectiveUid, "transactions", editingId), payload)

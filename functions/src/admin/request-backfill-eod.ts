@@ -104,43 +104,89 @@ export const requestBackfillEod = onCall(
     const alreadyQueued: string[] = [];
     const toQueue: string[] = [];
 
-    // 4) 幂等检查（Idempotency）
-    // 固定路径：meta/backfill/requests
+    // 4) 幂等检查 (Idempotency)
     const backfillRequestsRef = db
       .collection("meta")
       .doc("backfill")
       .collection("requests");
     const officialClosesRef = db.collection("officialCloses");
 
+    // [OPTIMIZATION] Direct Execution for Small Batches (Interactive Mode)
+    // If the user requests <= 3 symbols, we just do it now. This avoids PubSub latency/config issues in Dev.
+    if (uniqueSymbols.length <= 3) {
+      logger.info("[requestBackfillEod] Small batch detected. Executing immediately (Bypass PubSub).", { symbols: uniqueSymbols });
+
+      // Import dynamically to avoid top-level side effects if possible, or just use top-level
+      const { fetchAndSaveOfficialClose } = await import("../lib/close/run");
+      // We need secrets. In onCall, we can use defineSecret but accessing them might be tricky if not declared in dependencies.
+      // However, for Yahoo we don't need keys.
+      // Let's try to get secrets from process.env or just pass empty if we rely on Yahoo.
+      // Actually, in v2 functions, secrets are bound to process.env if declared.
+      // But this function didn't declare them in the signature above. 
+      // We must rely on Yahoo fallback mainly.
+      const secrets = {
+        FMP_TOKEN: process.env.FMP_TOKEN || "",
+        MARKETSTACK_API_KEY: process.env.MARKETSTACK_API_KEY || "",
+        STOCKDATA_API_KEY: process.env.STOCKDATA_API_KEY || "",
+      };
+
+      const results = [];
+      for (const symbol of uniqueSymbols) {
+        try {
+          // Update status to running
+          const id = `${date}_${symbol}`;
+          await backfillRequestsRef.doc(id).set({
+            status: "running",
+            createdAt: admin.firestore.Timestamp.now(),
+            requestedBy: auth?.uid ?? null,
+            date,
+            symbol,
+            mode: "direct_execution"
+          });
+
+          const res = await fetchAndSaveOfficialClose(db, symbol, date, secrets);
+
+          // Update status to done
+          await backfillRequestsRef.doc(id).set({
+            status: "done",
+            result: res.status,
+            updatedAt: admin.firestore.Timestamp.now()
+          }, { merge: true });
+
+          results.push({ symbol, status: "ok", close: res.close });
+        } catch (e: any) {
+          logger.error(`[requestBackfillEod] Direct execution failed for ${symbol}`, e);
+          const id = `${date}_${symbol}`;
+          await backfillRequestsRef.doc(id).set({
+            status: "error",
+            error: e.message,
+            updatedAt: admin.firestore.Timestamp.now()
+          }, { merge: true });
+          results.push({ symbol, status: "error", error: e.message });
+        }
+      }
+
+      return {
+        mode: "direct",
+        results,
+        queuedCount: 0,
+        accepted: uniqueSymbols.length
+      };
+    }
+
+    // [Fallback] Large Batch -> Use PubSub Queue
     for (const symbol of uniqueSymbols) {
       const id = `${date}_${symbol}`;
+      // ... (Rest of deduplication logic)
 
       // 已有官方收盘价 → 视为已完成
       const closeDoc = await officialClosesRef.doc(id).get();
-      if (closeDoc.exists) {
+      if (closeDoc.exists && closeDoc.data()?.status === 'ok') {
         alreadyDone.push(id);
         continue;
       }
 
-      // 已在回填队列中 → 视为已排队
-      const requestDoc = await backfillRequestsRef.doc(id).get();
-      if (!requestDoc.exists) {
-        // [New Request] Doc does not exist
-        toQueue.push(symbol);
-      } else {
-        // [Existing Request] Check status
-        const reqData = requestDoc.data() as Record<string, any>; // Cast for safety
-        const status = reqData?.status;
-
-        // DEADLOCK FIX: Only block if truly queued/running or done.
-        // Allow 'error' to retry. 
-        if (['queued', 'running', 'done'].includes(status)) {
-          alreadyQueued.push(id);
-        } else {
-          // If status is 'error' or unknown, allow retry (re-queue)
-          toQueue.push(symbol);
-        }
-      }
+      toQueue.push(symbol);
     }
 
     // 5) 写入回填队列（Batch 批处理写入）
@@ -160,7 +206,7 @@ export const requestBackfillEod = onCall(
       }
       await writeBatch.commit();
 
-      // 6) 发布 Pub/Sub（发布/订阅）消息（采用 JSON 负载，供订阅端用 event.data.json 直接取）
+      // 6) 发布 Pub/Sub
       const pubsub = getPubSub();
       await pubsub.topic("backfill-eod").publishMessage({
         json: { date, symbols: toQueue },

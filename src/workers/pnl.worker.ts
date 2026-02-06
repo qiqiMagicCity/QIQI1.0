@@ -8,12 +8,15 @@ import { eachDayOfInterval } from 'date-fns';
 import { get, set } from 'idb-keyval'; // [NEW] Import IndexedDB helper
 
 // Define Message Types
+import { FifoSnapshot } from '@/lib/types/fifo-snapshot'; // [NEW]
+
 export type PnlWorkerInput = {
     transactions: Tx[];
     fullEodMap: Record<string, OfficialCloseResult>;
     activeSplits: SplitEvent[];
     effectiveTodayNy: string;
     visibleTransactions: Tx[];
+    snapshot?: FifoSnapshot | null; // [NEW]
 };
 
 export type PnlWorkerOutput = {
@@ -75,10 +78,104 @@ function generateCacheKey(todayNy: string, txs: Tx[], activeSplits: SplitEvent[]
 }
 
 // Event Listener
-self.onmessage = async (event: MessageEvent<PnlWorkerInput>) => {
-    try {
-        const { transactions, fullEodMap, activeSplits, effectiveTodayNy, visibleTransactions } = event.data;
+self.onmessage = async (event: MessageEvent<any>) => {
+    const { action } = event.data;
 
+    if (action === 'GENERATE_SNAPSHOTS') {
+        await handleGenerateSnapshots(event.data);
+        return;
+    }
+
+    // Default: Calc View PnL
+    await handleCalcPnl(event.data as PnlWorkerInput);
+};
+
+// [NEW] Handler for Snapshot Generation
+import { calcGlobalFifo } from '@/lib/pnl/calc-m4-m5-2-global-fifo';
+import { eachMonthOfInterval, endOfMonth, isFuture } from 'date-fns';
+
+async function handleGenerateSnapshots(data: { transactions: Tx[], uid: string }) {
+    try {
+        const { transactions } = data;
+        const snapshots: Record<string, FifoSnapshot> = {};
+
+        if (!transactions || transactions.length === 0) {
+            self.postMessage({ action: 'SNAPSHOTS_GENERATED', snapshots: {} });
+            return;
+        }
+
+        // 1. Identify Range
+        const dates = transactions.map(t => t.transactionTimestamp);
+        const minTs = Math.min(...dates);
+
+        const startMonth = new Date(minTs);
+        const endMonthDate = new Date();
+
+        const months = eachMonthOfInterval({
+            start: startMonth,
+            end: endMonthDate
+        });
+
+        console.log(`[Worker] Generating Snapshots for ${months.length} months...`);
+
+        // 2. Loop Month Ends
+        for (const monthDate of months) {
+            const eom = endOfMonth(monthDate);
+            const eomStr = toNyCalendarDayString(eom);
+
+            // Skip future or current incomplete month
+            if (isFuture(eom)) continue;
+
+            // Filter Txs UP TO this date
+            const txsForDate = transactions.filter(t => {
+                const d = toNyCalendarDayString(t.transactionTimestamp);
+                return d <= eomStr;
+            });
+
+            if (txsForDate.length === 0) continue;
+
+            // Run Calc (Pure, from scratch)
+            const result = calcGlobalFifo({
+                transactions: txsForDate,
+                todayNy: eomStr,
+                snapshot: null
+            });
+
+            // Build Payload
+            const inventoryRec: Record<string, any[]> = {};
+            for (const [key, lots] of result.openPositions.entries()) {
+                if (lots.length > 0) {
+                    inventoryRec[key] = lots;
+                }
+            }
+
+            const snap: FifoSnapshot = {
+                date: eomStr,
+                timestamp: eom.getTime(),
+                version: '1.0',
+                inventory: inventoryRec,
+                metrics: {
+                    realizedPnl_Lifetime: result.totalRealizedPnl,
+                    winCount: result.winCount,
+                    lossCount: result.lossCount
+                }
+            };
+
+            snapshots[eomStr] = snap;
+        }
+
+        self.postMessage({ action: 'SNAPSHOTS_GENERATED', snapshots });
+
+    } catch (e: any) {
+        console.error('[Worker] Snapshot Gen Failed:', e);
+        self.postMessage({ action: 'SNAPSHOTS_ERROR', error: e.message });
+    }
+}
+
+async function handleCalcPnl(data: PnlWorkerInput) {
+    try {
+        const { transactions, fullEodMap, activeSplits, effectiveTodayNy, visibleTransactions } = data;
+        // ... (Existing logic moved here) ...
         const todayNy = effectiveTodayNy;
 
         // 0. Prepare Inputs & Cache Key
@@ -133,4 +230,4 @@ self.onmessage = async (event: MessageEvent<PnlWorkerInput>) => {
         console.error('[PnL Worker] Computation Failed:', error);
         self.postMessage({ results: {}, error: error.message });
     }
-};
+}

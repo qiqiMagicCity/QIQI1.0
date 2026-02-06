@@ -391,18 +391,13 @@ export function calcM14DailyCalendar(
                         price = getRestoredHistoricalPrice(rawPrice, symKey, currentDate, activeSplits);
                         priceSource = 'fallback';
                         isEstimating = true;
-                    } else if (state.assetType === 'option') {
-                        // [FIX] P4: Option True Ignore Mode
-                        // If no Real-time/EOD (P2) and no Last Known (P3), 
-                        // we must EXCLUDE it to avoid 0-value crashes or false losses.
-                        // Implies: It contributes 0 change to PnL.
-                        continue;
                     } else {
-                        // Stock: Strict Missing Data Check
-                        // No live data and no fallback, this symbol is truly missing
+                        // All Assets (Stock & Option): Strict Missing Data Check
+                        // If no live data and no fallback, this symbol is truly missing.
+                        // We MUST report it so auto-heal can trigger.
                         missingSymbols.push(symKey);
                         isMissing = true;
-                        continue; // Skip PnL calculation for this symbol
+                        continue; // Skip PnL calc for this symbol, but it's flagged as missing now.
                     }
                 }
 

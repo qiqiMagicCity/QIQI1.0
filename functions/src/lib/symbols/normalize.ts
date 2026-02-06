@@ -30,6 +30,8 @@ export function normalizeSymbol(raw: string): {
     };
   }
 
+
+
   return { value };
 }
 

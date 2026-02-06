@@ -315,32 +315,25 @@ export const RealTimePricesProvider: React.FC<{ children: React.ReactNode }> = (
  * - 无价：open/pre → pending（等待首次拉价），post/closed → closed（休市无价）。
  */
 function deriveStatus(price: number | null, ts: number): RtStatus {
-  const now = Date.now();
-  // [FIX] Use new Date() is only for current wall-clock, but getMarketSession now handles timezone correctly via ny-time utils
   const sess = getMarketSession(new Date());
 
-  // （1）没有价格的场景：盘中/盘前视为等待返回，盘后/休市视为正常休市
-  if (price == null) {
-    if (sess === 'open' || sess === 'pre') {
-      // 交易尚在进行（或即将进行），但当前没有任何价格 → pending（等待首次拉价）
-      return 'pending';
-    }
-    // 盘后 / 休市 且无价：视为 closed（已收盘/休市），不是异常
+  // [FIX] Strictly Only Show Dots in OPEN session
+  // User Rule: "Real-time API only works during session (盘中)"
+  // So NO green/orange dots in Pre/Post/Closed.
+  if (sess !== 'open') {
     return 'closed';
   }
 
-  // （2）盘中：严格按新鲜度判断 live / stale
-  if (sess === 'open') {
-    return now - ts > FRESHNESS_MS ? 'stale' : 'live';
+  // Open Session Logic
+  if (price == null) {
+    return 'pending';
   }
 
-  // （3）盘前：有价但未开盘，新鲜 → pending（就绪），过旧 → stale（有问题）
-  if (sess === 'pre') {
-    return now - ts > FRESHNESS_MS ? 'stale' : 'pending';
-  }
+  const now = Date.now();
+  const isFresh = (now - ts) <= FRESHNESS_MS;
 
-  // （4）盘后 / 休市：有价 = 正常日终/停牌场景 → 一律 closed（已收盘），不再用 stale
-  return 'closed';
+  // Green if fresh, Orange if stale
+  return isFresh ? 'live' : 'stale';
 }
 
 /**

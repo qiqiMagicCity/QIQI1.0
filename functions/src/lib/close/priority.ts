@@ -211,9 +211,10 @@ export function buildDefaultCloseProviders(
   const useFinnhub =
     opts?.enableFinnhub === undefined ? true : !!opts.enableFinnhub;
 
-  if (useFinnhub) providers.push(finnhubEodProvider); // High priority fallback
+  if (useFinnhub) providers.push(finnhubEodProvider);
   if (useMarketstack) providers.push(marketstackProvider);
   if (useStockdata) providers.push(stockdataProvider);
+  // [USER RULE] Yahoo is the ultimate backstop/safety net.
   if (useYahoo) providers.push(yahooProvider);
 
   // 2) 去重（按 name 保留首次出现）

@@ -3,6 +3,7 @@
 import { Tx } from '@/hooks/use-user-transactions';
 import { toNyCalendarDayString } from '@/lib/ny-time';
 import { getCumulativeSplitFactor } from '@/lib/holdings/stock-splits';
+import { FifoSnapshot } from '@/lib/types/fifo-snapshot'; // [NEW]
 
 const normalizeSymbolForClient = (s: string): string =>
     (s ?? '')
@@ -19,6 +20,7 @@ export type GlobalFifoInput = {
         mtd: string; // YYYY-MM-DD
         ytd: string; // YYYY-MM-DD
     };
+    snapshot?: FifoSnapshot | null; // [NEW] Support Hydration
 };
 
 export interface PnLEvent {
@@ -50,34 +52,53 @@ export type GlobalFifoResult = {
 
 /**
  * 计算 M4 和 M5.2: 全局 FIFO
- * ...
+ * 支持从快照热重载 (Hydration)
  */
 export function calcGlobalFifo(input: GlobalFifoInput): GlobalFifoResult {
-    const { transactions, todayNy } = input;
-
-    if (!Array.isArray(transactions) || transactions.length === 0) {
-        return {
-            m4: 0, m5_2: 0,
-            totalRealizedPnl: 0, winCount: 0, lossCount: 0,
-            pnlEvents: [],
-            auditTrail: [],
-            openPositions: new Map()
-        };
-    }
+    const { transactions, todayNy, snapshot } = input;
 
     // [REVERT] Use subtraction for numeric timestamps
     const sortedAllTx = [...transactions].sort((a, b) => a.transactionTimestamp - b.transactionTimestamp);
-    const globalQueues = new Map<string, Array<{ qty: number; cost: number; date: string; multiplier: number }>>();
 
-    let m5_2 = 0;
-    let m4 = 0;
+    // Initialize State
+    const globalQueues = new Map<string, Array<{ qty: number; cost: number; date: string; multiplier: number }>>();
     let totalRealizedPnl = 0;
     let winCount = 0;
     let lossCount = 0;
+
+    // [NEW] Hydrate from Snapshot
+    if (snapshot) {
+        // Hydrate Metrics
+        totalRealizedPnl = snapshot.metrics.realizedPnl_Lifetime || 0;
+        winCount = snapshot.metrics.winCount || 0;
+        lossCount = snapshot.metrics.lossCount || 0;
+
+        // Hydrate Inventory
+        if (snapshot.inventory) {
+            Object.entries(snapshot.inventory).forEach(([key, lots]) => {
+                // Deep clone lots to ensure safety
+                globalQueues.set(key, lots.map(l => ({ ...l })));
+            });
+        }
+        console.log(`[FIFO] Hydrated from Snapshot ${snapshot.date}. PnL: ${totalRealizedPnl}, Positions: ${globalQueues.size}`);
+    }
+
+    let m5_2 = 0;
+    let m4 = 0;
+
     const pnlEvents: PnLEvent[] = [];
     const auditTrail: AuditEvent[] = [];
 
+    // [NEW] Filter Snapshot Transactions
+    // If snapshot exists, skip transactions <= snapshot.timestamp
+    const snapshotCutoff = snapshot ? snapshot.timestamp : -1;
+
     for (const tx of sortedAllTx) {
+        // [NEW] Skip processed transactions
+        if (tx.transactionTimestamp <= snapshotCutoff) {
+            continue;
+        }
+
         const key = tx.contractKey || normalizeSymbolForClient(tx.symbol);
         if (!globalQueues.has(key)) globalQueues.set(key, []);
         const queue = globalQueues.get(key)!;

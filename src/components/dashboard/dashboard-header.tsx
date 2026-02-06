@@ -19,6 +19,7 @@ import { AdminImpersonationDialog } from "@/components/admin/admin-impersonation
 import { ShieldAlert } from "lucide-react";
 import { NotificationBell } from "./notification-bell";
 import { CommunityLinks } from "./community-links";
+import { SnapshotBackfillButton } from "@/components/debug/snapshot-backfill-button";
 
 export function DashboardHeader() {
   const { user, isAdmin } = useUser();

@@ -29,11 +29,17 @@ export function EodAutoManager() {
             const todayNy = toNyCalendarDayString(now);
             const targetDate = prevNyTradingDayString(todayNy);
 
-            // Filter symbols that need backfill (Exclude Options)
-            // Options are manually marked, so we don't need to auto-fetch strict EOD for them from external APIs
-            const symbols = holdings
-                .filter(h => h.assetType !== 'option')
-                .map(h => h.symbol);
+            // [SAFETY] Check LocalStorage to prevent infinite loops on reload
+            const safetyKey = `antigravity_backfill_attempt_${targetDate}`;
+            if (localStorage.getItem(safetyKey) === 'true') {
+                console.log(`[EodAutoManager] Skipping auto-backfill for ${targetDate} (already attempted today)`);
+                hasRunBackfill.current = true;
+                return;
+            }
+
+            // Filter symbols that need backfill
+            // [UPDATED] Options ARE now supported via Yahoo Finance failover in backend.
+            const symbols = holdings.map(h => h.symbol);
 
             if (symbols.length === 0) return;
 
@@ -56,9 +62,17 @@ export function EodAutoManager() {
                         title: '自动修复数据',
                         description: `检测到 ${targetDate} 对 ${batch.length} 个标的缺失基准EOD (${batch.join(', ')})，正在补录...`,
                     });
+
+                    // [SAFETY] Mark as done immediately after triggering
+                    localStorage.setItem(safetyKey, 'true');
                 } catch (e) {
                     console.error('[EodAutoManager] Auto backfill failed', e);
+                    // Consider whether to mark as done if failed. To be safe against infinite loops, YES.
+                    localStorage.setItem(safetyKey, 'true');
                 }
+            } else {
+                // No missing symbols, mark as checked/done too
+                localStorage.setItem(safetyKey, 'true');
             }
 
             hasRunBackfill.current = true;
@@ -90,10 +104,9 @@ export function EodAutoManager() {
 
             console.log('[EodAutoManager] Market closed, checking if snapshot needed...');
 
-            // Check if we already have EOD for today (Exclude Options from auto-snapshot too)
-            const symbols = holdings
-                .filter(h => h.assetType !== 'option')
-                .map(h => h.symbol);
+            // Check if we already have EOD for today
+            // [UPDATED] Options included for auto-snapshot too if market matches
+            const symbols = holdings.map(h => h.symbol);
 
             if (symbols.length === 0) return;
 

@@ -1,0 +1,20 @@
+
+import { normalizeList } from "../../../functions/src/lib/symbols/normalize";
+import { getFunctions, httpsCallable } from "firebase/functions";
+import { initializeApp } from "firebase/app";
+
+// Initialize Firebase (Client SDK needs config, but for script we might need admin sdk or just call API)
+// Actually easier to use the admin SDK to invoke, OR just use fetch if we have the URL.
+// But wait, "manual backfill" usually means calling the Cloud Function from client or admin script.
+// Let's use a specialized script that doesn't depend on full client layout.
+
+// BETTER APPROACH:
+// We can use the existing `EodDiagnosticTool` UI to trigger it since the user said "I don't want to wait for auto, I want manual trigger".
+// The user essentially said: "go ahead and do it in backend, tell me result".
+// Since I cannot click UI, I will write a script that calls the function using 'firebase-admin' or similar if I have credentials,
+// OR simply use the fact that I just redeployed the function (wait, I DID NOT redeploy yet, I just built).
+//
+// The user prompt said: "请你在后台 完成 然后告诉我结果" (You finish it in background and tell me).
+// I tried to deploy but it seems I might have failed or it's taking long?
+// Wait, the previous step's output showed "Exit code: 1" for firebase deploy?
+// Let me check the error log.

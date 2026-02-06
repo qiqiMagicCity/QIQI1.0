@@ -6,6 +6,7 @@ import { Building2 } from 'lucide-react';
 
 interface CompanyLogoProps {
     symbol: string;
+    underlying?: string; // [NEW] Support underlying logic
     size?: number;
     className?: string;
 }
@@ -13,26 +14,26 @@ interface CompanyLogoProps {
 // Cast the JSON to a Record<string, string> to avoid type errors
 const domains = symbolDomains as Record<string, string>;
 
-export function CompanyLogo({ symbol, size = 32, className = '' }: CompanyLogoProps) {
+export function CompanyLogo({ symbol, underlying, size = 32, className = '' }: CompanyLogoProps) {
     const [error, setError] = useState(false);
 
-    const domain = useMemo(() => {
-        // Try exact match
-        if (domains[symbol]) return domains[symbol];
+    const targetSymbol = underlying || symbol;
 
-        // Try removing suffixes like .B (e.g. BRK.B -> BRK -> berkshirehathaway.com? Need to handle manually if not in map)
-        // For now, just return null if not found
+    const domain = useMemo(() => {
+        // Try exact match, ensure upper case
+        const key = targetSymbol.toUpperCase();
+        if (domains[key]) return domains[key];
         return null;
-    }, [symbol]);
+    }, [targetSymbol]);
 
     const logoUrl = domain
-        ? `https://www.google.com/s2/favicons?domain=${domain}&sz=${size * 2}` // Request 2x size for retina
+        ? `https://www.google.com/s2/favicons?domain=${domain}&sz=${size * 2}`
         : null;
 
     if (!logoUrl || error) {
         return (
             <div
-                className={`flex items-center justify-center bg-slate-100 dark:bg-slate-800 rounded-full text-slate-400 ${className}`}
+                className={`flex items-center justify-center bg-slate-100 dark:bg-slate-800 rounded-full text-slate-400 shrink-0 ${className}`}
                 style={{ width: size, height: size }}
             >
                 <Building2 size={size * 0.6} />
@@ -44,10 +45,12 @@ export function CompanyLogo({ symbol, size = 32, className = '' }: CompanyLogoPr
         // eslint-disable-next-line @next/next/no-img-element
         <img
             src={logoUrl}
-            alt={`${symbol} logo`}
+            alt={`${targetSymbol} logo`}
             width={size}
             height={size}
-            className={`rounded-full object-contain ${className}`}
+            // Add shrink-0 to prevent flex compression
+            className={`rounded-full object-contain bg-white dark:bg-white/90 p-0.5 shrink-0 ${className}`}
+            style={{ width: size, height: size, minWidth: size, minHeight: size }}
             onError={() => setError(true)}
         />
     );

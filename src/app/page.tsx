@@ -10,6 +10,7 @@ import { StocksTab } from "@/components/dashboard/stocks-tab";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { StatusBadge } from "@/components/ui/status-badge";
+import { SystemStatus } from "@/components/debug/system-status";
 import { useRequireAuth } from "@/components/auth/guards";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useHoldings } from "@/hooks/use-holdings";
@@ -151,7 +152,7 @@ export default function Home() {
                         组合概览与关键指标
                       </p>
                     </div>
-
+                    <SystemStatus />
                   </div>
 
                   <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 md:grid-cols-3">

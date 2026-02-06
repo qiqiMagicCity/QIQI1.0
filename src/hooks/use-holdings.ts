@@ -27,6 +27,8 @@ export type UseHoldingsResult = {
   effectiveUid: string | null; // [NEW] Needed for writes
   availableYears?: number[]; // [NEW] From Provider
   allTransactions: any[]; // [NEW] For Audit
+  isAutoHealing: boolean; // [NEW]
+  autoHealProgress?: { total: number; current: number; status: string } | null; // [NEW]
 };
 
 export function useHoldings(): UseHoldingsResult {
@@ -53,5 +55,7 @@ export function useHoldings(): UseHoldingsResult {
     toggleHidden: context.toggleHidden,
     effectiveUid: context.effectiveUid, // [NEW]
     availableYears: context.availableYears, // [NEW]
+    isAutoHealing: context.isAutoHealing, // [NEW]
+    autoHealProgress: context.autoHealProgress, // [NEW]
   };
 }

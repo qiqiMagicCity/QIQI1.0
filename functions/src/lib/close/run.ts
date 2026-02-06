@@ -151,8 +151,43 @@ export async function fetchAndSaveOfficialClose(
       throw err;
     }
 
+    // [NEW] 辅助函数：简写期权格式 -> 标准 OCC 格式
+    // 示例：NVDA250620C120 -> NVDA250620C00120000 (120 * 1000 -> 120000 -> 00120000)
+    // 示例：NVDA250620C120.5 -> NVDA250620C00120500 (120.5 * 1000 -> 120500 -> 00120500)
+    function convertShortOptionToOcc(symbol: string): string {
+      // Regex: Ticker (Any) + YYMMDD (6 digits) + C/P (1 char) + Price (Any number/float)
+      const match = symbol.match(/^([A-Z]+)(\d{6})([CP])([\d.]+)$/);
+      if (!match) return symbol; // 已经是标准格式或不是期权，原样返回
+
+      const [, ticker, date, type, priceStr] = match;
+
+      // 如果价格已经是 8 位且无小数点，可能是标准的，跳过
+      if (priceStr.length === 8 && !priceStr.includes('.')) return symbol;
+
+      const priceNum = parseFloat(priceStr);
+      if (isNaN(priceNum)) return symbol;
+
+      // OCC 价格规则：乘以 1000，补齐 8 位零
+      const scaledPrice = Math.round(priceNum * 1000);
+      const paddedPrice = String(scaledPrice).padStart(8, '0');
+
+      const occSymbol = `${ticker}${date}${type}${paddedPrice}`;
+      // console.log(`[SymbolConvert] Converted Short ${symbol} -> OCC ${occSymbol}`); 
+      // (Optional logging, keep clean for now)
+      return occSymbol;
+    }
+
+    // ... inside fetchAndSaveOfficialClose ...
+
     // —— 调用带 failover（失败转移）的 close 获取逻辑
-    const res = await getCloseWithFailover(chain, upperSymbol, tradingDate, secrets);
+    // [FIX] 自动检测并转换简写期权代码，以适配 Yahoo Finance
+    const fetchSymbol = convertShortOptionToOcc(upperSymbol);
+
+    if (fetchSymbol !== upperSymbol) {
+      console.log(`[fetchAndSaveOfficialClose] Auto-converted option symbol: ${upperSymbol} -> ${fetchSymbol}`);
+    }
+
+    const res = await getCloseWithFailover(chain, fetchSymbol, tradingDate, secrets);
 
     // 如需排障：仅在日志中打印 attempts，不写入 Firestore
     if (Array.isArray((res as any).attempts)) {
@@ -167,40 +202,66 @@ export async function fetchAndSaveOfficialClose(
       );
     }
 
-    /**
-     * ==========================================================
-     * ★ 关键逻辑：如果 provider 是 FMP，并且 meta.bulkEod 存在，
-     *   则一次性把 5 年 EOD 全部写入 officialCloses（批量写入）
-     * ==========================================================
-     */
+    // ★ 关键逻辑：智能增量写入 (Differential Write)
+    // 只有当 EOD 数据确实缺失或状态不正确时才写入，避免重复写入(Overwrite)产生的账单成本。
     const bulkEod = (res as any)?.meta?.bulkEod;
     if (Array.isArray(bulkEod) && bulkEod.length > 0) {
-      const batch = db.batch();
-      for (const row of bulkEod) {
-        const d = row?.date;
-        const c = row?.close;
-        if (typeof d !== "string" || typeof c !== "number") continue;
-        const histDocId = `${d}_${upperSymbol}`;
-        const histRef = db.collection("officialCloses").doc(histDocId);
-        batch.set(
-          histRef,
-          {
-            status: "ok" as const,
-            close: c,
-            currency: row.currency ?? res.currency ?? "USD",
-            provider: res.provider,
-            tz: "America/New_York",
-            source: "official",
-            symbol: upperSymbol,
-            date: d,         // 兼容旧字段
-            tradingDate: d,  // 新增标准字段
-            retrievedAt: admin.firestore.FieldValue.serverTimestamp(),
-            runId,
-          },
-          { merge: true }
-        );
+      // 1. 预处理需要检查的数据项
+      const candidates = bulkEod
+        .filter(row => row?.date && typeof row?.close === 'number')
+        .map(row => ({
+          id: `${row.date}_${upperSymbol}`,
+          data: row
+        }));
+
+      // 2. 分批处理 (db.getAll 最多支持 100 个文档)
+      const CHUNK_SIZE = 100;
+      let skippedCount = 0;
+      let writtenCount = 0;
+
+      for (let i = 0; i < candidates.length; i += CHUNK_SIZE) {
+        const chunk = candidates.slice(i, i + CHUNK_SIZE);
+        const refs = chunk.map(c => db.collection("officialCloses").doc(c.id));
+
+        // 批量读取检查存在性 (Read cost << Write cost)
+        const snaps = await db.getAll(...refs);
+
+        const batch = db.batch();
+        let hasWrites = false;
+
+        snaps.forEach((snap, idx) => {
+          const item = chunk[idx];
+          // 检查条件：如果文档不存在，或者状态不是 'ok' (比如之前是 missing/error)
+          // 则需要写入/覆盖。如果已经是 'ok' 且有值，则跳过。
+          const existsAndOk = snap.exists && snap.data()?.status === 'ok';
+
+          if (!existsAndOk) {
+            batch.set(snap.ref, {
+              status: "ok" as const,
+              close: item.data.close,
+              currency: item.data.currency ?? res.currency ?? "USD",
+              provider: res.provider,
+              tz: "America/New_York",
+              source: "official",
+              symbol: upperSymbol,
+              date: item.data.date,
+              tradingDate: item.data.date,
+              retrievedAt: admin.firestore.FieldValue.serverTimestamp(),
+              runId,
+            }, { merge: true });
+            hasWrites = true;
+            writtenCount++;
+          } else {
+            skippedCount++;
+          }
+        });
+
+        if (hasWrites) {
+          await batch.commit();
+        }
       }
-      await batch.commit();
+
+      console.log(`[fetchAndSaveOfficialClose] Differential Write Summary: ${writtenCount} written, ${skippedCount} skipped (saved).`);
     }
 
     // —— 目标日 doc：保持原有结构，写当前 date 这一天

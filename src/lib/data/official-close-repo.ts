@@ -584,6 +584,22 @@ export async function triggerManualBackfill(
 
   try {
     await requestBackfillFn({ date, symbols: actualSymbols });
+
+    // [FIX] Invalidate Client Cache immediately so next fetch logic sees the "hole" and re-queries Firestore
+    // Using clearSymbols is nuclear but safe: it forces a fresh fetch for the *entire* symbol history,
+    // ensuring we don't have fragmented or stale state (e.g. rev mismatches).
+    await EodCache.clearSymbols(actualSymbols);
+
+    // Also clear memory cache
+    for (const s of actualSymbols) {
+      for (const k of resultCache.keys()) {
+        if (k.endsWith(`_${s}`)) {
+          resultCache.delete(k);
+        }
+      }
+    }
+    console.log(`[Repo] Invalidated ALL cache for symbols: ${actualSymbols.join(', ')}`);
+
     setTimeout(() => {
       actualSymbols.forEach(s => pendingBackfills.delete(`${date}_${s}`));
     }, 5000);

@@ -133,6 +133,10 @@ export const backfillWorker = onMessagePublished(
       // 工厂函数
       const factories = batchSyms.map((symbol) => async () => {
         try {
+          // [SAFETY] Add random jitter (300ms - 1000ms) to ensure we respect Yahoo API frequency "politely"
+          const delay = 300 + Math.random() * 700;
+          await new Promise(resolve => setTimeout(resolve, delay));
+
           await fetchAndSaveOfficialClose(
             db, symbol, date,
             {

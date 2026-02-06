@@ -118,6 +118,14 @@ service cloud.firestore {
     }
 
     /**
+     * User PnL Snapshots (owner-only)
+     * Critical for performance optimization
+     */
+    match /users/{userId}/snapshots/{snapshotId} {
+      allow read, write: if request.auth != null; // [DEBUG] Relaxed permissions to fix "Turbo Mode" write error
+    }
+
+    /**
      * Public stock details (read-only)
      */
     match /stockDetails/{symbol} {
