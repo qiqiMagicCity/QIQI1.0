@@ -486,7 +486,6 @@ const HoldingRowItem = ({
                   <Pencil className="w-3 h-3 text-slate-400 group-hover/pencil:text-emerald-500 opacity-0 group-hover/pencil:opacity-100 transition-opacity" />
 
                   {/* [NEW] EOD Fallback Indicator */}
-                  {/* @ts-ignore - isEodFallback added to context but might be missing in type def here if not updated */}
                   {row.isEodFallback && (
                     <TooltipProvider>
                       <Tooltip>

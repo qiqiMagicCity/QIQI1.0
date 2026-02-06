@@ -17,13 +17,18 @@ export function useRealTimePrices(symbols: string[]) {
   const { register, unregister, get: getFromCenter, map } = center;
 
   // 注册 / 取消注册：只跟函数本身和 symbols 变化有关，不跟价格变化绑定
+  // Create a stable key for symbols to prevent unnecessary re-registrations
+  const symbolsKey = symbols.join(',');
+
+  // 注册 / 取消注册：只跟函数本身和 symbols 变化有关，不跟价格变化绑定
   useEffect(() => {
     register(id, symbols);
     return () => {
       unregister(id);
     };
-    // 注意：依赖 register/unregister 自身（它们是稳定引用），避免因为 Context value 换引用而反复重注册
-  }, [register, unregister, id, symbols.join(',')]);
+    // safe because unique identifier string captures all content changes
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [register, unregister, id, symbolsKey]);
 
   // 读取某个 symbol 的当前 PriceRecord（价格记录）
   const get = useCallback((symbol: string): PriceRecord | undefined => getFromCenter(symbol), [getFromCenter]);

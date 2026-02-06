@@ -1,6 +1,6 @@
 ﻿'use client';
 
-import React, { createContext, useContext, useEffect, useMemo, useState, useRef } from 'react';
+import React, { createContext, useContext, useEffect, useMemo, useState, useRef, useCallback } from 'react';
 import { useUser } from '@/firebase';
 import { useFirestore } from '@/firebase/index';
 // [FIX] Update imports
@@ -458,7 +458,7 @@ export function HoldingsProvider({ children }: { children: React.ReactNode }) {
         return () => unsubscribe();
     }, [effectiveUid, firestore]);
 
-    const toggleHidden = async (symbol: string) => {
+    const toggleHidden = useCallback(async (symbol: string) => {
         if (!user || !effectiveUid || !symbol) return;
         try {
             const holdingDocRef = doc(firestore, 'users', effectiveUid, 'holdings', symbol.toUpperCase());
@@ -469,7 +469,7 @@ export function HoldingsProvider({ children }: { children: React.ReactNode }) {
                 await setDoc(holdingDocRef, { isHidden: true }, { merge: true });
             }
         } catch (err) { console.error("Failed to toggle hidden:", err); }
-    };
+    }, [user, effectiveUid, firestore]);
 
     const effectiveTodayNy = useMemo(() => {
         const currentYear = new Date().getFullYear();
@@ -806,7 +806,7 @@ export function HoldingsProvider({ children }: { children: React.ReactNode }) {
                 return () => clearTimeout(t);
             }
         }
-    }, [memoizedM14BaseResults, isAutoHealing, eodLoading]);
+    }, [memoizedM14BaseResults, isAutoHealing, eodLoading, autoHealProgress]);
 
     const globalFifoResult = useMemo(() => {
         return calcGlobalFifo({
@@ -1120,16 +1120,16 @@ export function HoldingsProvider({ children }: { children: React.ReactNode }) {
         const dailyPnlList = Object.values(memoizedM14BaseResults).map(r => ({ date: r.date, pnl: r.totalPnl })).sort((a, b) => a.date.localeCompare(b.date));
 
         return { rows: showHidden ? allGeneratedRows : visibleRows, summary, historicalPnl: [], dailyPnlList, dailyPnlResults: memoizedM14BaseResults, pnlEvents };
-    }, [globalFifoResult, baseHoldings, dailyTxAggregates, getPriceRecord, priceSnapshot, refEodMap, todayEodMap, memoizedM14BaseResults, showHidden, manualMarkPrices, hiddenFlags]);
+    }, [globalFifoResult, dailyTxAggregates, getPriceRecord, priceSnapshot, refEodMap, todayEodMap, memoizedM14BaseResults, showHidden, manualMarkPrices, hiddenFlags, visibleTransactions, effectiveTodayNy, activeSplits]);
 
     useEffect(() => {
         if (typeof window !== 'undefined') (window as any).__AUDIT_CTX__ = { transactions, allTransactions };
-    }, [transactions]);
+    }, [transactions, allTransactions]);
 
     // [NEW] Rebuild History & Snapshots
     const [isRebuilding, setIsRebuilding] = useState(false);
 
-    const rebuildHistory = async () => {
+    const rebuildHistory = useCallback(async () => {
         if (!effectiveUid || !workerRef.current || !allTransactions) return; // Fix: workerRef
 
         console.log("[HoldingsProvider] Starting History Rebuild (Auto-Healing)...");
@@ -1181,7 +1181,6 @@ export function HoldingsProvider({ children }: { children: React.ReactNode }) {
                     // 4. Verification Check: Fetch the latest one immediately
                     // Reuse the existing fetchSnapshot logic by triggering a re-run?
                     // Best to just manually re-call fetchSnapshot logic or force refresh.
-                    // Let's manually trigger the internal fetcher if possible, or just await a small delay.
                     // The 'latestSnapshot' effect depends on 'effectiveUid'.
                     // We can force it by momentarily clearing it or just re-running the query.
 
@@ -1206,7 +1205,7 @@ export function HoldingsProvider({ children }: { children: React.ReactNode }) {
             console.error(e);
             setIsRebuilding(false);
         }
-    };
+    }, [effectiveUid, allTransactions, firestore]);
 
     const value = useMemo(() => ({
         rows, summary, historicalPnl, dailyPnlList, dailyPnlResults, pnlEvents: contextPnlEvents,
@@ -1220,7 +1219,7 @@ export function HoldingsProvider({ children }: { children: React.ReactNode }) {
         snapshotDate: latestSnapshot?.date,
         rebuildHistory, isRebuilding,
         isAutoHealing, autoHealProgress // [NEW]
-    }), [rows, summary, historicalPnl, dailyPnlList, contextPnlEvents, fullEodMap, activeSplits, txLoading, eodLoading, isM14Calculating, transactions, analysisYear, showHidden, availableYears, allTransactions, latestSnapshot, isRebuilding, isAutoHealing]);
+    }), [rows, summary, historicalPnl, dailyPnlList, dailyPnlResults, contextPnlEvents, fullEodMap, ytdBaseEodMap, activeSplits, txLoading, eodLoading, isM14Calculating, transactions, analysisYear, showHidden, toggleHidden, effectiveUid, availableYears, allTransactions, latestSnapshot, rebuildHistory, isRebuilding, isAutoHealing, autoHealProgress]);
 
     return <HoldingsContext.Provider value={value}>{children}</HoldingsContext.Provider>;
 }

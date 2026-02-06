@@ -92,7 +92,7 @@ export function useDailyPnl(currentMonth: Date) {
         fetchData();
 
         return () => { cancelled = true; };
-    }, [targetDates, prevMonthEnd, uniqueSymbols]);
+    }, [targetDates, prevMonthEnd, uniqueSymbols, currentMonth]);
 
     // 3. Calculate M14
     const dailyPnlResults = useMemo(() => {

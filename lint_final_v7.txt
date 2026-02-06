@@ -1,0 +1,35 @@
+
+> nextn@0.1.0 lint
+> next lint
+
+`next lint` is deprecated and will be removed in Next.js 16.
+For new projects, use create-next-app to choose your preferred linter.
+For existing projects, migrate to the ESLint CLI:
+npx @next/codemod@canary next-lint-to-eslint-cli .
+
+
+./src/components/admin/admin-impersonation-dialog.tsx
+66:8  Warning: React Hook useEffect has a missing dependency: 'fetchUsers'. Either include it or remove the dependency array.  react-hooks/exhaustive-deps
+
+./src/components/dashboard/add-transaction-form.tsx
+258:6  Warning: React Hook useEffect has a missing dependency: 'effectiveUid'. Either include it or remove the dependency array.  react-hooks/exhaustive-deps
+
+./src/components/dashboard/audit-dialog.tsx
+29:8  Warning: React Hook React.useEffect has missing dependencies: 'runAudit' and 'status'. Either include them or remove the dependency array.  react-hooks/exhaustive-deps
+
+./src/components/dashboard/daily-pnl-calendar.tsx
+45:8  Warning: React Hook React.useEffect has a missing dependency: 'currentMonth'. Either include it or remove the dependency array.  react-hooks/exhaustive-deps
+
+./src/components/dashboard/holdings-overview.tsx
+389:19  Error: `'` can be escaped with `&apos;`, `&lsquo;`, `&#39;`, `&rsquo;`.  react/no-unescaped-entities
+
+./src/components/global-add-transaction-fab.tsx
+64:6  Warning: React Hook useEffect has a missing dependency: 'open'. Either include it or remove the dependency array.  react-hooks/exhaustive-deps
+
+./src/contexts/holdings-provider.tsx
+418:8  Warning: React Hook useEffect has a missing dependency: 'firestore'. Either include it or remove the dependency array.  react-hooks/exhaustive-deps
+
+./src/firebase/provider.tsx
+275:20  Warning: React Hook useMemo received a function whose dependencies are unknown. Pass an inline function instead.  react-hooks/exhaustive-deps
+
+info  - Need to disable some ESLint rules? Learn more here: https://nextjs.org/docs/app/api-reference/config/eslint#disabling-rules
