@@ -192,11 +192,14 @@ export function StockDetails() {
     const targetYear = analysisYear || currentYear;
     const isGlobal = leaderboardScope === 'global';
 
+    // [FIX] C4: Use strongly typed context (removed 'as any')
+    const { auditTrail, historicalPnlMetrics } = useHoldings(); // Cast for now if interface not fully propagated in IDE
+
     const pnlMap = new Map<string, number>();
 
     // --- 1. Global View (Simple Lifetime Logic) ---
     if (isGlobal) {
-      // Realized Lifetime
+      // Realized Lifetime (From Provider's Aggregation)
       historicalPnl.forEach(h => pnlMap.set(h.symbol, (pnlMap.get(h.symbol) || 0) + h.pnl));
       // Unrealized Current
       if (holdings) {
@@ -208,16 +211,28 @@ export function StockDetails() {
     // --- 2. Yearly View (Mark-to-Market Logic) ---
     // Formula: PnL_Year = Realized_Year + Unrealized_End - Unrealized_Start
 
-    // A. Realized PnL (Sum of pnlEvents in Target Year)
+    // A. Realized PnL (Sum of auditTrail in Target Year)
     const targetYearStr = String(targetYear);
-    if (pnlEvents) {
-      pnlEvents.forEach((e: any) => {
-        const d = e.closeDate || e.date;
+    let yearlyInvalidCount = 0;
+
+    if (auditTrail) {
+      auditTrail.forEach((e) => {
+        const d = e.closeDate; // AuditEvent uses closeDate
         if (d && d.startsWith(targetYearStr)) {
-          pnlMap.set(e.symbol, (pnlMap.get(e.symbol) || 0) + e.pnl);
+          // [FIX] C2: Explicit finite check
+          if (Number.isFinite(e.pnl)) {
+            pnlMap.set(e.symbol, (pnlMap.get(e.symbol) || 0) + e.pnl);
+          } else {
+            yearlyInvalidCount++;
+          }
         }
       });
     }
+
+    if (yearlyInvalidCount > 0) {
+      console.warn(`[StockDetails] Skipped ${yearlyInvalidCount} invalid PnL entries for Yearly View ${targetYear}`);
+    }
+
 
     // B. Unrealized End (From Current/Analysis Holdings)
     // Note: 'holdings' in context is already time-traveled to end of analysis year
@@ -701,18 +716,26 @@ export function StockDetails() {
             </CardHeader>
             <CardContent>
               <div className="space-y-2">
-                {leaderboardData
-                  .filter(h => h.pnl > 0)
-                  .sort((a, b) => b.pnl - a.pnl)
-                  .slice(0, 10)
-                  .map((h) => (
+                {(() => {
+                  const winners = leaderboardData.filter(h => h.pnl > 0).sort((a, b) => b.pnl - a.pnl);
+                  // [FIX] C1, C2, C3: Diagnostic for truncation (Natural Scarcity OR Filtering)
+                  if (process.env.NODE_ENV === 'development' && winners.length < 10) {
+                    const candidates = leaderboardData.length;
+                    const winCount = winners.length;
+                    const filtered = candidates - winCount;
+                    const scope = leaderboardScope === 'global' ? 'Global/Lifetime' : `Yearly(${analysisYear || new Date().getFullYear()})`;
+
+                    console.info(`[Leaderboard] Winners Top10 truncated. Candidates: ${candidates}, Winners: ${winCount}, Filtered: ${filtered}, Scope: ${scope}`);
+                  }
+                  return winners.slice(0, 10).map((h) => (
                     <div key={h.symbol} className="flex justify-between items-center text-sm border-b border-border/50 last:border-0 pb-2 last:pb-0">
                       <span className="font-medium">{h.symbol}</span>
                       <span className="text-emerald-500 font-mono">
                         +${h.pnl.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                       </span>
                     </div>
-                  ))}
+                  ));
+                })()}
                 {leaderboardData.filter(h => h.pnl > 0).length === 0 && (
                   <p className="text-muted-foreground text-center py-4">暂无盈利记录</p>
                 )}

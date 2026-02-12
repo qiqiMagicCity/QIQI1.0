@@ -1,0 +1,5 @@
+=== [EVID] RO-18: 'NET' E2E Linkage Audit ===
+
+--- Probing CorrelationId: 2026-02-11_NET ---
+officialCloses: MISSING
+FATAL: Missing or insufficient permissions.

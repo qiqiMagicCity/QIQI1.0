@@ -6,6 +6,7 @@ import { MAX_SYMBOLS_PER_CALL } from "../config/limits";
 import { nowNyCalendarDayString } from "../lib/ny-time"; // [COMPLIANT] Use unified time util
 
 const FMP_TOKEN = defineSecret("FMP_TOKEN");
+const POLYGON_TOKEN = defineSecret("POLYGON_TOKEN");
 const MARKETSTACK_API_KEY = defineSecret("MARKETSTACK_API_KEY");
 const STOCKDATA_API_KEY = defineSecret("STOCKDATA_API_KEY");
 
@@ -28,7 +29,7 @@ export const getOfficialClose = onCall(
     {
         region: "us-central1",
         timeoutSeconds: 120,
-        secrets: [FMP_TOKEN, MARKETSTACK_API_KEY, STOCKDATA_API_KEY],
+        secrets: [FMP_TOKEN, POLYGON_TOKEN, MARKETSTACK_API_KEY, STOCKDATA_API_KEY],
     },
     async (request) => {
         // 1. Validation & Parsing
@@ -60,6 +61,7 @@ export const getOfficialClose = onCall(
         const db = admin.firestore();
         const secrets = {
             FMP_TOKEN: FMP_TOKEN.value() || "",
+            POLYGON_TOKEN: POLYGON_TOKEN.value() || "",
             MARKETSTACK_API_KEY: MARKETSTACK_API_KEY.value() || "",
             STOCKDATA_API_KEY: STOCKDATA_API_KEY.value() || "",
         };

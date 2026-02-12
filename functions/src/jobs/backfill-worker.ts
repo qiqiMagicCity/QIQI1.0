@@ -4,7 +4,7 @@ import { getFirestore } from "firebase-admin/firestore";
 import { onMessagePublished } from "firebase-functions/v2/pubsub";
 import { defineSecret } from "firebase-functions/params";
 import { logger } from "firebase-functions";
-import { fetchAndSaveOfficialClose, CloseSecrets } from "../lib/close/run"; // 假设此路径正确
+import { fetchAndSaveOfficialClose, CloseSecrets } from "../lib/close/run";
 import {
   BACKFILL_WORKER_CHUNK_SIZE,
   BACKFILL_WORKER_CONCURRENCY,
@@ -14,12 +14,12 @@ import {
 try { admin.app(); } catch { admin.initializeApp(); }
 
 const FMP_TOKEN = defineSecret("FMP_TOKEN");
+const POLYGON_TOKEN = defineSecret("POLYGON_TOKEN");
 const MARKETSTACK_API_KEY = defineSecret("MARKETSTACK_API_KEY");
 const STOCKDATA_API_KEY = defineSecret("STOCKDATA_API_KEY");
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
-// --- 辅助：获取 NY 时间 ---
 const nyTodayYmd = (): string =>
   new Intl.DateTimeFormat("en-CA", {
     timeZone: "America/New_York",
@@ -28,7 +28,6 @@ const nyTodayYmd = (): string =>
     day: "2-digit",
   }).format(new Date());
 
-// ... (保留原有的 executeConcurrently 和 extractPayload 函数不变) ...
 async function executeConcurrently<T>(
   tasks: Array<() => Promise<T>>,
   concurrencyLimit: number
@@ -65,12 +64,13 @@ function extractPayload(event: any): { date?: string; symbols?: unknown } | null
   }
   return null;
 }
-// ... (辅助函数结束) ...
 
 export const backfillWorker = onMessagePublished(
   {
     topic: "backfill-eod",
-    secrets: [FMP_TOKEN, MARKETSTACK_API_KEY, STOCKDATA_API_KEY],
+    secrets: [
+      FMP_TOKEN, POLYGON_TOKEN, MARKETSTACK_API_KEY, STOCKDATA_API_KEY
+    ],
     maxInstances: 10,
   },
   async (event) => {
@@ -84,7 +84,6 @@ export const backfillWorker = onMessagePublished(
     const date = String(payload.date ?? "").trim();
     const symbolsRaw = Array.isArray(payload.symbols) ? payload.symbols : [];
 
-    // 清洗 symbols
     const symbols: string[] = Array.from(new Set(
       symbolsRaw
         .map((s: any) => String(s ?? "").trim())
@@ -96,21 +95,21 @@ export const backfillWorker = onMessagePublished(
       return;
     }
 
-    // --- 核心修正：Time Guard (9.3 规则) ---
+    // --- Time Guard ---
     const today = nyTodayYmd();
-    if (date >= today) {
-      logger.warn("[backfillWorker] BLOCKED: Attempt to backfill future/today data. Only history allowed.", {
-        requestDate: date,
-        todayNy: today,
-        rule: "GlobalRules 9.3 Time Guard"
-      });
-      return; // 直接中止，保护实时定盘的权威性
+    const nyNow = new Date().toLocaleString("en-US", { timeZone: "America/New_York" });
+    const nyDateObj = new Date(nyNow);
+    const hh = nyDateObj.getHours();
+    const mm = nyDateObj.getMinutes();
+    const isAfterMarketClose = (hh > 16) || (hh === 16 && mm >= 5);
+
+    if (date > today || (date === today && !isAfterMarketClose)) {
+      logger.warn("[backfillWorker] BLOCKED: Future/In-market date", { date, today, hh, mm });
+      return;
     }
-    // -------------------------------------
 
     logger.info("[backfillWorker] queued", { date, size: symbols.length });
 
-    // 1. 标记 Running
     const runningBatch = db.batch();
     for (const symbol of symbols) {
       runningBatch.set(
@@ -121,30 +120,26 @@ export const backfillWorker = onMessagePublished(
     }
     await runningBatch.commit();
 
-    // 2. 执行回填 (保留原逻辑)
     const chunks: string[][] = [];
     for (let i = 0; i < symbols.length; i += BACKFILL_WORKER_CHUNK_SIZE) {
       chunks.push(symbols.slice(i, i + BACKFILL_WORKER_CHUNK_SIZE));
     }
 
+    const secrets: CloseSecrets = {
+      FMP_TOKEN: FMP_TOKEN.value(),
+      POLYGON_TOKEN: POLYGON_TOKEN.value(),
+      MARKETSTACK_API_KEY: MARKETSTACK_API_KEY.value(),
+      STOCKDATA_API_KEY: STOCKDATA_API_KEY.value(),
+    };
+
     for (let i = 0; i < chunks.length; i++) {
       const batchSyms = chunks[i];
-
-      // 工厂函数
       const factories = batchSyms.map((symbol) => async () => {
         try {
-          // [SAFETY] Add random jitter (300ms - 1000ms) to ensure we respect Yahoo API frequency "politely"
           const delay = 300 + Math.random() * 700;
           await new Promise(resolve => setTimeout(resolve, delay));
 
-          await fetchAndSaveOfficialClose(
-            db, symbol, date,
-            {
-              FMP_TOKEN: FMP_TOKEN.value(),
-              MARKETSTACK_API_KEY: MARKETSTACK_API_KEY.value(),
-              STOCKDATA_API_KEY: STOCKDATA_API_KEY.value(),
-            } as CloseSecrets
-          );
+          await fetchAndSaveOfficialClose(db, symbol, date, secrets, { bypassDateCheck: true });
           return { symbol, ok: true as const };
         } catch (e: any) {
           return Promise.reject({ symbol, message: e?.message });
@@ -153,7 +148,6 @@ export const backfillWorker = onMessagePublished(
 
       const settled = await executeConcurrently(factories, BACKFILL_WORKER_CONCURRENCY);
 
-      // 处理结果
       const updateBatch = db.batch();
       for (const r of settled) {
         if (r.status === "fulfilled") {

@@ -358,9 +358,9 @@ export function DataHealthCheck() {
                 </CardHeader>
                 <CardContent>
                     <p className="text-sm text-muted-foreground mb-4">
-                        系统会在您录入新交易时自动触发历史数据补全 (Auto-Backfill)。
+                        系统会尝试在后台补齐缺失的收盘价 (EOD)。如需立即处理，请点击日历组件顶部的「审计诊断」按钮手动触发修复。
                         <br />
-                        <span className="text-xs opacity-75">* 此处仅供管理员查看系统自动修复的状态，无需人工干预。</span>
+                        <span className="text-xs opacity-75">* 自动修复目前仅由特定后台事件触发，通常无需人工干预。</span>
                     </p>
 
                     <div className="flex gap-4 items-center">

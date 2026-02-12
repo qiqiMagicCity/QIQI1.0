@@ -1,0 +1,40 @@
+
+const pkg = require('yahoo-finance2');
+let yf: any;
+if (typeof pkg.default === 'function') {
+    yf = new pkg.default();
+} else if (typeof pkg === 'function') {
+    yf = new pkg();
+} else {
+    yf = pkg.default || pkg;
+}
+
+async function testYahoo() {
+    const symbols = [
+        "AAPL260206C00270000",
+        "GOOGL260918C00150000",
+        "NVO261218C00050000",
+        "NIO260618P00003500"
+    ];
+
+    console.log("--- Testing Yahoo Finance ---");
+
+    for (const sym of symbols) {
+        try {
+            console.log(`Fetching ${sym}...`);
+            const result = await yf.historical(sym, {
+                period1: '2026-02-01',
+                period2: '2026-02-12'
+            });
+            if (result && result.length > 0) {
+                console.log(`[${sym}] Found ${result.length} rows. Latest: ${result[result.length - 1].date.toISOString()} - Close: ${result[result.length - 1].close}`);
+            } else {
+                console.log(`[${sym}] Found 0 rows.`);
+            }
+        } catch (e: any) {
+            console.error(`[${sym}] FAILED: ${e.message}`);
+        }
+    }
+}
+
+testYahoo().catch(console.error);

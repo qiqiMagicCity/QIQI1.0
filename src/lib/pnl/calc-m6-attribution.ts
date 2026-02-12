@@ -88,7 +88,8 @@ export function calcM6Attribution(
 
         // Get PrevClose
         const prevCloseData = prevCloseMap[symbol];
-        const prevClose = (prevCloseData?.status === 'ok' && prevCloseData.close != null) ? prevCloseData.close : null;
+        const isPrevValid = prevCloseData?.status === 'ok' || prevCloseData?.status === 'plan_limited' || prevCloseData?.status === 'no_liquidity';
+        const prevClose = (isPrevValid && prevCloseData?.close != null) ? prevCloseData.close : null;
 
         let m6_1_realized = 0;
         let m6_2_realized = 0;

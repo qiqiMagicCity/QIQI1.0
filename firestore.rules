@@ -22,58 +22,57 @@ service cloud.firestore {
   match /databases/{database}/documents {
 
     /**
+     * Shared Helper Functions
+     */
+    function isSignedIn() {
+      return request.auth != null;
+    }
+    function isAdmin() {
+      return isSignedIn() && (
+        request.auth.token.email == "qiqi_MagicCity@outlook.com" || 
+        request.auth.token.email == "qiqi_magiccity@outlook.com"
+      );
+    }
+    function isOwner(userId) {
+      return (isSignedIn() && request.auth.uid == userId) || isAdmin();
+    }
+
+    /**
      * Users collection (owner-only access)
      */
     match /users/{userId} {
-      function isAdmin() {
-         // Allow both exact match and lowercase match to be safe
-         return request.auth.token.email == "qiqi_MagicCity@outlook.com" || 
-                request.auth.token.email == "qiqi_magiccity@outlook.com";
-      }
-      function isOwner(userId) {
-        // [MODIFIED] Allow explicit owner OR Admin
-        return (request.auth != null && request.auth.uid == userId) || isAdmin();
-      }
-      function isSignedIn() {
-        return request.auth != null;
-      }
-
       allow get: if isOwner(userId);
-      allow list: if isAdmin(); // [MODIFIED] Check admin for list
+      allow list: if isAdmin();
       allow create: if isSignedIn() && request.resource.data.id == request.auth.uid;
-      allow update: if isOwner(userId) && resource.data.id == request.resource.data.id;
-      allow delete: if isOwner(userId) && resource != null;
+      
+      // [FIX] ID Invariant + Backward Compatibility + Field Guard
+      // 1. Only owner can update.
+      // 2. ID MUST NOT change if it exists.
+      // 3. ID in request MUST match path if provided.
+      // 4. Protect sensitive fields (isAdmin, etc).
+      allow update: if isOwner(userId) && 
+                   (!('id' in resource.data) || resource.data.id == request.resource.data.id) &&
+                   (!('id' in request.resource.data) || request.resource.data.id == userId) &&
+                   !(request.resource.data.diff(resource.data).affectedKeys().hasAny(['isAdmin', 'claims', 'role']));
+      
+      allow delete: if isOwner(userId);
     }
 
     /**
      * User calculation modules (owner-only)
      */
     match /users/{userId}/calculationModules/{moduleId} {
-      function isAdmin() {
-         return request.auth.token.email == "qiqi_MagicCity@outlook.com" || 
-                request.auth.token.email == "qiqi_magiccity@outlook.com";
-      }
-      function isOwner(userId) {
-        return (request.auth != null && request.auth.uid == userId) || isAdmin();
-      }
       allow get: if isOwner(userId);
       allow list: if isOwner(userId);
       allow create: if isOwner(userId) && request.resource.data.userId == request.auth.uid;
       allow update: if isOwner(userId) && resource.data.userId == request.resource.data.userId;
-      allow delete: if isOwner(userId) && resource != null;
+      allow delete: if isOwner(userId);
     }
 
     /**
      * User holdings (owner-only)
      */
     match /users/{userId}/holdings/{holdingId} {
-      function isAdmin() {
-         return request.auth.token.email == "qiqi_MagicCity@outlook.com" || 
-                request.auth.token.email == "qiqi_magiccity@outlook.com";
-      }
-      function isOwner(userId) {
-        return (request.auth != null && request.auth.uid == userId) || isAdmin();
-      }
       allow get: if isOwner(userId);
       allow list: if isOwner(userId);
       allow create: if isOwner(userId);
@@ -85,31 +84,6 @@ service cloud.firestore {
      * User transactions (owner-only)
      */
     match /users/{userId}/transactions/{transactionId} {
-      function isAdmin() {
-         return request.auth.token.email == "qiqi_MagicCity@outlook.com" || 
-                request.auth.token.email == "qiqi_magiccity@outlook.com";
-      }
-      function isOwner(userId) {
-        return (request.auth != null && request.auth.uid == userId) || isAdmin();
-      }
-      allow get: if isOwner(userId);
-      allow list: if isOwner(userId);
-      allow create: if isOwner(userId);
-      allow update: if isOwner(userId);
-      allow delete: if true; // DEBUG: Force allow delete
-    }
-
-    /**
-     * User trades (owner-only)
-     */
-    match /users/{userId}/trades/{tradeId} {
-      function isAdmin() {
-         return request.auth.token.email == "qiqi_MagicCity@outlook.com" || 
-                request.auth.token.email == "qiqi_magiccity@outlook.com";
-      }
-      function isOwner(userId) {
-        return (request.auth != null && request.auth.uid == userId) || isAdmin();
-      }
       allow get: if isOwner(userId);
       allow list: if isOwner(userId);
       allow create: if isOwner(userId);
@@ -118,38 +92,52 @@ service cloud.firestore {
     }
 
     /**
-     * User PnL Snapshots (owner-only)
-     * Critical for performance optimization
+     * User trades (owner-only)
+     */
+    match /users/{userId}/trades/{tradeId} {
+      allow get: if isOwner(userId);
+      allow list: if isOwner(userId);
+      allow create: if isOwner(userId);
+      allow update: if isOwner(userId);
+      allow delete: if isOwner(userId);
+    }
+
+    /**
+     * User Daily PnL Snapshots (owner-only)
      */
     match /users/{userId}/snapshots/{snapshotId} {
-      allow read, write: if request.auth != null; // [DEBUG] Relaxed permissions to fix "Turbo Mode" write error
+      allow get, list, write: if isOwner(userId);
+    }
+
+    /**
+     * User Monthly PnL Snapshots (owner-only)
+     * Critical for performance optimization and user isolation
+     */
+    match /pnlSnapshots/{userId}/months/{monthId} {
+      allow get, list, write: if isOwner(userId);
     }
 
     /**
      * Public stock details (read-only)
      */
     match /stockDetails/{symbol} {
-      allow read: if true;     // get + list
+      allow read: if true;
       allow create, update, delete: if false;
     }
 
     /**
      * Public official closes (read-only)
-     * Needed for front-end EOD queries using `where("__name__", "in", [...])`.
      */
     match /officialCloses/{closeId} {
-      allow read: if true;     // get + list
-      // EMERGENCY FIX: Allow public write temporarily
-      allow create, update: if true;
-      allow delete: if false;
+      allow read: if true;
+      allow create, update, delete: if false;
     }
 
     /**
      * Meta collection (read-only for auth users)
-     * For debugging and system status
      */
     match /meta/{docId} {
-      allow read: if request.auth != null;
+      allow read: if isSignedIn();
     }
   }
 }

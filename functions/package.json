@@ -17,6 +17,8 @@
         "yahoo-finance2": "^3.13.0"
     },
     "devDependencies": {
+        "@types/node-fetch": "^2.6.13",
+        "node-fetch": "^3.3.2",
         "typescript": "^5.9.3"
     }
 }

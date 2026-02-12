@@ -21,7 +21,9 @@ export function calcM12_Mtd(
         if (date >= mtdStartDate && date <= todayNy) {
             const dayResult = dailyPnlMap[date];
             if (dayResult && typeof dayResult.totalPnl === 'number') {
-                total += dayResult.totalPnl;
+                if (dayResult.status === 'ok' || dayResult.status === 'partial' || dayResult.status === 'market_closed') {
+                    total += dayResult.totalPnl;
+                }
             }
         }
     }

@@ -11,16 +11,21 @@ import {
 } from 'firebase/firestore';
 import { getFunctions, httpsCallable } from 'firebase/functions';
 import { initializeFirebase } from '@/firebase';
-import { toNyCalendarDayString, isNyTradingDay } from '@/lib/ny-time';
+import { countCall } from '@/lib/snapshots/pnl-snapshot-repo';
+import { toNyCalendarDayString, prevNyTradingDayString, isNyTradingDay } from '@/lib/ny-time';
 import { EodCache, type CachedOfficialClose } from '@/lib/cache/eod-close-cache';
+
+import { EodStatus } from '../types/pnl-status';
 
 // --- 类型定义 ---
 export interface OfficialCloseResult {
-  status: 'ok' | 'error' | 'missing' | 'pending' | 'stale';
+  status: EodStatus;
   close?: number;
   tradingDate?: string;
   provider?: string;
   rev?: number; // Added for cache revision
+  quality?: string; // [NEW] Original status quality tag (e.g., 'ok', 'no_liquidity')
+  meta?: Record<string, any>; // [NEW] Metadata for signals like fetch_incomplete
 }
 
 // --- 全局状态：在途请求去重集合 ---
@@ -29,7 +34,7 @@ const pendingBackfills = new Set<string>();
 // --- 全局 Revision 内存缓存 (Pitfall B Fix) ---
 // Key: Symbol, Value: { rev: number, ts: number }
 const revisionCache = new Map<string, { rev: number; ts: number }>();
-const REV_CACHE_TTL = 60 * 1000; // 1 Minute
+const REV_CACHE_TTL = 15 * 1000; // 15 Seconds (Close-Loop responsiveness)
 
 // --- 全局内存缓存 (Memory Cache) ---
 // Key: `${tradingDate}_${symbol}`
@@ -41,7 +46,7 @@ const resultCache = new Map<string, OfficialCloseResult>();
  * 
  * 优化：使用 documentId() IN 查询，每 10-30 个一批
  */
-async function getSymbolRevisions(symbols: string[]): Promise<Record<string, number>> {
+export async function getSymbolRevisions(symbols: string[]): Promise<Record<string, number>> {
   if (!symbols || symbols.length === 0) return {};
 
   const revisions: Record<string, number> = {};
@@ -74,7 +79,7 @@ async function getSymbolRevisions(symbols: string[]): Promise<Record<string, num
   try {
     const colRef = collection(firestore, 'stockDetails');
     const promises = chunks.map(chunk => {
-      // Only fetch needed field? No, Firestore charges per doc read anyway.
+      countCall('getDocs');
       return getDocs(query(colRef, where(documentId(), 'in', chunk)));
     });
 
@@ -144,14 +149,13 @@ export async function getOfficialCloses(
   symbols.forEach(s => {
     const key = `${tradingDate}_${s}`;
     const targetRev = revisions[s] || 0;
+
     const cached = idbResults[key]; // From IDB
-    // Also check memory cache? Memory cache is volatile, but valid for session.
-    // However, if we just bumped rev, memory cache might be stale too.
-    // Let's rely on IDB logic mostly, sync mem cache later.
 
     let validCacheFound = false;
 
-    if (cached && cached.status === 'ok') {
+    const isValid = cached && (cached.status === 'ok' || cached.status === 'plan_limited' || cached.status === 'no_liquidity');
+    if (isValid) {
       const cachedRev = cached.rev || 0;
       if (cachedRev === targetRev) {
         // Valid Hit
@@ -211,7 +215,20 @@ export async function getOfficialCloses(
       })
     );
 
-    snapshots.forEach(snap => {
+    snapshots.forEach((snap, chunkIdx) => {
+      const currentChunk = chunks[chunkIdx];
+      // Log for each requested ID in the chunk
+      currentChunk.forEach(reqId => {
+        const foundDoc = snap.docs.find(d => d.id === reqId);
+
+        console.log(`[Repo-Audit] Query Doc: ${reqId}, Exists: ${!!foundDoc}`);
+        if (foundDoc) {
+          const d = foundDoc;
+          const data = d.data();
+          console.log(`  -> Data: status=${data.status}, close=${data.close}`);
+        }
+      });
+
       snap.forEach(d => {
         const data = d.data();
         const effectiveTradingDate = data.tradingDate || data.date;
@@ -219,8 +236,9 @@ export async function getOfficialCloses(
         if (data.symbol) {
           const currentRev = revisions[data.symbol] || 0;
 
+          const mappedStatus = ['ok', 'plan_limited', 'no_liquidity'].includes(data.status) ? data.status : 'error';
           const result: CachedOfficialClose = {
-            status: data.status === 'ok' ? 'ok' : 'error',
+            status: mappedStatus as any,
             close: data.close,
             tradingDate: effectiveTradingDate,
             provider: data.provider,
@@ -377,27 +395,51 @@ export async function getSymbolCloses(
 export async function getOfficialClosesRange(
   startDate: string,
   endDate: string,
-  symbols?: string[]
+  symbols?: string[],
+  options: { includePrevTradingDay?: boolean } = {}
 ): Promise<Record<string, OfficialCloseResult>> {
+
+  let actualStartDate = startDate;
+  if (options.includePrevTradingDay) {
+    actualStartDate = prevNyTradingDayString(startDate);
+  }
 
   // 1. If symbols provided, use "Batch" mode (Cache + Rev supported)
   if (symbols && symbols.length > 0) {
     // Generate trading dates
     const dates: string[] = [];
-    let curr = new Date(startDate);
+    let curr = new Date(actualStartDate);
     const end = new Date(endDate);
 
-    // Safety Cap: 60 days max or just rely on loop
+    const MAX_DAYS = 1500; // Safety Cap
     let count = 0;
-    while (curr <= end && count < 100) {
+    let isTruncated = false;
+
+    let lastResultDate = actualStartDate;
+    while (curr <= end) {
+      if (count >= MAX_DAYS) {
+        isTruncated = true;
+        break;
+      }
       const dStr = curr.toISOString().split('T')[0];
       if (isNyTradingDay(dStr)) {
         dates.push(dStr);
+        lastResultDate = dStr;
       }
       curr.setDate(curr.getDate() + 1);
       count++;
     }
-    return getOfficialClosesBatch(dates, symbols);
+
+    const results = await getOfficialClosesBatch(dates, symbols);
+
+    if (isTruncated) {
+      // [S1] Explicitly mark the boundary to signal truncation to the caller.
+      results['FETCH_INCOMPLETE_BOUNDARY'] = {
+        status: 'fetch_incomplete',
+        meta: { lastFetchedDate: lastResultDate, endDate }
+      };
+    }
+    return results;
   }
 
   // 2. Fallback: Raw Range Query (No Caching, No Revision Check)
@@ -409,7 +451,7 @@ export async function getOfficialClosesRange(
   try {
     const q = query(
       colRef,
-      where('tradingDate', '>=', startDate),
+      where('tradingDate', '>=', actualStartDate),
       where('tradingDate', '<=', endDate)
     );
     const snap = await getDocs(q);
@@ -435,6 +477,17 @@ export async function getOfficialClosesBatch(
   symbols: string[]
 ): Promise<Record<string, OfficialCloseResult>> {
   if (!dates.length || !symbols.length) return {};
+
+  // DEBUG:EOD-BATCH-AUDIT
+  if (symbols.includes("NVDA") || symbols.includes("nvda")) {
+    console.log(`[EOD-BATCH-AUDIT] batchInput {
+      datesRange: "${dates[0]} -> ${dates[dates.length - 1]}",
+      datesCount: ${dates.length},
+      symbolsCount: ${symbols.length},
+      includesNVDA: true,
+      sampleSymbols: ${JSON.stringify(symbols.slice(0, 20))}
+    }`);
+  }
 
   // Reuse getOfficialCloses logic concepts but adapt for batch
   const { firestore } = initializeFirebase();
@@ -466,9 +519,11 @@ export async function getOfficialClosesBatch(
     const targetRev = revisions[sym] || 0;
     const entry = cached[id];
 
-    if (entry && entry.status === 'ok') {
-      if (entry.rev === targetRev) {
-        results[id] = entry;
+    const isEntryValid = !!entry && typeof entry.close === 'number' && Number.isFinite(entry.close);
+
+    if (isEntryValid) {
+      if (entry!.rev === targetRev) {
+        results[id] = entry!;
         resultCache.set(id, entry);
       } else {
         // Stale
@@ -500,6 +555,20 @@ export async function getOfficialClosesBatch(
     chunks.push(missingIds.slice(i, i + chunkSize));
   }
 
+  // DEBUG:EOD-BATCH-AUDIT
+  if (symbols.includes("NVDA")) {
+    console.log(`[EOD-BATCH-AUDIT] chunkQuery {
+       totalMissingIds: ${missingIds.length},
+       chunksCount: ${chunks.length},
+       includesNVDA_Query: ${missingIds.some(id => id.includes("NVDA"))}
+     }`);
+  }
+
+  let totalKeptOk = 0;
+  let totalKeptNoLiquidity = 0;
+  let totalKeptUnknown = 0;
+  let totalDroppedNoClose = 0;
+
   try {
     const promises = chunks.map(chunk => {
       const q = query(colRef, where(documentId(), 'in', chunk));
@@ -509,33 +578,121 @@ export async function getOfficialClosesBatch(
     const snapshots = await Promise.all(promises);
     const newCacheEntries: Record<string, CachedOfficialClose> = {};
 
-    snapshots.forEach(snap => {
+    snapshots.forEach((snap, chunkIdx) => {
+      const currentChunk = chunks[chunkIdx];
+
+      // DEBUG:EOD-BATCH-AUDIT
+      if (symbols.includes("NVDA")) {
+        console.log(`[EOD-BATCH-AUDIT] chunkResult {
+          chunkIndex: ${chunkIdx},
+          docsCount: ${snap.size},
+          has_2026_01_06_NVDA: ${snap.docs.some(d => d.id === "2026-01-06_NVDA")},
+          has_2026_01_05_NVDA: ${snap.docs.some(d => d.id === "2026-01-05_NVDA")},
+          has_2026_01_02_NVDA: ${snap.docs.some(d => d.id === "2026-01-02_NVDA")},
+          firstIds: ${JSON.stringify(snap.docs.slice(0, 5).map(d => d.id))}
+        }`);
+      }
+
+      currentChunk.forEach(reqId => {
+        const foundDoc = snap.docs.find(d => d.id === reqId);
+        console.log(`[Repo-Audit-Batch] Query Doc: ${reqId}, Exists: ${!!foundDoc}`);
+      });
+
+      let beforeCount = 0;
+      let afterCount = 0;
+      let keptOk = 0;
+      let keptNoLiquidity = 0;
+      let keptUnknown = 0;
+      let droppedNoClose = 0;
+
       snap.forEach(d => {
         const data = d.data();
+        beforeCount++;
+
         if (data.symbol) {
           const currentRev = revisions[data.symbol] || 0;
+          const rawStatus = (data.status ?? 'unknown');
+          const closeValue = data.close;
+          const hasClose = typeof closeValue === 'number' && Number.isFinite(closeValue);
+
+          const mappedStatus = hasClose ? 'ok' : 'error';
+
+          if (hasClose) {
+            afterCount++;
+            if (rawStatus === 'ok') keptOk++;
+            else if (rawStatus === 'no_liquidity') keptNoLiquidity++;
+            else keptUnknown++;
+          } else {
+            droppedNoClose++;
+          }
+
+          // DEBUG:EOD-BATCH-AUDIT
+          if (d.id.includes("NVDA") && d.id.startsWith("2026-01")) {
+            console.log(`[EOD-BATCH-AUDIT] nvdaDocPath {
+               docId: "${d.id}",
+               rawStatus: "${rawStatus}",
+               mappedStatus: "${mappedStatus}",
+               close: ${closeValue},
+               hasClose: ${hasClose}
+             }`);
+          }
+
           const res: CachedOfficialClose = {
-            status: data.status === 'ok' ? 'ok' : 'error',
-            close: data.close,
+            status: mappedStatus as any,
+            close: closeValue,
             tradingDate: data.tradingDate || d.id.split('_')[0],
             provider: data.provider,
             rev: currentRev,
-            symbol: data.symbol
+            symbol: data.symbol,
+            quality: rawStatus
           };
           results[d.id] = res;
           resultCache.set(d.id, res);
           newCacheEntries[d.id] = res;
         }
       });
+
+      totalKeptOk += keptOk;
+      totalKeptNoLiquidity += keptNoLiquidity;
+      totalKeptUnknown += keptUnknown;
+      totalDroppedNoClose += droppedNoClose;
+
+      // DEBUG:EOD-BATCH-AUDIT
+      if (symbols.includes("NVDA")) {
+        console.log(`[EOD-BATCH-AUDIT] filterStats {
+           beforeCount: ${beforeCount},
+           afterCount: ${afterCount},
+           droppedCount: ${beforeCount - afterCount}
+        }`);
+      }
     });
+
+    console.log(`[EOD-STATUS-AUDIT] totalSummary { totalKeptOk: ${totalKeptOk}, totalKeptNoLiquidity: ${totalKeptNoLiquidity}, totalKeptUnknown: ${totalKeptUnknown}, totalDroppedNoClose: ${totalDroppedNoClose} }`);
 
     // Write back
     if (Object.keys(newCacheEntries).length > 0) {
       EodCache.setMany(newCacheEntries).catch(e => console.warn(e));
     }
 
-  } catch (e) {
+    // DEBUG:EOD-TIMELINE-AUDIT
+    // We import dynamically if possible or just use global if we injected it.
+    // To be safe, try dynamic import if performance.now is available (browser side).
+    if (typeof window !== 'undefined') {
+      import('@/lib/debug/eod-timeline').then(({ audit }) => {
+        audit("getOfficialClosesBatch.done", {
+          rangeStart: dates[0],
+          rangeEnd: dates[dates.length - 1],
+          totalDocs: Object.keys(results).length,
+          has_2026_01_06_NVDA: "2026-01-06_NVDA" in results,
+          has_2026_01_05_NVDA: "2026-01-05_NVDA" in results,
+          has_2026_01_02_NVDA: "2026-01-02_NVDA" in results
+        });
+      });
+    }
+
+  } catch (e: any) {
     console.error("[Repo] Failed to fetch batch closes", e);
+    console.log(`[Repo-Audit-Error] Code: ${e.code}, Message: ${e.message}`);
   }
 
   return results;

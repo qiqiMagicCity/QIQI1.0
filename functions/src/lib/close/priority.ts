@@ -4,6 +4,9 @@ import { coversDate } from "./capabilities";
 import { fmpProvider } from "../../providers/close/fmp";
 import { yahooProvider } from "../../providers/close/yahoo";
 import { finnhubEodProvider } from "../../providers/close/finnhub";
+import { polygonProvider } from "../../providers/close/polygon";
+import { tiingoProvider } from "../../providers/close/tiingo";
+import { alphaVantageProvider } from "../../providers/close/alphavantage";
 
 /** 调用尝试的记录（便于排障） */
 interface Attempt {
@@ -19,6 +22,41 @@ interface Attempt {
   hint?: string;
   rateLimitReset?: string | number;
   ts?: number;
+}
+
+/**
+ * 辅助函数：简写期权格式 -> 标准 OCC 格式
+ * 示例：NVDA250620C120 -> NVDA250620C00120000
+ * @param symbol 原始符号
+ * @param withPrefix 是否带 O: 前缀 (Polygon 需要)
+ */
+export function convertShortOptionToOcc(symbol: string, withPrefix = true): string {
+  const upper = symbol.toUpperCase().trim();
+  // Regex: Ticker (Any) + YYMMDD (6 digits) + C/P (1 char) + Price (Any number/float)
+  const match = upper.match(/^([A-Z]+)(\d{6})([CP])([\d.]+)$/);
+  if (!match) return upper;
+
+  const [, ticker, date, type, priceStr] = match;
+
+  // 如果价格已经是 8 位且无小数点，则仅处理前缀
+  if (priceStr.length === 8 && !priceStr.includes('.')) {
+    if (withPrefix) return upper.startsWith('O:') ? upper : `O:${upper}`;
+    return upper.startsWith('O:') ? upper.slice(2) : upper;
+  }
+
+  const priceNum = parseFloat(priceStr);
+  if (isNaN(priceNum)) return upper;
+
+  // OCC 价格规则：乘以 1000，补齐 8 位零
+  const scaledPrice = Math.round(priceNum * 1000);
+  const paddedPrice = String(scaledPrice).padStart(8, '0');
+
+  const occSymbol = `${ticker}${date}${type}${paddedPrice}`;
+  return withPrefix ? `O:${occSymbol}` : occSymbol;
+}
+
+function isShortOptionFormat(symbol: string): boolean {
+  return /^[A-Z]+\d{6}[CP][\d.]+$/.test(symbol.toUpperCase().trim());
 }
 
 /**
@@ -198,6 +236,7 @@ export function buildDefaultCloseProviders(
   // 1) 基础顺序：FMP → Marketstack → StockData.org → Yahoo
   const providers: CloseProvider[] = [
     ...existing,
+    polygonProvider, // ★ NEW: Polygon is the primary source of truth
     fmpProvider, // 始终先尝试 FMP
   ];
 
@@ -216,6 +255,10 @@ export function buildDefaultCloseProviders(
   if (useStockdata) providers.push(stockdataProvider);
   // [USER RULE] Yahoo is the ultimate backstop/safety net.
   if (useYahoo) providers.push(yahooProvider);
+
+  // Add Tiingo and AlphaVantage as secondary safety nets
+  providers.push(tiingoProvider);
+  providers.push(alphaVantageProvider);
 
   // 2) 去重（按 name 保留首次出现）
   const uniqueProvidersMap = new Map<string, CloseProvider>();
@@ -270,9 +313,29 @@ export async function getCloseWithFailover(
       continue;
     }
 
+    let fetchSymbol = symbol;
+    const isOption = isShortOptionFormat(symbol);
+
+    if (isOption) {
+      // 对期权做 Provider 分流适配
+      if (['marketstack', 'stockdata', 'finnhub'].includes(provider.name)) {
+        console.log(`[Option-Route] Skipping ${provider.name} for option ${symbol} (Not Supported)`);
+        attempts.push(sanitizeAttempt({ p: provider.name, s: "skipped", hint: "Option EOD not supported by this provider" }));
+        continue;
+      }
+
+      if (provider.name === 'polygon') {
+        fetchSymbol = convertShortOptionToOcc(symbol, true); // 带 O: 前缀
+      } else if (['yahoo', 'fmp', 'tiingo', 'alphavantage'].includes(provider.name)) {
+        fetchSymbol = convertShortOptionToOcc(symbol, false); // 不带 O: 前缀
+      }
+
+      console.log(`[Option-Route] Diverting: symbol=${symbol}, provider=${provider.name}, fetchSymbol=${fetchSymbol}`);
+    }
+
     try {
-      console.log(`[Failover] Trying provider '${provider.name}' for ${symbol}...`);
-      const closeData = await provider.getClose(symbol, date, secrets, ctx);
+      console.log(`[Failover] Trying provider '${provider.name}' for ${fetchSymbol}...`);
+      const closeData = await provider.getClose(fetchSymbol, date, secrets, ctx);
       result = closeData;
       console.log(`[Failover] Provider '${provider.name}' SUCCEEDED.`);
 

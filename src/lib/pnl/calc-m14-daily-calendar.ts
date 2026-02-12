@@ -1,6 +1,6 @@
 import { Tx } from '@/hooks/use-user-transactions';
 import { OfficialCloseResult } from '@/lib/data/official-close-repo';
-import { toNyCalendarDayString, prevNyTradingDayString, isNyTradingDay, getMarketClosedReason } from '@/lib/ny-time';
+import { toNyCalendarDayString, prevNyTradingDayString, isNyTradingDay, getMarketClosedReason, getEarlyCloseReason } from '@/lib/ny-time';
 import { normalizeSymbolClient } from '@/lib/utils';
 import { calcGlobalFifo } from './calc-m4-m5-2-global-fifo';
 import { STOCK_SPLITS, getRestoredHistoricalPrice } from '@/lib/holdings/stock-splits';
@@ -10,15 +10,17 @@ interface FifoLayer {
     qty: number;
     price: number;
     ts: number;
-    multiplier: number; // [FIX] Precision: Store multiplier explicitly per layer
+    multiplier: number;
 }
 
 interface FifoState {
     longLayers: FifoLayer[];
     shortLayers: FifoLayer[];
     realizedPnl: number;
-    assetType?: 'stock' | 'option'; // [NEW] Track asset type for fallback logic
+    assetType?: 'stock' | 'option';
 }
+
+import { DailyPnlStatus } from '../types/pnl-status';
 
 export interface DailyPnlResult {
     date: string;
@@ -28,12 +30,32 @@ export interface DailyPnlResult {
     realizedPnlDay: number;      // Ledger Intraday (M5.2)
     m5_1: number;                // Trading Intraday (M5.1)
     unrealizedPnlChange: number;
-    eodUnrealized: number;
-    prevEodUnrealized: number;
-    status: 'ok' | 'partial' | 'missing-data' | 'market-closed';
+    eodUnrealized: number | null;
+    prevEodUnrealized: number | null;
+    status: DailyPnlStatus;
     missingReason?: string;
-    marketClosedReason?: string; // [NEW] Detail why market is closed
+    marketClosedReason?: string;
+    earlyCloseReason?: string; // [NEW] early close info
     missingSymbols?: string[];
+    processedCount?: number;
+}
+
+export const ENGINE_VERSION = '4.0.0-GA';
+
+/**
+ * Helper to calculate average cost basis for a symbol.
+ */
+function calculateAvgCost(state: FifoState): number {
+    const longQty = state.longLayers.reduce((s, l) => s + l.qty, 0);
+    const shortQty = state.shortLayers.reduce((s, l) => s + l.qty, 0);
+    const totalQty = longQty + shortQty;
+    if (Math.abs(totalQty) < 0.000001) return 0;
+
+    const longCost = state.longLayers.reduce((s, l) => s + l.qty * l.price, 0);
+    const shortCost = state.shortLayers.reduce((s, l) => s + l.qty * l.price, 0);
+
+    // Avg Cost = Total Money Invested / Total Qty
+    return (longCost + shortCost) / totalQty;
 }
 
 /**
@@ -44,24 +66,43 @@ export function calcM14DailyCalendar(
     transactions: Tx[],
     targetDates: string[],
     eodMap: Record<string, OfficialCloseResult>,
-    activeSplits = STOCK_SPLITS // [NEW] Injectable configuration, defaults to static for now
+    activeSplits: any[] = STOCK_SPLITS,
+    options: { isEodLoading?: boolean } = {} // [NEW] Added options
 ): Record<string, DailyPnlResult> {
+    const todayNy = toNyCalendarDayString(new Date());
+    const now = new Date();
+    const nyTimeStr = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/New_York', hour: '2-digit', minute: '2-digit', hour12: false }).format(now);
+    const [hh, mm] = nyTimeStr.split(':').map(Number);
+    const hhmm = hh * 100 + mm;
+    const isBeforeOpen = hhmm < 930;
+    const isAfterClose = hh >= 16;
+    const isTradingSession = !isBeforeOpen && !isAfterClose;
+
+    console.log(`[M14] Engine V4.0.1 Started. Today: ${todayNy} ${nyTimeStr} (Pre-market: ${isBeforeOpen}, Intraday: ${isTradingSession}, After-close: ${isAfterClose})`);
     const results: Record<string, DailyPnlResult> = {};
     if (targetDates.length === 0) return results;
 
-    // 0. Pre-process Data
-    const isNov2025 = targetDates.some(d => d.startsWith('2025-11')); // [DEBUG] Detect Nov 2025 early
-    // Sort transactions by time
-    const sortedTxs = [...transactions].sort((a, b) => a.transactionTimestamp - b.transactionTimestamp);
-
-    // Group Splits for fast lookup
-    const splitsByDate = new Map<string, typeof STOCK_SPLITS>();
-    for (const split of activeSplits) {
-        if (!split.effectiveDate) continue;
-        const d = split.effectiveDate;
-        if (!splitsByDate.has(d)) splitsByDate.set(d, []);
-        splitsByDate.get(d)!.push(split);
+    // DEBUG:EOD-TIMELINE-AUDIT
+    if (typeof window !== 'undefined') {
+        import('@/lib/debug/eod-timeline').then(({ audit }) => {
+            if (options.isEodLoading) {
+                audit("M14.calc.blocked", { reason: "eod_not_ready", eodMapSize: Object.keys(eodMap).length });
+            } else {
+                audit("M14.calc.start", {
+                    todayNY: todayNy,
+                    targetDatesCount: targetDates.length,
+                    eodMapSize: Object.keys(eodMap).length,
+                    has_2026_01_06_NVDA: "2026-01-06_NVDA" in eodMap,
+                    has_2026_01_05_NVDA: "2026-01-05_NVDA" in eodMap,
+                    has_2026_01_02_NVDA: "2026-01-02_NVDA" in eodMap,
+                    txCount: transactions.length
+                });
+            }
+        });
     }
+
+    const isNov2025 = targetDates.some(d => d.startsWith('2025-11'));
+    const sortedTxs = [...transactions].sort((a, b) => a.transactionTimestamp - b.transactionTimestamp);
 
     // 1. Pre-calculate Realized PnL (Global FIFO)
     const lastTargetDate = targetDates[targetDates.length - 1];
@@ -70,9 +111,9 @@ export function calcM14DailyCalendar(
         todayNy: lastTargetDate
     });
 
-    const realizedPnlFullMap = new Map<string, number>();           // Total Realized
-    const realizedPnlPositionMap = new Map<string, number>();   // Legacy (Position)
-    const realizedPnlDayMap = new Map<string, number>();        // Intraday (Day Trade - Ledger)
+    const realizedPnlFullMap = new Map<string, number>();
+    const realizedPnlPositionMap = new Map<string, number>();
+    const realizedPnlDayMap = new Map<string, number>();
 
     for (const event of auditTrail) {
         const d = event.closeDate;
@@ -97,18 +138,14 @@ export function calcM14DailyCalendar(
     for (const [date, daysTxs] of txsByDate) {
         let m5_1_val = 0;
         const queues = new Map<string, Array<{ qty: number; cost: number }>>();
-
         for (const tx of daysTxs) {
             const key = tx.contractKey || normalizeSymbolClient(tx.symbol);
             if (!queues.has(key)) queues.set(key, []);
             const q = queues.get(key)!;
-
             if (tx.opKind === 'SPLIT') continue;
-
             let remaining = tx.qty;
             const price = tx.price;
             const mult = tx.multiplier;
-
             while (Math.abs(remaining) > 0.000001) {
                 if (q.length === 0) {
                     q.push({ qty: remaining, cost: price });
@@ -121,10 +158,8 @@ export function calcM14DailyCalendar(
                     } else {
                         const matchQty = Math.min(Math.abs(remaining), Math.abs(head.qty));
                         const signedMatchQty = Math.sign(remaining) * matchQty;
-
                         const pnl = -signedMatchQty * (price - head.cost) * mult;
                         m5_1_val += pnl;
-
                         if (Math.abs(head.qty) > matchQty + 0.000001) {
                             head.qty = head.qty > 0 ? head.qty - matchQty : head.qty + matchQty;
                             remaining = remaining > 0 ? remaining - matchQty : remaining + matchQty;
@@ -141,16 +176,10 @@ export function calcM14DailyCalendar(
 
     // 2. Rolling Calculation for Unrealized PnL
     const positions = new Map<string, FifoState>();
-
     let txIndex = 0;
-
-    // Sort targetDates to ensure chronological order
     const sortedTargetDates = [...targetDates].sort();
-
-    // Cache previous date's result
-    let prevDateUnrealizedVal = 0;
+    let prevDateUnrealizedVal: number | null = null;
     let prevDateStatus: DailyPnlResult['status'] = 'ok';
-    let prevDateMissingSymbols: string[] | undefined = undefined;
 
     const getPositionState = (sym: string) => {
         const k = normalizeSymbolClient(sym);
@@ -160,18 +189,14 @@ export function calcM14DailyCalendar(
         return positions.get(k)!;
     };
 
-    // Cache last known prices to handle missing data gracefully
     const lastKnownPrices = new Map<string, number>();
 
-    // --- Helper: Apply Tx to Position State ---
     const applyTxToState = (tx: Tx) => {
         if (tx.opKind === 'SPLIT') return;
-
         const state = getPositionState(tx.symbol);
         const assetType = tx.assetType || 'stock';
-        state.assetType = assetType; // [NEW] Capture asset type
+        state.assetType = assetType;
         const mult = tx.multiplier ?? (assetType === 'option' ? 100 : 1);
-
         if (tx.side === 'BUY') {
             let qty = tx.qty;
             while (qty > 0.000001 && state.shortLayers.length > 0) {
@@ -199,29 +224,18 @@ export function calcM14DailyCalendar(
         }
     };
 
-    // --- Helper: Apply Pending Splits up to a date ---
-    // [FIX] We must track which splits have been applied to avoid double-counting.
-    const appliedSplits = new Set<string>(); // Key: `${date}_${symbol}`
-
+    const appliedSplits = new Set<string>();
     const applyPendingSplits = (upToDate: string) => {
         for (const split of activeSplits) {
             const splitKey = `${split.effectiveDate}_${split.symbol}`;
             if (appliedSplits.has(splitKey)) continue;
-
             if (split.effectiveDate <= upToDate) {
-                // Apply Split
                 const state = positions.get(normalizeSymbolClient(split.symbol));
                 if (state) {
                     const ratio = split.splitRatio;
                     if (ratio > 0) {
-                        state.longLayers.forEach(l => {
-                            l.qty = l.qty * ratio;
-                            l.price = l.price / ratio;
-                        });
-                        state.shortLayers.forEach(l => {
-                            l.qty = l.qty * ratio;
-                            l.price = l.price / ratio;
-                        });
+                        state.longLayers.forEach(l => { l.qty *= ratio; l.price /= ratio; });
+                        state.shortLayers.forEach(l => { l.qty *= ratio; l.price /= ratio; });
                     }
                 }
                 appliedSplits.add(splitKey);
@@ -229,220 +243,154 @@ export function calcM14DailyCalendar(
         }
     };
 
-    // --- Warmup Phase: Initialize Baseline State ---
-    // Fast-forward to the day *before* the first target date to set correct prevDateUnrealizedVal
     if (sortedTargetDates.length > 0) {
         const firstDate = sortedTargetDates[0];
         const baselineDate = prevNyTradingDayString(firstDate);
-
-        // Fast-forward transactions
         while (txIndex < sortedTxs.length) {
             const tx = sortedTxs[txIndex];
             const txDay = toNyCalendarDayString(tx.transactionTimestamp);
             if (txDay > baselineDate) break;
-
-            // [FIX] Apply splits valid *before or on* this transaction day
-            // This ensures logic order: Old Layers -> Spilt -> New Tx (Already Split)
             applyPendingSplits(txDay);
-
             applyTxToState(tx);
             txIndex++;
         }
-
-        // [FIX] Catch-up splits after last tx but before baseline
         applyPendingSplits(baselineDate);
-
-        // Calculate Baseline Unrealized PnL (if valid trading day)
-        // ... (existing baseline calc logic) ...
         if (isNyTradingDay(baselineDate)) {
-            // [DEBUG] Container for Oct 31 (Baseline) analysis
-            const debugHoldings: any[] = [];
-
+            let baselineUnrealized: number | null = null;
             for (const [symKey, state] of positions) {
-                const netQty = state.longLayers.reduce((s, l) => s + l.qty, 0) +
-                    state.shortLayers.reduce((s, l) => s + l.qty, 0);
-
+                const netQty = state.longLayers.reduce((s, l) => s + l.qty, 0) + state.shortLayers.reduce((s, l) => s + l.qty, 0);
                 if (Math.abs(netQty) < 0.000001) continue;
-
-                const key = `${baselineDate}_${symKey}`;
-                const eod = eodMap[key];
-
-                let priceUsed = 'MISSING';
-
-                // Only use high-quality EOD for baseline to avoid skewing start
-                if (eod?.status === 'ok' && typeof eod.close === 'number') {
-                    // [STANDARD] Use standardized price restoration
-                    const price = getRestoredHistoricalPrice(eod.close, symKey, baselineDate, activeSplits);
-
-                    priceUsed = price.toFixed(2);
-                    state.longLayers.forEach(l => {
-                        prevDateUnrealizedVal += (price - l.price) * l.qty * l.multiplier;
-                    });
-                    state.shortLayers.forEach(l => {
-                        prevDateUnrealizedVal += (l.price - price) * Math.abs(l.qty) * l.multiplier;
-                    });
-                    // Also seed lastKnownPrices with RAW Adjusted Close (normalized to current)
-                    lastKnownPrices.set(symKey, eod.close);
-                }
-
-                // [DEBUG] Collect info
-                if (isNov2025) {
-                    debugHoldings.push({
-                        Symbol: symKey,
-                        NetQty: netQty.toFixed(4),
-                        PriceOct31: priceUsed
-                    });
+                const eod = eodMap[`${baselineDate}_${symKey}`];
+                const hasClose = typeof eod?.close === 'number' && Number.isFinite(eod.close);
+                if (hasClose) {
+                    const price = getRestoredHistoricalPrice(eod.close!, symKey, baselineDate, activeSplits);
+                    let symbolPnl = 0;
+                    state.longLayers.forEach(l => { symbolPnl += (price - l.price) * l.qty * l.multiplier; });
+                    state.shortLayers.forEach(l => { symbolPnl += (l.price - price) * Math.abs(l.qty) * l.multiplier; });
+                    baselineUnrealized = (baselineUnrealized ?? 0) + symbolPnl;
+                    lastKnownPrices.set(symKey, eod.close!);
                 }
             }
-
-            // [DEBUG] Print Table
-            if (isNov2025 && debugHoldings.length > 0) {
-                console.groupCollapsed(`🔍 WARMUP CHECK (${baselineDate})`);
-                console.log('Verifying if we have valid prices for held positions...');
-                console.table(debugHoldings);
-                if (debugHoldings.some(h => h.PriceOct31 === 'MISSING')) {
-                    console.error('❌ CRITICAL: Missing EOD data for baseline! Unrealized Start will be wrong (0).');
-                } else {
-                    console.log('✅ Baseline prices look good.');
-                }
-                console.groupEnd();
-            }
+            prevDateUnrealizedVal = baselineUnrealized;
         }
     }
 
-    // [FIX] Remove legacy 'splitsByDate' loop inside Main Loop?
-    // The Main Loop below also needs to apply splits.
-    // We can reuse `applyPendingSplits`!
-    // But Main Loop iterates `sortedTargetDates`.
-    // Let's replace the inline 2.1 logic with `applyPendingSplits(currentDate)`.
-
-    for (let i = 0; i < sortedTargetDates.length; i++) {
-        const currentDate = sortedTargetDates[i];
-
-        // 2.1 Apply Splits (using the robust helper)
+    for (const currentDate of sortedTargetDates) {
         applyPendingSplits(currentDate);
-
-        // 2.2 Process Transactions for the Current Date
         while (txIndex < sortedTxs.length) {
             const tx = sortedTxs[txIndex];
             const txDay = toNyCalendarDayString(tx.transactionTimestamp);
-
-            if (txDay > currentDate) {
-                break;
-            }
-
-            // Note: Splits for txDay are already applied above (since txDay <= currentDate)
-            // Wait, if txDay < currentDate, splits for txDay were applied in previous loops.
-            // If txDay == currentDate, splits for currentDate were applied in 2.1 above.
-            // So we are safe.
+            if (txDay > currentDate) break;
             applyTxToState(tx);
-
             txIndex++;
         }
 
-        // ... rest of loop
-
-
-        // 2.3 Calculate EOD Unrealized PnL
-        let eodUnrealized = 0;
+        let eodUnrealized: number | null = null;
         let isMissing = false;
-        let isEstimating = false; // [NEW] Flag for fallback usage
+        let isEstimating = false;
         let missingReason = '';
         let marketClosedReason = '';
         const missingSymbols: string[] = [];
 
-        if (!isNyTradingDay(currentDate)) {
-            eodUnrealized = prevDateUnrealizedVal;
-
-            // Populate reason for closure
-            const reason = getMarketClosedReason(currentDate);
-            if (reason) marketClosedReason = reason;
-
-            if (prevDateStatus === 'missing-data') {
-                isMissing = true;
-                missingReason = 'prev-eod-missing-for-holiday';
-            } else {
-                isMissing = false;
-            }
-
-        } else {
-            // Trading Day: Calculate from Positions
+        if (currentDate === todayNy && isBeforeOpen) {
+            // [HARD GATE]
+        } else if (isNyTradingDay(currentDate)) {
             for (const [symKey, state] of positions) {
-                const netQty =
-                    state.longLayers.reduce((s, l) => s + l.qty, 0) +
-                    state.shortLayers.reduce((s, l) => s + l.qty, 0);
-
+                const netQty = state.longLayers.reduce((s, l) => s + l.qty, 0) + state.shortLayers.reduce((s, l) => s + l.qty, 0);
                 if (Math.abs(netQty) < 0.000001) continue;
+                const eod = eodMap[`${currentDate}_${symKey}`];
+                const isPlanLimited = eod?.status === 'plan_limited';
+                const isNoLiquidity = eod?.status === 'no_liquidity';
 
-                const key = `${currentDate}_${symKey}`;
-                let eod = eodMap[key];
-                let price = 0;
-                let priceSource: 'live' | 'fallback' = 'live';
+                let price: number | null = null;
+                let isValuable = false;
 
-                if (eod?.status === 'ok' && typeof eod.close === 'number') {
-                    // [STANDARD] Use standardized price restoration
-                    price = getRestoredHistoricalPrice(eod.close, symKey, currentDate, activeSplits);
-                    lastKnownPrices.set(symKey, eod.close); // Cache RAW EOD
-                } else {
-                    // Fallback Strategy
+                const hasClose = typeof eod?.close === 'number' && Number.isFinite(eod.close);
+
+                // 1. Precise Match (Now based on close abundance, not status)
+                if (hasClose) {
+                    price = getRestoredHistoricalPrice(eod!.close!, symKey, currentDate, activeSplits);
+                    isValuable = true;
+                }
+                // 2. Specialized Fallback: No Liquidity (Market Close or Stale) -> Use Prev Close
+                else if (isNoLiquidity) {
                     if (lastKnownPrices.has(symKey)) {
-                        // P3: Last Known Price (Applies to both Stock and Option)
-                        const rawPrice = lastKnownPrices.get(symKey)!;
-                        price = getRestoredHistoricalPrice(rawPrice, symKey, currentDate, activeSplits);
-                        priceSource = 'fallback';
-                        isEstimating = true;
+                        price = getRestoredHistoricalPrice(lastKnownPrices.get(symKey)!, symKey, currentDate, activeSplits);
                     } else {
-                        // All Assets (Stock & Option): Strict Missing Data Check
-                        // If no live data and no fallback, this symbol is truly missing.
-                        // We MUST report it so auto-heal can trigger.
-                        missingSymbols.push(symKey);
-                        isMissing = true;
-                        continue; // Skip PnL calc for this symbol, but it's flagged as missing now.
+                        price = calculateAvgCost(state);
                     }
+                    isEstimating = true;
+                }
+                // 3. Specialized Fallback: Plan Limited (Quota Exceeded) -> Use Avg Cost
+                else if (isPlanLimited) {
+                    price = calculateAvgCost(state);
+                    isEstimating = true;
+                }
+                // 4. General Fallback: Historical (already existing but truly missing today)
+                else if (lastKnownPrices.has(symKey)) {
+                    price = getRestoredHistoricalPrice(lastKnownPrices.get(symKey)!, symKey, currentDate, activeSplits);
+                    isEstimating = true;
                 }
 
-                // Calculate PnL if a valid price is found
-                if (price > 0) {
-                    // Long layers
-                    for (const layer of state.longLayers) {
-                        eodUnrealized += (price - layer.price) * layer.qty * layer.multiplier;
-                    }
-                    // Short layers
-                    for (const layer of state.shortLayers) {
-                        eodUnrealized += (layer.price - price) * Math.abs(layer.qty) * layer.multiplier;
-                    }
+                if (price !== null) {
+                    let symbolPnl = 0;
+                    state.longLayers.forEach(l => { symbolPnl += (price! - l.price) * l.qty * l.multiplier; });
+                    state.shortLayers.forEach(l => { symbolPnl += (l.price - price!) * Math.abs(l.qty) * l.multiplier; });
+                    eodUnrealized = (eodUnrealized ?? 0) + symbolPnl;
+
+                    // Only update lastKnownPrices if we have a "real" close OR if it's better than nothing
+                    // However, for consistency in rolling, we update it.
+                    lastKnownPrices.set(symKey, price);
+                } else {
+                    // Truly missing: No current EOD, No History, No Plan fallback
+                    missingSymbols.push(symKey);
+                    isMissing = true;
                 }
             }
         }
 
-        // 2.4 Assemble Result
+        // 2.1 Check for Truncation (Safety Shield / S1)
+        const boundary = eodMap['FETCH_INCOMPLETE_BOUNDARY'];
+        const truncationPoint = boundary?.meta?.lastFetchedDate;
+        const isTruncated = truncationPoint && currentDate > truncationPoint;
+
         let status: DailyPnlResult['status'] = 'ok';
 
-        // [FIX] Defensive Missing Data Handling
-        // If data is missing, we MUST NOT return a partial sum (which looks like a massive loss).
-        // Instead, we carry forward the previous day's EOD Value (Flat PnL).
-        if (isMissing) {
-            status = 'missing-data';
+        if (isTruncated) {
+            status = 'fetch_incomplete';
+            isMissing = false;
+            missingSymbols.length = 0; // Prevent from entering "Missing List" or triggering AutoHeal
+            eodUnrealized = prevDateUnrealizedVal;
+        } else if (currentDate === todayNy && isBeforeOpen) {
+            status = 'not_open';
+            eodUnrealized = prevDateUnrealizedVal;
+        } else if (currentDate === todayNy && isTradingSession) {
+            status = 'intraday';
+            eodUnrealized = prevDateUnrealizedVal;
+        } else if (!isNyTradingDay(currentDate)) {
+            status = 'market_closed';
+            marketClosedReason = getMarketClosedReason(currentDate) || '';
+            eodUnrealized = prevDateUnrealizedVal;
+            if (prevDateStatus === 'missing_data') {
+                status = 'missing_data';
+                missingReason = 'prev-eod-missing-for-holiday';
+            }
+        } else if (options.isEodLoading && isMissing) {
+            status = 'loading_eod';
+            isMissing = false;
+            missingSymbols.length = 0;
+            eodUnrealized = prevDateUnrealizedVal;
+        } else if (isMissing) {
+            status = 'missing_data';
             missingReason = 'eod-price-missing';
-            // Force flat unrealized
             eodUnrealized = prevDateUnrealizedVal;
         } else if (isEstimating) {
-            status = 'partial'; // Use 'partial' if some prices were estimated
+            status = 'partial';
             missingReason = 'eod-price-estimated';
-        } else if (!isNyTradingDay(currentDate)) {
-            status = 'market-closed';
         }
 
-        const unrealizedPnlChange = eodUnrealized - prevDateUnrealizedVal;
+        const unrealizedPnlChange = (eodUnrealized !== null && prevDateUnrealizedVal !== null) ? (eodUnrealized - prevDateUnrealizedVal) : 0;
         const realized = realizedPnlFullMap.get(currentDate) || 0;
-
-        if (currentDate === '2025-12-01') {
-            // ... (keep forensic dump if needed, or remove to save space - keeping as is for safety matching)
-            console.group(`%c🚨 FORENSIC DUMP: ${currentDate}`, 'color: red; font-size: 16px; font-weight: bold;');
-            // ... omitted for brevity in prompt match, assuming tool handles context ... 
-            // actually I should probably not try to match the forensic dump lines in TargetContent if I can avoid it.
-            // I will match up to the 'if (currentDate === ...)' line or just before.
-        }
 
         results[currentDate] = {
             date: currentDate,
@@ -455,66 +403,25 @@ export function calcM14DailyCalendar(
             eodUnrealized,
             prevEodUnrealized: prevDateUnrealizedVal,
             status,
-            missingReason: isMissing ? missingReason : undefined,
-            marketClosedReason: status === 'market-closed' ? marketClosedReason : undefined,
-            missingSymbols: isMissing ? missingSymbols : undefined
+            missingReason: missingReason || undefined,
+            marketClosedReason: marketClosedReason || undefined,
+            earlyCloseReason: getEarlyCloseReason(currentDate) || undefined,
+            missingSymbols: missingSymbols.length > 0 ? missingSymbols : undefined,
+            processedCount: 1
         };
 
-        // Update Cache
-        // On missing data, we carried over the value, so prevDateUnrealizedVal remains same for next loop.
         prevDateUnrealizedVal = eodUnrealized;
         prevDateStatus = status;
-        prevDateMissingSymbols = missingSymbols;
-    }
 
-    // --- 🔍 FORENSIC AUDIT: NOV 2025 ---
-    // isNov2025 is already defined at top of function
-    if (isNov2025) {
-        console.group('%c🔍 NOV 2025 FORENSIC PnL AUDIT', 'color: yellow; font-weight: bold; font-size: 14px;');
-
-        // 1. Realized Analysis
-        const novTxs = auditTrail.filter(e => e.closeDate.startsWith('2025-11'));
-        const novRealizedTotal = novTxs.reduce((sum, e) => sum + e.pnl, 0);
-
-        console.log(`%c1. Realized PnL: $${novRealizedTotal.toFixed(2)}`, 'font-weight: bold');
-        if (novTxs.length > 0) {
-            console.table(novTxs.map(e => ({
-                Date: e.closeDate,
-                Sym: e.symbol,
-                Qty: e.qty.toFixed(2),
-                'Sell $': e.closePrice.toFixed(2),
-                'Cost $': e.openPrice.toFixed(2),
-                'PnL': e.pnl.toFixed(2)
-            })));
-        } else {
-            console.log('(No realized gains/losses in Nov)');
+        // DEBUG:EOD-TIMELINE-AUDIT
+        if (currentDate === '2026-01-06' && typeof window !== 'undefined') {
+            import('@/lib/debug/eod-timeline').then(({ audit }) => {
+                audit("M14.dayResult.2026-01-06", {
+                    status: results[currentDate].status,
+                    missingSymbols: results[currentDate].missingSymbols
+                });
+            });
         }
-
-        // 2. Unrealized Analysis
-        // Find Nov 30 result (or last day)
-        const sorted = Object.keys(results).sort();
-        const lastDay = sorted[sorted.length - 1];
-        const lastRes = results[lastDay];
-
-        // Find Start Value (captured in Warmup Phase as prevDateUnrealizedVal before loop started, 
-        // but now prevDateUnrealizedVal is at END of loop. We need the START.)
-        // Actually, for Nov 1 entry, `prevEodUnrealized` holds the Oct 31 val.
-        const firstDay = sorted[0];
-        const firstRes = results[firstDay];
-        const startUnrealized = firstRes?.prevEodUnrealized || 0;
-        const endUnrealized = lastRes?.eodUnrealized || 0;
-        const unrealizedChange = endUnrealized - startUnrealized;
-
-        console.log(`%c2. Unrealized Change: $${unrealizedChange.toFixed(2)}`, 'font-weight: bold');
-        console.log(`   Oct 31 Value: $${startUnrealized.toFixed(2)}`);
-        console.log(`   Nov 30 Value: $${endUnrealized.toFixed(2)}`);
-
-        // 3. Verdict
-        const totalCalc = novRealizedTotal + unrealizedChange;
-
-        console.log(`%c3. VERDICT (Total PnL): $${totalCalc.toFixed(2)}`, 'color: cyan; font-weight: bold; font-size: 16px;');
-        console.log('--------------------------------------------------');
-        console.groupEnd();
     }
 
     return results;

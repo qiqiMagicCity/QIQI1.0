@@ -1,0 +1,28 @@
+=== [EVID] RO-11: Option Price Fallback Audit ===
+Current NY Day: 2026-02-11
+UID: LvEXr3ZwmhRc8yw340RjgRXm8y03 (Anonymous)
+
+--- 2. Data Source Proof (NY Timezone) ---
+Checking officialCloses data口径...
+TSLA260116C00400000 @ 2026-02-11: MISSING
+TSLA260116C00400000 @ 2026-02-10: MISSING
+
+--- 3. Logic Path Audit (Code Trace) ---
+Priority confirmed in src/contexts/holdings-provider.tsx:
+1. manualMarkPrices[sym]
+2. priceRecord?.price (Real-time)
+3. todayEodMap[sym].close (Today EOD)
+4. refEodMap[sym].close (Previous EOD - IF ASSET IS OPTION)
+
+Risk Identified: The fallback only applies to 'Option' UI display (line 991),
+but computeDayPnLSymbol (line 199) lacks the 'refEodMap' fallback for TodayPl calculation.
+Result: UI may show a price, but Today Pl remains '--'.
+
+--- 4. Dead Rule Alignment ---
+Dead Rule A (Fallback): Currently PARTIALLY IMPLEMENTED (UI only). Result: YES (Partial)
+Dead Rule B (Stock/Option Parity): NO (Logic has explicit assetType === 'option' branch).
+Dead Rule C (Calendar Reliability): YES (prevNyTradingDayString uses recursive search with holidays).
+
+--- 5. Acceptance Data (Snapshot) ---
+Current hour is ~08:55 AM NY (Pre-market). Today's EOD is guaranteed MISSING for most symbols.
+If we were to run at this moment, most options would rely on refEodMap (Yesterday).

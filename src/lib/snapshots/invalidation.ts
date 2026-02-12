@@ -1,6 +1,8 @@
 
 import { collection, query, where, getDocs, writeBatch } from 'firebase/firestore';
 import { initializeFirebase } from '@/firebase';
+import { broadcastSnapshotInvalidation } from './broadcast';
+import { getGlobalTxRevision } from './pnl-snapshot-repo';
 
 const { firestore: db } = initializeFirebase();
 
@@ -23,24 +25,34 @@ export async function invalidateSnapshots(uid: string, txDateStr: string) {
     }
 
     const snapsRef = collection(db, 'users', uid, 'snapshots');
-    // Find all snapshots where snapshot date >= txDateStr
-    // String comparison works for YYYY-MM-DD
     const q = query(snapsRef, where('date', '>=', txDateStr));
 
+    // NEW: Also invalidate monthly snapshots
+    const txMonth = txDateStr.substring(0, 7); // 'YYYY-MM'
+    const monthlySnapsRef = collection(db, 'pnlSnapshots', uid, 'months');
+    const qMonthly = query(monthlySnapsRef, where('monthId', '>=', txMonth));
+
     try {
-        const querySnapshot = await getDocs(q);
-        if (querySnapshot.empty) {
+        const [querySnapshot, monthlySnapshot] = await Promise.all([
+            getDocs(q),
+            getDocs(qMonthly)
+        ]);
+
+        if (querySnapshot.empty && monthlySnapshot.empty) {
             console.log(`[Invalidation] No snapshots affected by change on ${txDateStr}`);
             return;
         }
 
         const batch = writeBatch(db);
-        querySnapshot.forEach((doc) => {
-            batch.delete(doc.ref);
-        });
+        querySnapshot.forEach((doc) => batch.delete(doc.ref));
+        monthlySnapshot.forEach((doc) => batch.delete(doc.ref));
 
         await batch.commit();
-        console.log(`[Invalidation] 🗑️ Deleted ${querySnapshot.size} stale snapshots >= ${txDateStr}`);
+        console.log(`[Invalidation] 🗑️ Deleted ${querySnapshot.size} EOD snaps and ${monthlySnapshot.size} monthly snaps >= ${txMonth}`);
+
+        // Notify other tabs with the latest revision for idempotency
+        const latestRev = await getGlobalTxRevision(uid);
+        broadcastSnapshotInvalidation(uid, txDateStr, latestRev);
 
     } catch (err) {
         console.error('[Invalidation] Failed to delete stale snapshots:', err);

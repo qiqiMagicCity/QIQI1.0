@@ -1,0 +1,20 @@
+=== [EVID] RO-20: 'NET' Minimal Dependency Audit ===
+
+--- B. NET Transaction Timeline (NY Days) ---
+Code Analysis:
+1. Today Pl (Row): Requires 2026-02-10 (Ref Day) and 2026-02-11 (Live/Today).
+2. YTD PnL (Global): Requires DAILY EOD for NET from 2026-01-01 to 2026-02-11 if NET was held.
+3. BUG: fetchEod() [HoldingsProvider:655-661] requests ytdBase (2025-12-31) for ALL uniqueSymbols.
+
+--- C. Actual vs Minimal Dependency (Prediction) ---
+Symbol: NET
+Minimal Set for Row Display: [2026-02-10, 2026-02-11]
+Actual Requested Set (per fetchEod): [2025-12-31, 2026-01-30, 2026-02-06, 2026-02-10, 2026-02-11]
+
+--- Firestore Verification for NET ---
+ID: 2025-12-31_NET | MISSING
+ID: 2026-01-30_NET | MISSING
+ID: 2026-02-06_NET | MISSING
+ID: 2026-02-10_NET | MISSING
+ID: 2026-02-11_NET | MISSING
+FATAL: Missing or insufficient permissions.

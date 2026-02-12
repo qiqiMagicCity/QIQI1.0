@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { collection, query, where, getDocs, doc, deleteDoc, setDoc, writeBatch, Timestamp } from 'firebase/firestore';
+import { collection, query, where, getDocs, doc, deleteDoc, setDoc, writeBatch, Timestamp, increment, serverTimestamp } from 'firebase/firestore';
 import { getAuth } from 'firebase/auth';
 import { v4 as uuidv4 } from 'uuid';
 
@@ -252,7 +252,7 @@ function parseBulkText(raw: string): { trades: ParsedTrade[], preMergeCount: num
         // Need YYMMDD format for the symbol part usually
         const shortYear = expYr.slice(-2);
         const strikeVal = parseFloat(strikeStr);
-        const symbol = `${undSymbol} ${shortYear}${expMo.padStart(2, '0')}${expDy.padStart(2, '0')} ${right} ${strikeVal}`;
+        const symbol = `${undSymbol}${shortYear}${expMo.padStart(2, '0')}${expDy.padStart(2, '0')}${right}${strikeVal}`;
 
         // Side Logic
         const side = (sideAction === 'BUY') ? 'BUY' : 'SELL';
@@ -1188,6 +1188,16 @@ export function BulkAddTransactionForm({ onSuccess }: { onSuccess?: () => void }
       }
 
       console.log(`[Clean Slate] Committing Batch: ${deleteCount} Deletes, ${addCount} Adds.`);
+
+      // Increment revision on user doc (Use set with merge to handle non-existent docs)
+      const userRef = doc(firestore, 'users', user.uid);
+      // 2. Increment Revision (Use set with merge to handle non-existent docs)
+      batch.set(userRef, {
+        id: user.uid, // Mandatory for create rules
+        txRevision: increment(1),
+        updatedAt: serverTimestamp()
+      }, { merge: true });
+
       await batch.commit();
 
       // 5. [UI Feedback] 伪装成 "跳过" 如果指纹一致

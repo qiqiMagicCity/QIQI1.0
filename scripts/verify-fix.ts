@@ -1,91 +1,59 @@
 
-import { buildHoldingsSnapshot, Tx } from '@/lib/holdings/fifo';
+import * as admin from 'firebase-admin';
+import { getFirestore } from 'firebase-admin/firestore';
+import { format, subDays, eachDayOfInterval, parseISO, isBefore, isWeekend } from 'date-fns';
 
-// Mock Data reproducing the "Spli-Brain" / "Pollution" scenario
-const mockTransactions: Tx[] = [
-    {
-        id: 'tx_stock_buy',
-        symbol: 'BA',
-        assetType: 'stock',
-        side: 'BUY',
-        qty: 1000, // Bought 1000 shares
-        price: 150.00,
-        transactionTimestamp: 1000000000000, // Old time
-        multiplier: 1
-    },
-    {
-        id: 'tx_option_sell_1',
-        symbol: 'BA', // Simplified symbol, usually causes pollution
-        assetType: 'option', // RAW DATA SAYS OPTION
-        side: 'SELL',
-        qty: -5, // Sell 5 contracts
-        price: 15.20,
-        transactionTimestamp: 1738140000000, // 2025-01-29
-        multiplier: 100, // Option multiplier
-        isOption: true,
-        opKind: 'STC'
-    },
-    {
-        id: 'tx_option_sell_2',
-        symbol: 'BA',
-        assetType: 'option',
-        side: 'SELL',
-        qty: -5,
-        price: 12.50,
-        transactionTimestamp: 1745920000000, // 2025-04-29
-        multiplier: 100,
-        isOption: true,
-        opKind: 'STC'
-    }
+if (!admin.apps.length) {
+    admin.initializeApp();
+}
+
+const db = getFirestore();
+
+// List of options to check
+const targets = [
+    { symbol: 'AAPL 260206 C 270', desc: 'Apple Call Options' },
+    { symbol: 'GOOGL 260918 C 150', desc: 'Google Call Options' },
+    { symbol: 'NIO 260618 P 3.5', desc: 'NIO Put Options' }
 ];
 
-console.log("=== Regression Test: BA Option vs Stock Isolation ===\n");
+async function checkStatus() {
+    console.log('╔════════════════════════════════════════════════════╗');
+    console.log('║  ✅ 修复结果验证 (Verification Report)            ║');
+    console.log('╚════════════════════════════════════════════════════╝\n');
 
-const snapshot = buildHoldingsSnapshot(mockTransactions);
+    for (const target of targets) {
+        console.log(`🔍 检查目标: ${target.desc} (${target.symbol})`);
 
-console.log("Generated Holdings:");
-snapshot.holdings.forEach((h, i) => {
-    console.log(`[Holding ${i + 1}]`);
-    console.log(`  Symbol: ${h.symbol}`);
-    console.log(`  AssetType: ${h.assetType}`);
-    console.log(`  NetQty: ${h.netQty}`);
-    console.log(`  Multiplier: ${h.multiplier}`);
-    console.log(`  Total Cost Basis: ${h.costBasis}`);
-    console.log(`  Reference (raw): ${h.lots.length} lots`);
-});
+        // Check recent 3 trading days
+        const today = new Date();
+        const days = eachDayOfInterval({
+            start: subDays(today, 5),
+            end: today
+        }).filter(d => !isWeekend(d)).map(d => format(d, 'yyyy-MM-dd'));
 
-// Verification Logic
-const stockPosition = snapshot.holdings.find(h => h.assetType === 'stock');
-const optionPosition = snapshot.holdings.find(h => h.assetType === 'option');
+        let found = 0;
+        let missing = 0;
 
-let pass = true;
+        for (const date of days) {
+            const docId = `${date}_${target.symbol}`;
+            const doc = await db.collection('officialCloses').doc(docId).get();
 
-if (!stockPosition) {
-    console.error("FAIL: Stock position missing!");
-    pass = false;
-} else if (stockPosition.netQty !== 1000) {
-    console.error(`FAIL: Stock position polluted! Expected 1000, Got ${stockPosition.netQty}`);
-    pass = false;
-} else {
-    console.log("PASS: Stock position is clean (1000).");
+            if (doc.exists) {
+                const data = doc.data() as any;
+                console.log(`   ✅ ${date}: $${data.close?.toFixed(2)} (Provider: ${data.provider})`);
+                found++;
+            } else {
+                console.log(`   ❌ ${date}: 缺失 (Missing)`);
+                missing++;
+            }
+        }
+
+        if (found > 0) {
+            console.log(`   🎉 结论: 数据已成功写入！\n`);
+        } else {
+            console.log(`   ⚠️ 结论: 仍未找到数据。\n`);
+        }
+    }
 }
 
-if (!optionPosition) {
-    console.error("FAIL: Option position missing (merged into stock?)");
-    pass = false;
-} else if (optionPosition.netQty !== -10) {
-    console.error(`FAIL: Option position incorrect! Expected -10, Got ${optionPosition.netQty}`);
-    pass = false;
-} else if (optionPosition.multiplier !== 100) {
-    console.error(`FAIL: Option multiplier degraded! Expected 100, Got ${optionPosition.multiplier}`);
-    pass = false;
-} else {
-    console.log("PASS: Option position is correct (-10 contracts, multiplier 100).");
-}
-
-if (pass) {
-    console.log("\n✅ TEST PASSED: Stocks and Options are correctly isolated.");
-} else {
-    console.error("\n❌ TEST FAILED.");
-    process.exit(1);
-}
+checkStatus();

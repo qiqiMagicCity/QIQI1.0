@@ -67,9 +67,10 @@ export function buildOCC(params: {
   cp: 'C' | 'P';
   strike: number;
 }): string {
-  const underlyingPadded = sanitizeUnderlying(params.underlying).padEnd(6, ' ');
+  const underlyingClean = sanitizeUnderlying(params.underlying);
   const expiryStr = formatExpiryYYMMDD(params.expiry);
   const strikeStr = formatStrike8(params.strike);
 
-  return `${underlyingPadded}${expiryStr}${params.cp}${strikeStr}`;
+  // Return compact format (e.g. AAPL250117C00200000)
+  return `${underlyingClean}${expiryStr}${params.cp}${strikeStr}`;
 }

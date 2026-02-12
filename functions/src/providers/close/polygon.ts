@@ -8,7 +8,8 @@ export const polygonProvider: CloseProvider = {
       throw new Error('POLYGON_TOKEN secret not found');
     }
 
-    const url = `https://api.polygon.io/v1/open-close/${symbol}/${dateYYYYMMDD}?apiKey=${token}`;
+    // Use v2/aggs for better historical coverage (Stock 10y+, Option 2y)
+    const url = `https://api.polygon.io/v2/aggs/ticker/${symbol}/range/1/day/${dateYYYYMMDD}/${dateYYYYMMDD}?adjusted=true&sort=asc&limit=1&apiKey=${token}`;
     const startTime = Date.now();
 
     // Simple retry mechanism
@@ -26,22 +27,45 @@ export const polygonProvider: CloseProvider = {
     }
 
     if (!response || !response.ok) {
+      // v2/aggs might return 200 with empty results if no data, or 404/403 if invalid
       throw new Error(`Polygon API request failed: ${response?.statusText} (status: ${response?.status})`);
     }
 
     const data = await response.json();
     const latencyMs = Date.now() - startTime;
 
-    if (data.status !== 'OK' || typeof data.close !== 'number') {
-      throw new Error('Invalid response from Polygon API');
+    // Check for results
+    if (data.status !== 'OK' && data.status !== 'DELAYED') {
+      // 'DELAYED' might be returned for 15min delayed stocks? usually 'OK'
+      // Actually v2/aggs returns OK usually.
+      // Also check results array
+    }
+
+    if (!data.results || data.results.length === 0) {
+      console.warn(`[Polygon] No data for ${symbol} on ${dateYYYYMMDD}. URL: ${url.replace(token, 'REDACTED')}. Status: ${data.status}`);
+      throw new Error('No data returned from Polygon (Market Closed or Invalid Date)');
+    }
+
+    const candle = data.results[0];
+    const closePrice = candle.c;
+
+    if (typeof closePrice !== 'number') {
+      throw new Error('Invalid close price from Polygon API');
     }
 
     return {
-      close: data.close,
-      currency: 'USD', // Polygon returns USD
+      close: closePrice,
+      currency: 'USD',
       provider: 'polygon',
       latencyMs,
-      meta: { from: data.from, symbol: data.symbol, volume: data.volume },
+      meta: {
+        from: dateYYYYMMDD,
+        symbol: data.ticker,
+        volume: candle.v,
+        high: candle.h,
+        low: candle.l,
+        open: candle.o
+      },
     };
   },
 };

@@ -23,7 +23,9 @@ export function calcM11_Wtd(
             // Only sum if we have valid data. 
             // Note: In the Provider, we will ensure 'Today' has a value (injected M6) even if EOD is missing.
             if (dayResult && typeof dayResult.totalPnl === 'number') {
-                total += dayResult.totalPnl;
+                if (dayResult.status === 'ok' || dayResult.status === 'partial' || dayResult.status === 'market_closed') {
+                    total += dayResult.totalPnl;
+                }
             }
         }
     }

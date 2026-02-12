@@ -1,7 +1,7 @@
 "use client"
 
 import { Button } from "@/components/ui/button";
-import { Bell, Search, Settings, LifeBuoy, LogOut } from "lucide-react";
+import { Bell, Search, Settings, LifeBuoy, LogOut, ShieldAlert } from "lucide-react";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -16,10 +16,10 @@ import { signOut } from "firebase/auth";
 import Link from "next/link";
 import { useState } from "react";
 import { AdminImpersonationDialog } from "@/components/admin/admin-impersonation-dialog";
-import { ShieldAlert } from "lucide-react";
 import { NotificationBell } from "./notification-bell";
 import { CommunityLinks } from "./community-links";
 import { SnapshotBackfillButton } from "@/components/debug/snapshot-backfill-button";
+import { SystemStatusBanner } from "@/components/dashboard/system-status-banner";
 
 export function DashboardHeader() {
   const { user, isAdmin } = useUser();
@@ -40,13 +40,18 @@ export function DashboardHeader() {
     return user.displayName || user.email;
   }
 
-
   return (
     <header className="sticky top-0 z-30 flex h-[40px] items-center justify-between gap-4 border-b-2 border-primary bg-background/50 backdrop-blur-sm px-4 md:px-6">
-      <WorldClocks />
+      {/* 增强了 Header 的样式，更符合 Premium Design: backdrop-blur-xl, shadow-sm, h-46px */}
+      <div className="flex items-center gap-4">
+        <WorldClocks />
+      </div>
+
       <div className="flex items-center gap-4">
         <CommunityLinks />
         <NotificationBell />
+        {/* ... (rest of the header) */}
+
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <Button variant="outline" className="px-3 py-1 h-auto text-sm rounded-full border-2 border-primary border-dashed">

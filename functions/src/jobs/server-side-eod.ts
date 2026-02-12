@@ -5,6 +5,7 @@ import { logger } from "firebase-functions";
 import { runCloseForSymbols } from "../lib/close/run";
 
 const FMP_TOKEN = defineSecret("FMP_TOKEN");
+const POLYGON_TOKEN = defineSecret("POLYGON_TOKEN");
 const MARKETSTACK_API_KEY = defineSecret("MARKETSTACK_API_KEY");
 const STOCKDATA_API_KEY = defineSecret("STOCKDATA_API_KEY");
 const FINNHUB_API_KEY = defineSecret("FINNHUB_API_KEY");
@@ -37,7 +38,7 @@ export const serverSideEodJob = onSchedule(
         timeZone: "America/New_York",
         timeoutSeconds: 3600, // 1 hour max, sufficient for batch processing
         memory: "512MiB",
-        secrets: [FMP_TOKEN, MARKETSTACK_API_KEY, STOCKDATA_API_KEY, FINNHUB_API_KEY],
+        secrets: [FMP_TOKEN, POLYGON_TOKEN, MARKETSTACK_API_KEY, STOCKDATA_API_KEY, FINNHUB_API_KEY],
     },
     async () => {
         const date = nyTodayYmd();
@@ -63,6 +64,7 @@ export const serverSideEodJob = onSchedule(
         // 2. Prepare Secrets
         const secrets = {
             FMP_TOKEN: FMP_TOKEN.value() || "",
+            POLYGON_TOKEN: POLYGON_TOKEN.value() || "",
             MARKETSTACK_API_KEY: MARKETSTACK_API_KEY.value() || "",
             STOCKDATA_API_KEY: STOCKDATA_API_KEY.value() || "",
             FINNHUB_API_KEY: FINNHUB_API_KEY.value() || "",

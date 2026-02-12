@@ -1,0 +1,40 @@
+import fetch from 'node-fetch';
+
+const POLYGON_KEY = 'aojvyHz0PyZ90AUDRRVtHpMEZLMA2EAC';
+
+function toPolygonOptionTicker(symbol: string): string | null {
+    // Expected format: GOOGL260918C150
+    const match = symbol.match(/^([A-Z]+)(\d{6})([CP])(\d+\.?\d*)$/);
+    if (!match) return null;
+    const [_, under, date, cp, strike] = match;
+    // Ticker:AAPL, Date:230616, CP:C, Strike:00150000
+    const strikeFixed = (parseFloat(strike) * 1000).toString().padStart(8, '0');
+    return `O:${under}${date}${cp}${strikeFixed}`;
+}
+
+async function check() {
+    const symbol = 'GOOGL260918C150';
+    const dates = ['2026-02-06', '2026-02-09'];
+    const pTicker = toPolygonOptionTicker(symbol);
+
+    console.log(`Symbol: ${symbol} -> Polygon: ${pTicker}`);
+
+    for (const date of dates) {
+        const url = `https://api.polygon.io/v2/aggs/ticker/${pTicker}/range/1/day/${date}/${date}?adjusted=true&apiKey=${POLYGON_KEY}`;
+        console.log(`\nFetching ${date}...`);
+        try {
+            const res = await fetch(url);
+            const data: any = await res.json();
+            if (data.results && data.results.length > 0) {
+                console.log(`[POLYGON OK] ${date}: c=${data.results[0].c}, v=${data.results[0].v}, h=${data.results[0].h}, l=${data.results[0].l}`);
+            } else {
+                console.log(`[POLYGON EMPTY] ${date}: No results field.`);
+                console.log('Full response:', JSON.stringify(data));
+            }
+        } catch (e) {
+            console.error(`Error fetching ${date}:`, e);
+        }
+    }
+}
+
+check().catch(console.error);

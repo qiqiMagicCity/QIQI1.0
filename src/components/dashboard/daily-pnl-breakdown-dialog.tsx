@@ -139,10 +139,10 @@ export function DailyPnlBreakdownDialog({ date, onClose }: DailyPnlBreakdownDial
                                                 {item.symbol}
                                             </div>
                                             <div className="col-span-2 text-right text-muted-foreground">
-                                                {item.startPrice === 'MISSING' ? 'N/A' : item.startPrice.toFixed(2)}
+                                                {item.startPrice === 'MISSING' ? 'N/A' : (item.startPrice as number).toFixed(2)}
                                             </div>
                                             <div className="col-span-2 text-right">
-                                                {item.endPrice === 'MISSING' ? <span className="text-red-500 font-bold">MISSING</span> : item.endPrice.toFixed(2)}
+                                                {item.endPrice === 'MISSING' ? <span className="text-red-500 font-bold">MISSING</span> : (item.endPrice as number).toFixed(2)}
                                             </div>
                                             <div className="col-span-2 text-right text-muted-foreground text-xs">
                                                 {item.qty.toFixed(0)}
@@ -151,9 +151,9 @@ export function DailyPnlBreakdownDialog({ date, onClose }: DailyPnlBreakdownDial
                                                 {item.pnlImpact > 0 ? '+' : ''}{item.pnlImpact.toLocaleString(undefined, { minimumFractionDigits: 2 })}
 
                                                 {/* Tooltip for formula */}
-                                                {(item.startPrice !== 'MISSING' && item.endPrice !== 'MISSING' && typeof item.startPrice === 'number' && typeof item.endPrice === 'number') && (
+                                                {(item.startPrice !== 'MISSING' && item.endPrice !== 'MISSING') && (
                                                     <span className="sr-only">
-                                                        ({item.endPrice} - {item.startPrice}) * {item.qty}
+                                                        ({item.endPrice as number} - {item.startPrice as number}) * {item.qty}
                                                     </span>
                                                 )}
                                             </div>

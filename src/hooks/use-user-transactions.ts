@@ -137,9 +137,15 @@ function normalizeFireTx(raw: FireTx, source: 'transactions' | 'trades'): Tx {
   const symbolRaw = pickFirst<string>(raw, ['symbol', 'ticker', 'underlying', 'symbolRoot', 'optionDetails.symbol']);
   const symbolClean = symbolRaw != null ? String(symbolRaw).trim() : '';
   const symbolUpper = symbolClean.toUpperCase();
-  const symbol = symbolUpper || 'UNKNOWN';
+  // [FIX] Deep Normalize: Ensure Option Symbols have NO SPACES (e.g. "NKE 260109 C 65" -> "NKE260109C65")
+  // This ensures that legacy spaced symbols match with new compact symbols for PnL/Holdings grouping.
+  let symbol = symbolUpper || 'UNKNOWN';
+  if (/\d/.test(symbol)) {
+    symbol = symbol.replace(/\s+/g, '');
+  }
+
   // —— 用于内部合约 key 的 symbol 规范化：去掉所有空格，统一大写 —— 
-  const symbolForKey = symbolUpper.replace(/\s+/g, '');
+  const symbolForKey = symbol;
   if (symbol === 'UNKNOWN') warnings.push('symbol_missing');
 
   // 资产类型：优先 assetType/securityType/instrumentType；其次 type=Option；再看 hints/multiplier/OCC

@@ -1,0 +1,26 @@
+=== [EVID] RO-14: 'NET' Missing EOD Audit (Lite) ===
+
+--- E1. Ticker & Date Context ---
+Symbol: NET
+asOfDayNy: 2026-02-11
+ytdAnchorDayNy: 2025-12-31
+refDayNy: 2026-02-10
+
+--- E3. Firestore Persistence Verification (Public Reads) ---
+
+Checking [Today] ID: 2026-02-11_NET
+- officialCloses: MISSING
+
+Checking [YTD Anchor] ID: 2025-12-31_NET
+- officialCloses: MISSING
+
+Checking [Ref Day] ID: 2026-02-10_NET
+- officialCloses: MISSING
+
+Checking stockDetails/NET:
+- eodRevision: 0
+
+--- E5. Decision ---
+A) 真缺数据: If YTD Anchor missing.
+B) 数据已补信号未变: If data exists but revision is low/zero.
+C) 计算口径: If both exist but NET still missing.

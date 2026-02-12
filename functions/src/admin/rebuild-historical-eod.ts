@@ -6,26 +6,21 @@ import { logger } from "firebase-functions/v2";
 import { defineSecret } from "firebase-functions/params";
 import { isNyTradingDay, toNyCalendarDayString } from "../lib/ny-time";
 
+const POLYGON_TOKEN = defineSecret("POLYGON_TOKEN");
 const FMP_TOKEN = defineSecret("FMP_TOKEN");
 const MARKETSTACK_API_KEY = defineSecret("MARKETSTACK_API_KEY");
 const STOCKDATA_API_KEY = defineSecret("STOCKDATA_API_KEY");
 
 /**
  * Admin Job: Global Historical EOD Self-Check & Backfill
- * 
- * 1. Scan all user transactions to find unique symbols and their earliest occurrence.
- * 2. For each symbol, iterate from earliest date to yesterday.
- * 3. Identify MISSING EOD docs (officialCloses/{date}_{symbol}) on TRADING DAYS.
- * 4. Trigger backfill (INLINE EXECUTION) for missing items.
- * 
- * NOTE: This is an expensive logic. Runs with high timeout/memory.
+// ...
  */
 export const rebuildHistoricalEod = onCall(
     {
         region: "us-central1",
         timeoutSeconds: 540, // Max 9 mins
         memory: "1GiB",
-        secrets: [FMP_TOKEN, MARKETSTACK_API_KEY, STOCKDATA_API_KEY],
+        secrets: [POLYGON_TOKEN, FMP_TOKEN, MARKETSTACK_API_KEY, STOCKDATA_API_KEY],
     },
     async (request) => {
         // 1. Auth Check
@@ -39,6 +34,7 @@ export const rebuildHistoricalEod = onCall(
 
         // Prepare Secrets
         const secrets = {
+            POLYGON_TOKEN: POLYGON_TOKEN.value(),
             FMP_TOKEN: FMP_TOKEN.value(),
             MARKETSTACK_API_KEY: MARKETSTACK_API_KEY.value(),
             STOCKDATA_API_KEY: STOCKDATA_API_KEY.value(),
@@ -156,8 +152,8 @@ export const rebuildHistoricalEod = onCall(
             logger.info(`[rebuildHistoricalEod] Starting INLINE execution for ${allTasks.length} tasks...`);
 
             // 4. INLINE EXECUTION
-            // Config: Concurrency 5, Delay 500ms
-            const CONCURRENCY = 5;
+            // Config: Boosted for Polygon Paid Plan (50 concurrent, minimal delay)
+            const CONCURRENCY = 50;
 
             // Import fetch function dynamically
             const { fetchAndSaveOfficialClose } = await import("../lib/close/run");
@@ -168,8 +164,8 @@ export const rebuildHistoricalEod = onCall(
                 await Promise.all(chunk.map(async (task) => {
                     const docId = `${task.date}_${task.symbol}`;
                     try {
-                        // Delay 100ms per task to be nicer to APIs but faster
-                        await new Promise(r => setTimeout(r, 100));
+                        // Minimal delay just to yield event loop
+                        await new Promise(r => setTimeout(r, 1));
 
                         const result = await fetchAndSaveOfficialClose(
                             db,

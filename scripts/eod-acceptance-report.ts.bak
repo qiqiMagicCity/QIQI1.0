@@ -1,0 +1,102 @@
+
+import * as admin from 'firebase-admin';
+import { getFirestore } from 'firebase-admin/firestore';
+import { eachDayOfInterval, subDays, format } from 'date-fns';
+
+if (!admin.apps.length) admin.initializeApp();
+const db = getFirestore();
+
+const normalize = (s: string) => s.trim().toUpperCase();
+
+async function main() {
+    console.log("=== FINAL ACCEPTANCE REPORT (SAFE MODE) ===");
+
+    // 1. Get Transactions & Active Holdings
+    const userRefs = await db.collection('users').listDocuments();
+    const holdings = new Map<string, number>();
+
+    for (const userRef of userRefs) {
+        const snap = await userRef.collection('transactions').get();
+        snap.forEach(doc => {
+            const tx = doc.data();
+            const sym = normalize(tx.symbol);
+
+            let qty = 0;
+            // Handle string or number quantity
+            if (typeof tx.quantity === 'string') qty = parseFloat(tx.quantity);
+            else if (typeof tx.quantity === 'number') qty = tx.quantity;
+
+            if (tx.type === 'SELL' || tx.type === 'SHORT') qty = -Math.abs(qty);
+            else qty = Math.abs(qty);
+
+            const curr = holdings.get(sym) || 0;
+            holdings.set(sym, curr + qty);
+        });
+    }
+
+    const activeSymbols = Array.from(holdings.entries())
+        .filter(([_, qty]) => Math.abs(qty) > 0.0001)
+        .map(([s]) => s)
+        .sort();
+
+    console.log(`Active Symbols: ${activeSymbols.length}`);
+    console.log(`List: ${activeSymbols.join(', ')}`);
+    console.log("------------------------------------------------");
+
+    // 2. Check Latest EOD (By probing IDs backwards)
+    // Avoids Index Requirement
+
+    // Generate last 10 dates (including today)
+    const today = new Date();
+    const checkDates = [];
+    for (let i = 0; i < 10; i++) {
+        checkDates.push(format(subDays(today, i), 'yyyy-MM-dd'));
+    }
+
+    let missingCount = 0;
+    let polygonCount = 0;
+
+    for (const sym of activeSymbols) {
+        let found = false;
+        let lastPrice = 0;
+        let lastDate = '';
+        let provider = '';
+
+        // Probe latest dates
+        for (const d of checkDates) {
+            const docRef = db.collection('officialCloses').doc(`${d}_${sym}`);
+            const doc = await docRef.get();
+            if (doc.exists) {
+                const data = doc.data();
+                if (data?.close > 0) {
+                    found = true;
+                    lastPrice = data.close;
+                    lastDate = data.tradingDate || d;
+                    provider = data.provider || 'unknown';
+                    break;
+                }
+            }
+        }
+
+        if (found) {
+            console.log(`✅ ${sym.padEnd(8)}: ${lastDate} @ $${lastPrice.toFixed(2).padEnd(8)} [${provider}]`);
+            if (provider.includes('polygon')) polygonCount++;
+        } else {
+            console.log(`❌ ${sym.padEnd(8)}: NO DATA in last 10 days.`);
+            missingCount++;
+        }
+    }
+
+    console.log("------------------------------------------------");
+    console.log(`Active Holdings: ${activeSymbols.length}`);
+    console.log(`Polygon Data:    ${polygonCount}`);
+    console.log(`Missing Data:    ${missingCount}`);
+
+    if (missingCount === 0) {
+        console.log("\n🚀 ACCEPTANCE CRITERIA MET: ALL HOLDINGS HAVE VALID EOD DATA.");
+    } else {
+        console.log("\n⚠️ WARNING: Some holdings are missing recent data (Check logs above).");
+    }
+}
+
+main();

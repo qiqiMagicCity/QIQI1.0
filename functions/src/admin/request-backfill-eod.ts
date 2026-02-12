@@ -2,6 +2,7 @@
 import * as admin from "firebase-admin";
 import { getFirestore } from "firebase-admin/firestore";
 import { HttpsError, onCall } from "firebase-functions/v2/https";
+import { defineSecret } from "firebase-functions/params";
 import { logger } from "firebase-functions/v2"; // 结构化日志（Structured Logging）
 import { PubSub } from "@google-cloud/pubsub";  // Pub/Sub（发布/订阅）
 import { normalizeList } from "../lib/symbols/normalize";
@@ -11,6 +12,11 @@ import { MAX_SYMBOLS_PER_BACKFILL_REQUEST } from "../config/limits";
 if (!admin.apps.length) {
   admin.initializeApp();
 }
+
+const POLYGON_TOKEN = defineSecret("POLYGON_TOKEN");
+const FMP_TOKEN = defineSecret("FMP_TOKEN");
+const MARKETSTACK_API_KEY = defineSecret("MARKETSTACK_API_KEY");
+const STOCKDATA_API_KEY = defineSecret("STOCKDATA_API_KEY");
 
 // —— 懒加载 Pub/Sub（发布订阅）客户端
 let _pubsub: PubSub | null = null;
@@ -32,6 +38,7 @@ export const requestBackfillEod = onCall(
   {
     region: "us-central1",
     maxInstances: 2,
+    secrets: [POLYGON_TOKEN, FMP_TOKEN, MARKETSTACK_API_KEY, STOCKDATA_API_KEY],
     // 如需强制 App Check（应用校验 App Check），可启用：
     // enforceAppCheck: true,
   },
@@ -125,9 +132,10 @@ export const requestBackfillEod = onCall(
       // But this function didn't declare them in the signature above. 
       // We must rely on Yahoo fallback mainly.
       const secrets = {
-        FMP_TOKEN: process.env.FMP_TOKEN || "",
-        MARKETSTACK_API_KEY: process.env.MARKETSTACK_API_KEY || "",
-        STOCKDATA_API_KEY: process.env.STOCKDATA_API_KEY || "",
+        POLYGON_TOKEN: POLYGON_TOKEN.value(),
+        FMP_TOKEN: FMP_TOKEN.value(),
+        MARKETSTACK_API_KEY: MARKETSTACK_API_KEY.value(),
+        STOCKDATA_API_KEY: STOCKDATA_API_KEY.value(),
       };
 
       const results = [];

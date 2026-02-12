@@ -1,0 +1,22 @@
+=== [AUDIT] Bulk Add Permission & Path Boundary Evidence ===
+
+--- Evidence E1: Connection Info ---
+Firebase Project ID: studio-9804216494-c2b75
+Current User UID: r3OYsrlKTzZTV7KFmWettW6z2Sp1
+Firestore Host Type: PRODUCTION_GOOGLE_APIS
+
+--- Evidence E3: Minimal Separated Probes ---
+Probe-A: Create one transaction doc...
+✅ Probe-A (Transactions) RESULT: ALLOWED
+
+Probe-B: Update users/{uid} txRevision...
+✅ Probe-B (User Update) RESULT: ALLOWED
+
+--- Evidence E2: Batch Operation List (Simulation) ---
+1. [SET] PATH: users/r3OYsrlKTzZTV7KFmWettW6z2Sp1/transactions/new-tx-1 | KEYS: [symbol, qty, price, userId]
+2. [SET] PATH: users/r3OYsrlKTzZTV7KFmWettW6z2Sp1/transactions/new-tx-2 | KEYS: [symbol, qty, price, userId]
+3. [UPDATE] PATH: users/r3OYsrlKTzZTV7KFmWettW6z2Sp1 | KEYS: [txRevision, updatedAt]
+4. [DELETE] PATH: pnlSnapshots/r3OYsrlKTzZTV7KFmWettW6z2Sp1/months/2026-02 | KEYS: []
+
+[Security Check] Attempting to write isAdmin: true via updateDoc...
+✅ SUCCESS: isAdmin WRITE DENIED as expected. [permission-denied]

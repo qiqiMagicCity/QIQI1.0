@@ -1,0 +1,18 @@
+
+import { calcM14DailyCalendar } from '../src/lib/pnl/calc-m14-daily-calendar';
+
+const mockTxs: any[] = [
+    { symbol: 'AAPL', qty: 10, price: 100, transactionTimestamp: new Date('2026-01-01T10:00:00Z').getTime(), side: 'BUY', opKind: 'TRADE', multiplier: 1 },
+];
+
+const targetDates = ['2026-01-02'];
+const eodMap = {
+    'FETCH_INCOMPLETE_BOUNDARY': { status: 'fetch_incomplete', meta: { lastFetchedDate: '2026-01-01' } }
+};
+
+const results = calcM14DailyCalendar(mockTxs, targetDates, eodMap);
+
+console.log('--- TEST RESULTS ---');
+console.log('Status:', results['2026-01-02'].status);
+console.log('MissingSymbols:', results['2026-01-02'].missingSymbols);
+console.log('--- END ---');

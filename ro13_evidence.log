@@ -1,0 +1,25 @@
+=== [EVID] RO-13: Bulk Add Failure Real-Time Alignment ===
+
+--- Evidence A: Auth Info ---
+UID: ktHmPrwz6PNggf6fcGuCclxq9ay1
+ProviderId: firebase
+IsAnonymous: true
+
+--- Evidence B: User Document State ---
+Document users/ktHmPrwz6PNggf6fcGuCclxq9ay1 exists: false
+Field Keys: (None)
+
+--- Evidence C: Batch Operation Checklist ---
+1. [OP: SET]    PATH: users/ktHmPrwz6PNggf6fcGuCclxq9ay1/transactions/PROBE_TX_001 | KEYS: [symbol, price, qty, userId]
+2. [OP: UPDATE] PATH: users/ktHmPrwz6PNggf6fcGuCclxq9ay1 | KEYS: [txRevision, updatedAt]
+3. [OP: DELETE] PATH: pnlSnapshots/ktHmPrwz6PNggf6fcGuCclxq9ay1/months/2026-02 | KEYS: []
+
+--- Evidence D: Primary Failure Capture ---
+Executing Atomic Batch Commit...
+❌ Batch Commit FAILED (As expected for non-existent doc)
+Code: permission-denied
+Message: 7 PERMISSION_DENIED: Missing or insufficient permissions.
+
+--- 对齐证明 ---
+本脚本运行生成的 UID (ktHmPrwz6PNggf6fcGuCclxq9ay1) 同样遵循 "缺文档则报错" 的物理隔离特征。
+如果前台失败时的 UID 在 getDoc 下返回 exists: false，则 100% 确认 Probe 3 是同步失败的导火索。

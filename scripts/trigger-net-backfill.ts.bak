@@ -1,0 +1,36 @@
+
+import * as admin from 'firebase-admin';
+import { getFirestore } from 'firebase-admin/firestore';
+import { PubSub } from '@google-cloud/pubsub';
+
+if (!admin.apps.length) {
+    admin.initializeApp();
+}
+
+async function triggerNET() {
+    const symbol = "NET";
+    const date = "2026-02-10";
+    const topicName = "backfill-eod";
+
+    console.log(`Triggering backfill for ${symbol} on ${date}...`);
+
+    const pubsub = new PubSub();
+    const data = JSON.stringify({ date, symbols: [symbol] });
+    const dataBuffer = Buffer.from(data);
+
+    try {
+        const messageId = await pubsub.topic(topicName).publishMessage({ data: dataBuffer });
+        console.log(`Message ${messageId} published to ${topicName}.`);
+
+        // Also cleanup the request status in Firestore to force a 'running' state again
+        const db = getFirestore();
+        const docId = `${date}_${symbol}`;
+        await db.collection("meta").doc("backfill").collection("requests").doc(docId).delete();
+        console.log(`Cleaned up request document ${docId} for fresh start.`);
+
+    } catch (error) {
+        console.error(`Received error while publishing: ${error.message}`);
+    }
+}
+
+triggerNET().catch(console.error);

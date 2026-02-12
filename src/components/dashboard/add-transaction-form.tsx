@@ -38,7 +38,7 @@ import { buildOCC } from '@/lib/options/occ';
 import { Badge } from "@/components/ui/badge";
 import { useCopyToClipboard } from "@/hooks/use-copy-to-clipboard";
 import { useSearchParams, useRouter } from "next/navigation";
-import { doc, getDoc, updateDoc } from "firebase/firestore";
+import { doc, getDoc, updateDoc, increment, writeBatch, serverTimestamp } from "firebase/firestore";
 import { TimePicker } from "@/components/ui/time-picker";
 import { useHoldingsContext } from "@/contexts/holdings-provider";
 
@@ -305,27 +305,35 @@ export function AddTransactionForm({ onSuccess, defaultValues }: AddTransactionF
       delete (payload as any).time;
 
       // -----------------------------------------------------------------------
-      // Optimization: Fire & Forget / Optimistic Update
-      // Don't await the server acknowledgment. Close UI immediately.
+      // [INTEGRITY FIX] Atomic Write with txRevision increment
       // -----------------------------------------------------------------------
+      const batch = writeBatch(firestore);
+      const userRef = doc(firestore, "users", effectiveUid);
 
-      // [INTEGRITY FIX] Invalidate Stale Snapshots (Async, Non-blocking)
-      // Any snapshot AFTER this transaction date is now potentially stale.
-      // We start this operation parallel to the transaction write.
+      // 1. Prepare Transaction Doc
+      const txId = editingId || uuidv4();
+      const txDocRef = doc(firestore, "users", effectiveUid, "transactions", txId);
+
+      if (editingId) {
+        batch.update(txDocRef, payload);
+      } else {
+        batch.set(txDocRef, { ...payload, id: txId });
+      }
+
+      // 2. Increment Revision (Use set with merge to handle non-existent docs)
+      batch.set(userRef, {
+        id: effectiveUid, // Mandatory for create rules
+        txRevision: increment(1),
+        updatedAt: serverTimestamp()
+      }, { merge: true });
+
+      // 3. Invalidate Stale Snapshots (Async, Non-blocking)
       import('@/lib/snapshots/invalidation').then(async ({ invalidateSnapshots }) => {
         await invalidateSnapshots(effectiveUid, transactionDateNy);
-        // [AUTO-HEAL] Trigger Background Rebuild
-        if (rebuildHistory) {
-          rebuildHistory();
-        }
+        if (rebuildHistory) rebuildHistory();
       }).catch(err => console.warn("Failed to trigger snapshot invalidation", err));
 
-      const writePromise = editingId
-        ? updateDoc(doc(firestore, "users", effectiveUid, "transactions", editingId), payload)
-        : addDocumentNonBlocking(
-          collection(firestore, "users", effectiveUid, "transactions"),
-          { ...payload, id: uuidv4() }
-        );
+      const writePromise = batch.commit();
 
       // Handle background completion/error silently or via toast
       writePromise

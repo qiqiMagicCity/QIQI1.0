@@ -18,8 +18,8 @@ function getSplitRatioOnDate(symbol: string, date: string): number {
 export interface AttributionItem {
     symbol: string;
     qty: number;
-    startPrice: number | 'MISSING';
-    endPrice: number | 'MISSING';
+    startPrice: number | 'MISSING' | null;
+    endPrice: number | 'MISSING' | null;
     pnlImpact: number;
     type: 'HOLDING' | 'INTRADAY_ACTIVITY';
     desc: string;
@@ -177,7 +177,7 @@ export function calcDailyAttribution(
     }
 
     // Capture "Start" State (Prev EOD)
-    const startSnapshots = new Map<string, { netQty: number; price: number; unrealized: number }>();
+    const startSnapshots = new Map<string, { netQty: number; price: number | null; unrealized: number }>();
     let prevTotalUnrealized = 0;
 
     for (const [sym, state] of positions) {
@@ -189,10 +189,11 @@ export function calcDailyAttribution(
         const key = `${prevDate}_${sym}`;
         const eod = eodMap[key];
         // [STANDARD] Apply Restored Price
-        const price = (eod?.status === 'ok' && eod.close) ? getRestoredHistoricalPrice(eod.close, sym, prevDate) : 0;
+        const isValid = eod?.status === 'ok' || eod?.status === 'plan_limited' || eod?.status === 'no_liquidity';
+        const price = (isValid && eod?.close) ? getRestoredHistoricalPrice(eod.close, sym, prevDate) : null;
 
         let u = 0;
-        if (price > 0) {
+        if (price !== null && price > 0) {
             state.longLayers.forEach((l: any) => { u += (price - l.price) * l.qty * l.multiplier; });
             state.shortLayers.forEach((l: any) => { u += (l.price - price) * Math.abs(l.qty) * l.multiplier; });
         }
@@ -217,12 +218,19 @@ export function calcDailyAttribution(
         const splitRatio = getSplitRatioOnDate(sym, targetDate);
         if (splitRatio > 1) {
             displayQty = netQty * splitRatio;
-            displayPrice = price / splitRatio;
+            if (price !== null) { // Only adjust price if it was valid
+                displayPrice = price / splitRatio;
+            }
             // Note: 'unrealized' ($) does not change by split itself.
         }
 
-        prevTotalUnrealized += u;
+        // eodUnrealized is not used here, assuming it was a placeholder for 'u' or 'unrealized' in startSnapshots
+        // The instruction to set eodUnrealized: number | null = 0; seems to be a misunderstanding or for a different context.
+        // The 'unrealized' property in startSnapshots is now typed as number | null.
         startSnapshots.set(sym, { netQty: displayQty, price: displayPrice, unrealized: u });
+        if (u !== null) {
+            prevTotalUnrealized += u;
+        }
     }
 
     // 3. [NEW] Apply Splits Occurring Today (Before Processing Today's Txs)
@@ -290,10 +298,11 @@ export function calcDailyAttribution(
         const key = `${targetDate}_${sym}`;
         const eod = eodMap[key];
         // [STANDARD] Apply Restored Price
-        const endPrice = (eod?.status === 'ok' && eod.close) ? getRestoredHistoricalPrice(eod.close, sym, targetDate) : 0;
+        const isValid = eod?.status === 'ok' || eod?.status === 'plan_limited' || eod?.status === 'no_liquidity';
+        const endPrice = (isValid && eod?.close) ? getRestoredHistoricalPrice(eod.close, sym, targetDate) : null;
 
         let u = 0;
-        if (endPrice > 0) {
+        if (endPrice !== null && endPrice > 0) {
             state.longLayers.forEach((l: any) => { u += (endPrice - l.price) * l.qty * l.multiplier; });
             state.shortLayers.forEach((l: any) => { u += (l.price - endPrice) * Math.abs(l.qty) * l.multiplier; });
         }
@@ -308,7 +317,7 @@ export function calcDailyAttribution(
                 symbol: sym,
                 qty: netQty, // Current Qty
                 startPrice: snap ? snap.price : 'MISSING',
-                endPrice: endPrice || 'MISSING',
+                endPrice: endPrice !== null ? endPrice : 'MISSING',
                 pnlImpact: change,
                 type: 'HOLDING',
                 desc: `Unrealized Change: ${startU.toFixed(0)} -> ${u.toFixed(0)}`

@@ -1,0 +1,70 @@
+
+import { calcM14DailyCalendar } from '../src/lib/pnl/calc-m14-daily-calendar';
+import { toNyCalendarDayString } from '../src/lib/ny-time';
+
+// ----------------------------------------------------------------------------
+// Step 5 Audit Script: Intraday Gate Validation (Read-only)
+// ----------------------------------------------------------------------------
+
+async function runStep5Audit() {
+    const todayStr = '2026-02-09';
+    const mockUtcTime = '2026-02-09T17:00:00Z'; // 17:00 UTC = 12:00 NY (Standard Time -5h)
+
+    // Part A: Engine Simulation
+    console.log('--- [A] Engine Simulation (NY 12:00) ---');
+
+    const RealDate = Date;
+    global.Date = class extends RealDate {
+        constructor(...args: any[]) {
+            if (args.length === 0) return new RealDate(mockUtcTime);
+            return new RealDate(...args as any);
+        }
+        static now() { return new RealDate(mockUtcTime).getTime(); }
+    } as any;
+
+    try {
+        const targetDates = [todayStr];
+        const results = calcM14DailyCalendar([], targetDates, {});
+        const day = results[todayStr];
+
+        console.log(JSON.stringify({
+            date: day.date,
+            status: day.status,
+            totalPnl: day.totalPnl,
+            missingSymbols: day.missingSymbols || []
+        }, null, 2));
+
+        // Part B: UI Branch Hit Simulation
+        console.log('\n--- [B] UI Branch Hit Logic ---');
+        const isIntraday = day.status === 'intraday';
+        const hasData = day.totalPnl !== undefined;
+        const isMissingData = day.status === 'missing_data';
+
+        console.log(`isIntraday: ${isIntraday}`);
+        console.log(`Condition: hasData && !isMissingData && !isIntraday`);
+        const canRenderNumbers = hasData && !isMissingData && !isIntraday;
+        console.log(`-> Can Render Numbers: ${canRenderNumbers}`);
+
+        if (!canRenderNumbers && isIntraday) {
+            console.log('-> Branch Hit: [盘中徽章分支]');
+        } else if (canRenderNumbers) {
+            console.log('-> Branch Hit: [数字渲染分支] (FAIL if intraday)');
+        }
+
+        // Part C: Missing List Isolation
+        console.log('\n--- [C] Missing Items Isolation ---');
+        const items: any[] = [];
+        // UI logic: if (res.status === "missing_data" && res.missingSymbols && res.missingSymbols.length > 0)
+        if (day.status === "missing_data" && day.missingSymbols && day.missingSymbols.length > 0) {
+            items.push({ date: day.date, symbols: day.missingSymbols });
+        }
+
+        console.log(`Missing List Count for Today: ${items.length}`);
+        console.log('Missing List content:', JSON.stringify(items));
+
+    } finally {
+        global.Date = RealDate;
+    }
+}
+
+runStep5Audit();

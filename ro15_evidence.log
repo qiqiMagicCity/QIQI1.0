@@ -1,0 +1,13 @@
+=== [EVID] RO-15: AutoHeal Closed-Loop Audit ===
+--- B. Backend Success (Sample: 2026-02-10_NVDA) ---
+OfficialClose found: YES | Status: ok | Close: 188.54 | Provider: fmp
+Raw retrievedAt: {}
+
+--- C. Completion Signal Presence ---
+NVDA eodRevision: 1
+
+--- D. Signal Path Analysis ---
+1. Backend Completion: Worker writes doc to officialCloses.
+2. Signal Defect: Backend DOES NOT update any reactive field (eodRevision/lastBackfillAt).
+3. Frontend Defect: HoldingsProvider only updates lastBackfillTs on direct success, NOT background success.
+   - Line 843 in holdings-provider.tsx: if (isQueued) { // No lastBackfillTs update here }

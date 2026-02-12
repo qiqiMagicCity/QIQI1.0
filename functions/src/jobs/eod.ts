@@ -11,6 +11,7 @@ try {
 }
 
 const FMP_TOKEN = defineSecret("FMP_TOKEN");
+const POLYGON_TOKEN = defineSecret("POLYGON_TOKEN");
 const MARKETSTACK_API_KEY = defineSecret("MARKETSTACK_API_KEY");
 const STOCKDATA_API_KEY = defineSecret("STOCKDATA_API_KEY");
 
@@ -59,7 +60,7 @@ export const eodJob = onSchedule(
   {
     schedule: "5 16 * * 1-5",
     timeZone: "America/New_York",
-    secrets: [FMP_TOKEN, MARKETSTACK_API_KEY, STOCKDATA_API_KEY],
+    secrets: [FMP_TOKEN, POLYGON_TOKEN, MARKETSTACK_API_KEY, STOCKDATA_API_KEY],
   },
   async () => {
     const db = admin.firestore();
@@ -124,6 +125,7 @@ export const eodJob = onSchedule(
 
     const secrets: CloseSecrets = {
       FMP_TOKEN: FMP_TOKEN.value() || "",
+      POLYGON_TOKEN: POLYGON_TOKEN.value() || "",
       MARKETSTACK_API_KEY: MARKETSTACK_API_KEY.value() || "",
       STOCKDATA_API_KEY: STOCKDATA_API_KEY.value() || "",
     };

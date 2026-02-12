@@ -1,0 +1,34 @@
+=== [EVID] RO-12B: Bulk Add Step-by-Step Probe (Production) ===
+
+--- Evidence E1: Environment Context ---
+Project ID: studio-9804216494-c2b75
+Current Auth UID: n3IAdBcmGMQW64i8iUe9HuQNx933
+Environment: PRODUCTION
+Token IssuedAt: Tue, 10 Feb 2026 21:57:14 GMT
+Claims: {"provider_id":"anonymous","iss":"https://securetoken.google.com/studio-9804216494-c2b75","aud":"studio-9804216494-c2b75","auth_time":1770760634,"user_id":"n3IAdBcmGMQW64i8iUe9HuQNx933","sub":"n3IAdBcmGMQW64i8iUe9HuQNx933","iat":1770760634,"exp":1770764234,"firebase":{"identities":{},"sign_in_provider":"anonymous"}}
+
+--- Evidence E2 & E3: Operation List & Minimal Probes ---
+[Existence Check] Document users/n3IAdBcmGMQW64i8iUe9HuQNx933 exists: false
+
+Probe 1: [SET] users/n3IAdBcmGMQW64i8iUe9HuQNx933/transactions/PROBE_RO12B_TEST (Keys: symbol, price, qty, userId, transactionDateNy)
+   ✅ RESULT: SUCCESS
+
+Probe 2: [DELETE] users/n3IAdBcmGMQW64i8iUe9HuQNx933/trades/PROBE_RO12B_TEST (Keys: )
+   ✅ RESULT: SUCCESS
+
+Probe 3: [UPDATE] users/n3IAdBcmGMQW64i8iUe9HuQNx933 (Keys: txRevision, updatedAt)
+   ❌ RESULT: DENIED
+      Code: permission-denied
+      Message: 7 PERMISSION_DENIED: Missing or insufficient permissions.
+
+Probe 4: [DELETE] pnlSnapshots/n3IAdBcmGMQW64i8iUe9HuQNx933/months/2026-02 (Keys: )
+   ✅ RESULT: SUCCESS
+
+--- Evidence E4: Critical Failure Identification ---
+FIRST DENIED OP: Probe 3
+OpType: UPDATE
+Path: users/n3IAdBcmGMQW64i8iUe9HuQNx933
+
+--- 用户视角说明 ---
+本项审计成功锁定第一个失败点。如果 Probe 3 (UPDATE users/{uid}) 失败，说明规则拒绝对不存在的文档执行更新。
+在批量操作中，必须先确保该文档存在，或将 UPDATE 改为 SET(merge: true)。

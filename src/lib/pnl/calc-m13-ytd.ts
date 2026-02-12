@@ -22,7 +22,9 @@ export function calcM13_Ytd(
         if (date >= ytdStartDate && date <= todayNy) {
             const dayResult = dailyPnlMap[date];
             if (dayResult && typeof dayResult.totalPnl === 'number') {
-                total += dayResult.totalPnl;
+                if (dayResult.status === 'ok' || dayResult.status === 'partial' || dayResult.status === 'market_closed') {
+                    total += dayResult.totalPnl;
+                }
             }
         }
     }

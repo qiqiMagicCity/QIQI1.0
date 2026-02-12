@@ -6,10 +6,13 @@ import { HttpsError } from "firebase-functions/v1/https";
 import { isNyTradingDay } from "../../lib/ny-time";
 
 export type CloseSecrets = {
+  POLYGON_TOKEN: string; // [REQUIRED]
   FMP_TOKEN: string;
   MARKETSTACK_API_KEY?: string;
   STOCKDATA_API_KEY?: string;
   FINNHUB_API_KEY?: string;
+  TIINGO_TOKEN?: string;
+  ALPHAVANTAGE_TOKEN?: string;
 };
 
 // 纽约“今天”的 YYYY-MM-DD
@@ -58,7 +61,7 @@ export async function fetchAndSaveOfficialClose(
 ): Promise<{ status: string; close?: number }> {
 
 
-  const upperSymbol = symbol.toUpperCase().trim();
+  const upperSymbol = symbol.trim().replace(/\s+/g, '').toUpperCase();
   // 统一语义变量名：tradingDate (纽约交易日)
   const tradingDate = date;
   const docId = `${tradingDate}_${upperSymbol}`;
@@ -151,43 +154,12 @@ export async function fetchAndSaveOfficialClose(
       throw err;
     }
 
-    // [NEW] 辅助函数：简写期权格式 -> 标准 OCC 格式
-    // 示例：NVDA250620C120 -> NVDA250620C00120000 (120 * 1000 -> 120000 -> 00120000)
-    // 示例：NVDA250620C120.5 -> NVDA250620C00120500 (120.5 * 1000 -> 120500 -> 00120500)
-    function convertShortOptionToOcc(symbol: string): string {
-      // Regex: Ticker (Any) + YYMMDD (6 digits) + C/P (1 char) + Price (Any number/float)
-      const match = symbol.match(/^([A-Z]+)(\d{6})([CP])([\d.]+)$/);
-      if (!match) return symbol; // 已经是标准格式或不是期权，原样返回
-
-      const [, ticker, date, type, priceStr] = match;
-
-      // 如果价格已经是 8 位且无小数点，可能是标准的，跳过
-      if (priceStr.length === 8 && !priceStr.includes('.')) return symbol;
-
-      const priceNum = parseFloat(priceStr);
-      if (isNaN(priceNum)) return symbol;
-
-      // OCC 价格规则：乘以 1000，补齐 8 位零
-      const scaledPrice = Math.round(priceNum * 1000);
-      const paddedPrice = String(scaledPrice).padStart(8, '0');
-
-      const occSymbol = `${ticker}${date}${type}${paddedPrice}`;
-      // console.log(`[SymbolConvert] Converted Short ${symbol} -> OCC ${occSymbol}`); 
-      // (Optional logging, keep clean for now)
-      return occSymbol;
-    }
 
     // ... inside fetchAndSaveOfficialClose ...
 
     // —— 调用带 failover（失败转移）的 close 获取逻辑
-    // [FIX] 自动检测并转换简写期权代码，以适配 Yahoo Finance
-    const fetchSymbol = convertShortOptionToOcc(upperSymbol);
-
-    if (fetchSymbol !== upperSymbol) {
-      console.log(`[fetchAndSaveOfficialClose] Auto-converted option symbol: ${upperSymbol} -> ${fetchSymbol}`);
-    }
-
-    const res = await getCloseWithFailover(chain, fetchSymbol, tradingDate, secrets);
+    // [FIX] 现在由 getCloseWithFailover 内部统一进行 Provider 分流路由
+    const res = await getCloseWithFailover(chain, upperSymbol, tradingDate, secrets);
 
     // 如需排障：仅在日志中打印 attempts，不写入 Firestore
     if (Array.isArray((res as any).attempts)) {
@@ -282,6 +254,20 @@ export async function fetchAndSaveOfficialClose(
       };
 
       await docRef.set(deepStripUndefined(successData), { merge: true });
+
+      // ★ [Signal] Update EOD Revision to notify frontends
+      try {
+        const detailRef = db.collection("stockDetails").doc(upperSymbol);
+        await detailRef.set({
+          eodRevision: admin.firestore.FieldValue.increment(1),
+          updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+          symbol: upperSymbol // Ensure field exists
+        }, { merge: true });
+        console.log(`[fetchAndSaveOfficialClose] Signal updated: ${upperSymbol}.eodRevision++`);
+      } catch (signalErr: any) {
+        console.warn(`[fetchAndSaveOfficialClose] Failed to update revision signal: ${signalErr.message}`);
+      }
+
       return { status: "ok", close: res.close };
     } else {
       // 目标日缺失（API 返回的 bulk 有数据，但找不到 targetRow）
@@ -349,6 +335,40 @@ export async function fetchAndSaveOfficialClose(
     if (error instanceof HttpsError) {
       throw error;
     } else {
+      // [NEW] Last Resort Fallback for Options: Try to use 'last' price from stockDetails
+      // This prevents the UI from being blocked by 'Missing EOD' if we at least have a recent quote.
+      const isOption = /^[A-Z]+\d{6}[CP][\d.]+$/.test(upperSymbol);
+      if (isOption) {
+        try {
+          console.log(`[fetchAndSaveOfficialClose] Attempting LastPrice fallback for missing option EOD: ${upperSymbol}`);
+          const detailSnap = await db.collection("stockDetails").doc(upperSymbol).get();
+          const detailData = detailSnap.data();
+          const lastPrice = detailData?.last;
+
+          if (typeof lastPrice === 'number' && lastPrice > 0) {
+            console.log(`[fetchAndSaveOfficialClose] Fallback SUCCEEDED for ${upperSymbol} using last price: ${lastPrice}`);
+            const fallbackData = {
+              status: "ok" as const,
+              close: lastPrice,
+              currency: "USD",
+              provider: "last_price_fallback",
+              tz: "America/New_York",
+              source: "official",
+              symbol: upperSymbol,
+              date: tradingDate,
+              tradingDate: tradingDate,
+              retrievedAt: admin.firestore.FieldValue.serverTimestamp(),
+              runId,
+              note: "Fallback to stockDetails.last due to provider failure"
+            };
+            await docRef.set(deepStripUndefined(fallbackData), { merge: true });
+            return { status: "ok", close: lastPrice };
+          }
+        } catch (fallbackErr: any) {
+          console.warn(`[fetchAndSaveOfficialClose] LastPrice fallback failed for ${upperSymbol}: ${fallbackErr.message}`);
+        }
+      }
+
       const err = new Error(
         (error as Error)?.message ?? "fetchAndSaveOfficialClose failed"
       ) as any;

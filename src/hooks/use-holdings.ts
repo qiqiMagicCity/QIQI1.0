@@ -1,6 +1,5 @@
-'use client';
-
-import { useHoldingsContext } from '@/contexts/holdings-provider';
+import type { AuditEvent } from '@/lib/pnl/calc-m4-m5-2-global-fifo'; // [NEW]
+import { useHoldingsContext } from '@/contexts/holdings-provider'; // [FIX] Import context hook
 import type { OfficialCloseResult } from '@/lib/data/official-close-repo';
 
 export type { HoldingRow, HoldingsSummary } from '@/contexts/holdings-provider';
@@ -29,6 +28,13 @@ export type UseHoldingsResult = {
   allTransactions: any[]; // [NEW] For Audit
   isAutoHealing: boolean; // [NEW]
   autoHealProgress?: { total: number; current: number; status: string } | null; // [NEW]
+  isLiveMode: boolean; // [NEW]
+  auditTrail?: AuditEvent[]; // [NEW]
+  historicalPnlMetrics?: { // [NEW]
+    totalSymbols: number;
+    invalidPnlCount: number;
+    aggregatedCount: number;
+  };
 };
 
 export function useHoldings(): UseHoldingsResult {
@@ -57,5 +63,8 @@ export function useHoldings(): UseHoldingsResult {
     availableYears: context.availableYears, // [NEW]
     isAutoHealing: context.isAutoHealing, // [NEW]
     autoHealProgress: context.autoHealProgress, // [NEW]
+    isLiveMode: context.isLiveMode, // [NEW]
+    auditTrail: context.auditTrail, // [NEW]
+    historicalPnlMetrics: context.historicalPnlMetrics, // [NEW]
   };
 }

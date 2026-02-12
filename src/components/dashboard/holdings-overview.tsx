@@ -774,7 +774,27 @@ const HoldingRowItem = ({
 };
 
 function HoldingsOverview() {
-  const { rows, loading, transactions, refreshData, showHidden, setShowHidden, toggleHidden, isAutoHealing } = useHoldings();
+  // [DEBUG] Jitter Instrumentation
+  const renderCount = useRef(0);
+  renderCount.current++;
+
+  const {
+    rows,
+    loading,
+    transactions,
+    refreshData,
+    showHidden,
+    setShowHidden,
+    toggleHidden,
+    isAutoHealing,
+    summary,
+    analysisYear,
+    isCalculating
+  } = useHoldings();
+
+  if (typeof window !== 'undefined' && renderCount.current % 5 === 0) {
+    console.log(`[HoldingsOverview] Render #${renderCount.current} | Rows: ${rows.length} | Loading: ${loading}`);
+  }
   const { fetchingSymbol } = usePriceCenterContext();
 
 
@@ -819,11 +839,9 @@ function HoldingsOverview() {
     });
   };
 
-  const sortedRows = useMemo(() => {
-    // [MODIFIED] Filter Logic:
-    // 1. Show Active Positions (Net Qty > 0)
-    // 2. Show Positions with Activity Today (Day Change != 0), even if closed (Net Qty = 0)
-    //    This ensures that if you sell everything today, you still see the result of that trade for the rest of the day.
+  // --- [RULE 3] Ranking & Value Update Decoupling ---
+  // Ideal Sort: Represents the 'perfect' order based on latest data (frequent)
+  const idealSorted = useMemo(() => {
     const activeRows = rows.filter((row) =>
       Math.abs(row.netQty) > 0.0001 ||
       (row.dayChange && Math.abs(row.dayChange) > 0.0001)
@@ -831,11 +849,12 @@ function HoldingsOverview() {
 
     if (!sortConfig.direction) return activeRows;
 
-    const sorted = [...activeRows].sort((a, b) => {
+    return [...activeRows].map((row, index) => ({ row, index })).sort((aItem, bItem) => {
+      const a = aItem.row;
+      const b = bItem.row;
       let aVal: any;
       let bVal: any;
 
-      // 计算 costBasis
       const getCostBasis = (row: typeof rows[0]) => {
         return row.avgCost != null
           ? Math.abs(row.netQty) * (row.multiplier ?? 1) * row.avgCost
@@ -843,75 +862,135 @@ function HoldingsOverview() {
       };
 
       switch (sortConfig.key) {
-        case 'symbol':
-          aVal = a.symbol;
-          bVal = b.symbol;
-          break;
-        case 'assetType':
-          aVal = a.assetType;
-          bVal = b.assetType;
-          break;
-        case 'last':
-          aVal = a.last;
-          bVal = b.last;
-          break;
-        case 'netQty':
-          aVal = a.netQty;
-          bVal = b.netQty;
-          break;
-        case 'avgCost':
-          aVal = a.avgCost;
-          bVal = b.avgCost;
-          break;
-        case 'costBasis':
-          aVal = getCostBasis(a);
-          bVal = getCostBasis(b);
-          break;
-        case 'todayPl':
-          aVal = a.todayPl;
-          bVal = b.todayPl;
-          break;
-        case 'dayChange':
-          aVal = a.dayChange;
-          bVal = b.dayChange;
-          break;
-        case 'dayChangePct':
-          aVal = a.dayChangePct;
-          bVal = b.dayChangePct;
-          break;
-        default:
-          return 0;
+        case 'symbol': aVal = a.symbol; bVal = b.symbol; break;
+        case 'assetType': aVal = a.assetType; bVal = b.assetType; break;
+        case 'last': aVal = a.last; bVal = b.last; break;
+        case 'netQty': aVal = a.netQty; bVal = b.netQty; break;
+        case 'avgCost': aVal = a.avgCost; bVal = b.avgCost; break;
+        case 'costBasis': aVal = getCostBasis(a); bVal = getCostBasis(b); break;
+        case 'todayPl': aVal = a.todayPl; bVal = b.todayPl; break;
+        case 'dayChange': aVal = a.dayChange; bVal = b.dayChange; break;
+        case 'dayChangePct': aVal = a.dayChangePct; bVal = b.dayChangePct; break;
+        default: return 0;
       }
 
-      // 处理 null/undefined
-      if (aVal == null && bVal == null) return 0;
-      if (aVal == null) return 1; // null 排后面
-      if (bVal == null) return -1;
-
-      // 优先级 0：Option 永远沉底 (Force Option to Bottom)
-      // Since a and b are row objects, we can access .assetType directly.
       const aIsOpt = a.assetType === 'option';
       const bIsOpt = b.assetType === 'option';
+      if (aIsOpt !== bIsOpt) return aIsOpt ? 1 : -1;
 
-      if (aIsOpt !== bIsOpt) {
-        // If one is option and the other is not, Option always goes LAST (bottom)
-        return aIsOpt ? 1 : -1;
+      if (aVal == bVal) {
+        const symComp = a.symbol.localeCompare(b.symbol);
+        return symComp !== 0 ? symComp : aItem.index - bItem.index;
+      }
+      if (aVal == null) return 1;
+      if (bVal == null) return -1;
+
+      let result = 0;
+      if (typeof aVal === 'string' && typeof bVal === 'string') {
+        result = aVal.localeCompare(bVal);
+      } else {
+        result = (aVal as number) - (bVal as number);
       }
 
-      // 比较
-      if (typeof aVal === 'string' && typeof bVal === 'string') {
-        return sortConfig.direction === 'asc'
-          ? aVal.localeCompare(bVal)
-          : bVal.localeCompare(aVal);
-      } else {
-        return sortConfig.direction === 'asc'
-          ? (aVal as number) - (bVal as number)
-          : (bVal as number) - (aVal as number);
+      if (result === 0) {
+        const symComp = a.symbol.localeCompare(b.symbol);
+        return symComp !== 0 ? symComp : aItem.index - bItem.index;
+      }
+      return sortConfig.direction === 'asc' ? result : -result;
+    }).map(item => item.row);
+  }, [rows, sortConfig]);
+
+  // [RULE 3] Actual Rendered Order (Throttled/Decoupled)
+  const [renderedOrder, setRenderedOrder] = useState<string[]>([]);
+  const prevOrderRef = useRef<string>("");
+  const lastSortConfigRef = useRef(JSON.stringify(sortConfig));
+
+  useEffect(() => {
+    const getRowKey = (r: any) => r.assetType === 'option' ? `${r.symbol}-${r.contractKey || ''}` : `${r.symbol}-STK`;
+    const idealKeys = idealSorted.map(getRowKey);
+    const currentConfigStr = JSON.stringify(sortConfig);
+
+    // Immediate Re-ranking for explicit user sort or list item changes
+    const isConfigChanged = currentConfigStr !== lastSortConfigRef.current;
+    const isLengthChanged = idealKeys.length !== renderedOrder.length;
+
+    if (isConfigChanged || isLengthChanged || renderedOrder.length === 0) {
+      setRenderedOrder(idealKeys);
+      lastSortConfigRef.current = currentConfigStr;
+      prevOrderRef.current = idealKeys.join('|');
+      return;
+    }
+
+    // [RULE 3] Ranking Update Cap (Throttled to 2000ms)
+    // This allows Display Updates frequency != Ranking Update Frequency
+    const timer = setTimeout(() => {
+      const newOrderStr = idealKeys.join('|');
+      if (newOrderStr !== prevOrderRef.current) {
+        const now = Date.now();
+        const win = window as any;
+        win.__HOLDINGS_STABILITY__ = win.__HOLDINGS_STABILITY__ || {
+          changes: 0,
+          lastTs: now,
+          intervals: []
+        };
+
+        const interval = now - win.__HOLDINGS_STABILITY__.lastTs;
+
+        // [THRESHOLD T1] Jitter Regression Alert
+        // We use 1950ms as a margin for setTimeout drift
+        if (interval < 1950 && win.__HOLDINGS_STABILITY__.changes > 0) {
+          console.error(`[THRESHOLD T1] 🚨 Jitter Regression! Ranking updated too fast: ${interval}ms`);
+        }
+
+        win.__HOLDINGS_STABILITY__.changes++;
+        win.__HOLDINGS_STABILITY__.intervals.push(interval);
+        win.__HOLDINGS_STABILITY__.lastTs = now;
+
+        // [EVIDENCE 1] Track Jitter / Sequence Diff
+        const oldHash = prevOrderRef.current ? prevOrderRef.current.substring(0, 8) : 'INIT';
+        const newHash = newOrderStr.substring(0, 8);
+
+        const sortedIntervals = [...win.__HOLDINGS_STABILITY__.intervals].sort((a: number, b: number) => a - b);
+        const medianInterval = sortedIntervals[Math.floor(sortedIntervals.length / 2)] || 0;
+
+        console.log(`[RankingUpdate] 🔄 Sequence Changed | ${new Date().toLocaleTimeString()} | Old: ${oldHash} | New: ${newHash} | Changes: ${win.__HOLDINGS_STABILITY__.changes} | MedianInterval: ${medianInterval}ms`);
+
+        setRenderedOrder(idealKeys);
+        prevOrderRef.current = newOrderStr;
+      }
+    }, 2000);
+
+    return () => clearTimeout(timer);
+  }, [idealSorted, sortConfig, renderedOrder.length]);
+
+  // Main sortedRows used by UI now maps high-frequency data (200ms) to low-frequency order (2s)
+  const sortedRows = useMemo(() => {
+    const getRowKey = (r: any) => r.assetType === 'option' ? `${r.symbol}-${r.contractKey || ''}` : `${r.symbol}-STK`;
+
+    // Create a fast-lookup map for current data
+    const dataMap = new Map();
+    rows.forEach(r => dataMap.set(getRowKey(r), r));
+
+    // A. Map existing ordered items
+    const orderedRows = renderedOrder
+      .map(key => dataMap.get(key))
+      .filter(Boolean);
+
+    // B. [FIX] Handle New Items immediately (New positions or items just appearing)
+    // If an item is in rows but NOT in renderedOrder yet, append it to the end immediately
+    // so it doesn't vanish during the 2s ranking throttle window.
+    const renderedSet = new Set(renderedOrder);
+    const newItems: any[] = [];
+    rows.forEach(r => {
+      const key = getRowKey(r);
+      if (!renderedSet.has(key)) {
+        newItems.push(r);
       }
     });
 
-    return sorted;
-  }, [rows, sortConfig]);
+    // Final union: Existing stabilized order + New incoming items
+    return [...orderedRows, ...newItems];
+  }, [renderedOrder, rows]);
 
   const SortableHeader = ({
     sortKey,
@@ -967,6 +1046,22 @@ function HoldingsOverview() {
                     </span>
                     同步中...
                   </Badge>
+                )}
+                {/* [RULE 3] UI Indicator for Decoupled Ranking */}
+                {!loading && rows.length > 0 && (
+                  <TooltipProvider>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <Badge variant="secondary" className="text-[10px] h-5 px-1.5 gap-1 bg-blue-500/10 text-blue-500 border-blue-500/20 font-normal cursor-help">
+                          <Layers className="w-2.5 h-2.5" />
+                          排名静止 2s
+                        </Badge>
+                      </TooltipTrigger>
+                      <TooltipContent side="right" className="text-xs max-w-[200px]">
+                        数值实时刷新 (200ms)，列表排名每 2s 同步一次，防止由于价格微调导致的列表跳动。
+                      </TooltipContent>
+                    </Tooltip>
+                  </TooltipProvider>
                 )}
               </CardTitle>
               <div className="flex items-center gap-2">
@@ -1052,7 +1147,7 @@ function HoldingsOverview() {
                   )}
 
                   {!loading &&
-                    sortedRows.filter(r => !r.isHidden).map((row, index, arr) => {
+                    sortedRows.filter(r => !r.isHidden).map((row: any, index, arr) => {
                       // DIVIDER LOGIC:
                       // Check IF current row is OPTION and previous row was STOCK
                       // Note: We need to check against the *filtered* array logic, but since we are inside map of filtered,
@@ -1060,8 +1155,12 @@ function HoldingsOverview() {
                       const prevRow = index > 0 ? arr[index - 1] : null;
                       const showDivider = row.assetType === 'option' && (!prevRow || prevRow.assetType !== 'option');
 
+                      const rowKey = row.assetType === 'option'
+                        ? `${row.symbol}-OPT-${row.multiplier}-${row.contractKey || ''}`
+                        : `${row.symbol}-STK`;
+
                       return (
-                        <React.Fragment key={`${row.symbol}-${row.assetType}-${row.multiplier ?? 1}`}>
+                        <React.Fragment key={rowKey}>
                           {showDivider && (
                             <TableRow className="hover:bg-transparent border-b-0">
                               <TableCell colSpan={15} className="p-0">

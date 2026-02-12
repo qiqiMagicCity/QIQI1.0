@@ -1,0 +1,89 @@
+
+import * as admin from 'firebase-admin';
+import { getFirestore } from 'firebase-admin/firestore';
+
+if (!admin.apps.length) {
+    admin.initializeApp();
+}
+
+const db = getFirestore();
+
+// Simplify: Just fetch holdings and check if any look like they were opened today.
+// Better: Fetch transactions for today and simulate the "Unrealized" part.
+// Actually, we can just look at the User's Realtime Holdings if available or simulate.
+// Since we don't have the full FIFO state in a simple script easily without fetching all history,
+// I will try to infer it from the user's transaction history for today.
+
+async function main() {
+    console.log("=== Debug M5.2 Breakdown ===");
+    const usersSnap = await db.collection('users').get();
+
+    // We assume the user is "active" or we scan all
+    const today = '2026-02-06';
+
+    for (const userDoc of usersSnap.docs) {
+        console.log(`\nUser: ${userDoc.id}`);
+        // Fetch All Transactions to debug format
+        const txSnap = await userDoc.ref.collection('transactions').get();
+        console.log(`   Found ${txSnap.size} total transactions.`);
+
+        const todayTxs = [];
+        txSnap.forEach(doc => {
+            const d = doc.data();
+            // Check various date fields
+            if (d.transactionDate === today || d.date === today) {
+                todayTxs.push(d);
+            } else if (d.transactionTimestamp) {
+                const dateStr = new Date(d.transactionTimestamp).toISOString().split('T')[0];
+                if (dateStr === today) todayTxs.push(d);
+            }
+        });
+
+        console.log(`   Today's Transactions (Matched): ${todayTxs.length}`);
+
+        if (todayTxs.length === 0) continue;
+
+        // Fetch Holdings to see current price
+        const holdingsSnap = await userDoc.ref.collection('holdings').get();
+        const prices = new Map<string, number>();
+        holdingsSnap.forEach(h => {
+            const d = h.data();
+            // We need a price. Use 'last' or 'mark'.
+            // In the app, it comes from RealTime Price Hook.
+            // Here we might have to spy on 'manualMarkPrice' or just guess from the user's screenshot context if possible.
+            // Actually, we can see 'last' or similar in the holding doc if it was saved.
+            // If not, we can't perfectly reproduce the 1892.55 without live prices.
+            // But we can identify the QUANTITY that is holding.
+        });
+
+        // Simple Net Quantity for today's trades
+        const netMap = new Map<string, { qty: number, cost: number, count: number }>();
+
+        todayTxs.forEach(tx => {
+            // Basic aggregation to see what's left
+            const sym = tx.symbol;
+            if (!netMap.has(sym)) netMap.set(sym, { qty: 0, cost: 0, count: 0 });
+            const entry = netMap.get(sym)!;
+
+            // Very rough approximation of "Open Lots"
+            if (tx.quantity > 0) { // Buy
+                entry.qty += tx.quantity;
+                entry.cost += tx.quantity * tx.price;
+                entry.count++;
+            } else { // Sell
+                entry.qty += tx.quantity; // negative
+                // Cost removal is complex without FIFO, but let's just see net qty.
+                // If net qty > 0, that's what's holding.
+            }
+        });
+
+        netMap.forEach((v, k) => {
+            if (v.qty !== 0) {
+                console.log(`[POTENTIAL OPEN] ${k}: Net Qty Today = ${v.qty}`);
+                console.log(`   (This contributes to the 1892.55 unrealized part)`);
+            }
+        });
+    }
+}
+
+main();

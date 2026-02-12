@@ -6,6 +6,7 @@ import { runCloseForSymbols } from "../lib/close/run";
 
 // Secrets
 const FMP_TOKEN = defineSecret("FMP_TOKEN");
+const POLYGON_TOKEN = defineSecret("POLYGON_TOKEN");
 const MARKETSTACK_API_KEY = defineSecret("MARKETSTACK_API_KEY");
 const STOCKDATA_API_KEY = defineSecret("STOCKDATA_API_KEY");
 
@@ -27,7 +28,7 @@ const nyTodayYmd = (): string =>
  * 历史回填: URL?action=backfill_history&date=2025-11-18
  */
 export const maintenanceTool = onRequest(
-  { secrets: [FMP_TOKEN, MARKETSTACK_API_KEY, STOCKDATA_API_KEY] },
+  { secrets: [FMP_TOKEN, POLYGON_TOKEN, MARKETSTACK_API_KEY, STOCKDATA_API_KEY] },
   async (req, res) => {
     const action = req.query.action as string;
     const db = admin.firestore();
@@ -211,6 +212,7 @@ export const maintenanceTool = onRequest(
         // 2. 准备 Secrets
         const secrets = {
           FMP_TOKEN: FMP_TOKEN.value() || "",
+          POLYGON_TOKEN: POLYGON_TOKEN.value() || "",
           MARKETSTACK_API_KEY: MARKETSTACK_API_KEY.value() || "",
           STOCKDATA_API_KEY: STOCKDATA_API_KEY.value() || "",
         };

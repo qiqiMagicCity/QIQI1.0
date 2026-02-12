@@ -1,0 +1,29 @@
+
+import { calcM14DailyCalendar } from '../src/lib/pnl/calc-m14-daily-calendar';
+
+const dates = ['2026-01-02', '2026-01-05', '2026-01-06', '2026-01-07', '2026-01-08'];
+const sym = 'NKE260109C65';
+const txs = [{ symbol: sym, qty: 1, price: 5, transactionTimestamp: new Date('2025-12-30').getTime(), side: 'BUY', opKind: 'TRADE', multiplier: 100, assetType: 'option' }, { symbol: 'AAPL', qty: 10, price: 170, transactionTimestamp: new Date('2025-12-30').getTime(), side: 'BUY', opKind: 'TRADE', multiplier: 1, assetType: 'stock' }];
+const map = {
+    ['2026-01-02_' + sym]: { status: 'plan_limited' },
+    '2026-01-02_AAPL': { status: 'ok', close: 172 },
+    ['2026-01-05_' + sym]: { status: 'no_liquidity' },
+    '2026-01-05_AAPL': { status: 'ok', close: 175 },
+    ['2026-01-06_' + sym]: { status: 'ok', close: 5.5 },
+    ['2026-01-07_' + sym]: { status: 'ok', close: 5.8 },
+    '2026-01-07_AAPL': { status: 'ok', close: 178 },
+    ['2026-01-08_' + sym]: { status: 'no_liquidity' },
+    '2026-01-08_AAPL': { status: 'ok', close: 177 }
+};
+const res = calcM14DailyCalendar(txs, dates, map as any);
+const missing = Object.values(res).filter(r => r.status === 'missing_data').map(r => ({ date: r.date, syms: r.missingSymbols }));
+console.log('[A] Missing List:', JSON.stringify(missing));
+dates.forEach(d => {
+    const r = res[d];
+    console.log('[B] Date: ' + d + ' | Status: ' + r.status + ' | MissingSyms: ' + JSON.stringify(r.missingSymbols || []));
+    ['AAPL', sym].forEach(s => {
+        const e = (map as any)[d + '_' + s];
+        const inM = r.missingSymbols?.includes(s);
+        console.log('[C] ' + s + ' | Repo: ' + (e?.status || 'missing') + ' | InMissing: ' + !!inM);
+    });
+});

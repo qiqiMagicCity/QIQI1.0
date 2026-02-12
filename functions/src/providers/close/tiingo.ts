@@ -8,13 +8,30 @@ export const tiingoProvider: CloseProvider = {
       throw new Error('TIINGO_TOKEN secret not found');
     }
 
-    const url = `https://api.tiingo.com/tiingo/daily/${symbol}/prices?startDate=${dateYYYYMMDD}&endDate=${dateYYYYMMDD}`;
+    const upperSymbol = symbol.toUpperCase().trim();
+    const isOption = /^[A-Z]+\d{6}[CP][\d.]+$/.test(upperSymbol);
+
+    let url: string;
     const startTime = Date.now();
+
+    if (isOption) {
+      // Tiingo Option API
+      // We need ticker + osiSymbol
+      const match = upperSymbol.match(/^([A-Z]+)/);
+      const ticker = match ? match[1] : '';
+      const { convertShortOptionToOcc } = require('../../lib/close/priority');
+      const osi = convertShortOptionToOcc(upperSymbol, false);
+
+      url = `https://api.tiingo.com/tiingo/options/prices?ticker=${ticker}&optionSymbol=${osi}&startDate=${dateYYYYMMDD}&endDate=${dateYYYYMMDD}`;
+      console.log(`[Tiingo-Option] Fetching ${osi} for ${dateYYYYMMDD}...`);
+    } else {
+      url = `https://api.tiingo.com/tiingo/daily/${upperSymbol}/prices?startDate=${dateYYYYMMDD}&endDate=${dateYYYYMMDD}`;
+    }
 
     let response: Response | undefined;
     for (let i = 0; i < 2; i++) {
       try {
-        response = await fetch(url, { headers: { 'Authorization': `Token ${token}` } });
+        response = await fetch(url, { headers: { 'Authorization': `Token ${token}`, 'Content-Type': 'application/json' } });
         if (response.status !== 429 && response.status < 500) {
           break;
         }
@@ -32,20 +49,23 @@ export const tiingoProvider: CloseProvider = {
     const latencyMs = Date.now() - startTime;
 
     if (!Array.isArray(data) || data.length === 0) {
-      throw new Error('Invalid response from Tiingo API: expected an array');
+      throw new Error(`Tiingo returned no data for ${upperSymbol} on ${dateYYYYMMDD}`);
     }
 
     const priceData = data[0];
-    if (typeof priceData.close !== 'number' || priceData.date.substring(0, 10) !== dateYYYYMMDD) {
-      throw new Error(`No data for ${dateYYYYMMDD} in Tiingo response`);
+    // Option API returns { date, close, ... }
+    // Stock API returns { date, close, ... }
+
+    if (typeof priceData.close !== 'number') {
+      throw new Error(`Tiingo returned invalid price for ${upperSymbol}`);
     }
 
     return {
       close: priceData.close,
       currency: 'USD',
-      provider: 'tiingo',
+      provider: isOption ? 'tiingo-option' : 'tiingo',
       latencyMs,
-      meta: { adjClose: priceData.adjClose, volume: priceData.volume },
+      meta: { ...priceData },
     };
   },
 };

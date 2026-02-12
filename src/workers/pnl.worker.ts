@@ -17,6 +17,7 @@ export type PnlWorkerInput = {
     effectiveTodayNy: string;
     visibleTransactions: Tx[];
     snapshot?: FifoSnapshot | null; // [NEW]
+    isEodLoading?: boolean; // [NEW] Add this
 };
 
 export type PnlWorkerOutput = {
@@ -35,15 +36,9 @@ function simpleHash(str: string): string {
     return hash.toString(36);
 }
 
-// [NEW] Generate Cache Key
-function generateCacheKey(todayNy: string, txs: Tx[], activeSplits: SplitEvent[]): string {
-    // 1. Transaction Fingerprint (Count + Last ID + Sum of Timestamps to capture modification)
-    // Note: To be absolutely robust, we should JSON.stringify, but for performance, we compromise.
-    // Let's use: Count + ID of last Tx + Last Updated Timestamp of Data
-
-    // Sort slightly to ensure deterministic if array order changes (though provider should be stable)
-    // Actually provider array reference changes often, but content is same.
-    // Let's trust inputTxs length + last tx id.
+// [NEW] Generate Cache Key with Data Fingerprint (Scheme A)
+function generateCacheKey(todayNy: string, txs: Tx[], activeSplits: SplitEvent[], eodMap: Record<string, OfficialCloseResult>): string {
+    // 1. Transaction Fingerprint
     const count = txs.length;
     const lastTx = txs.length > 0 ? txs[txs.length - 1] : null;
     const lastId = lastTx ? (lastTx.id || 'noid') : 'empty';
@@ -51,30 +46,30 @@ function generateCacheKey(todayNy: string, txs: Tx[], activeSplits: SplitEvent[]
     // 2. Active Splits Fingerprint
     const splitKey = activeSplits.length + (activeSplits[0]?.symbol || '');
 
-    // 3. Eod Map Version? 
-    // EOD map changes daily. If we use EOD map in hash, it invalidates daily. Which is expected.
-    // Because M14 depends on EOD prices. If EOD price updates, PnL must update.
-    // So cache is valid ONLY if Price Data hasn't changed.
+    // 3. EOD Data Fingerprint (CRITICAL: Detecting Backfill updates)
+    // We don't want to stringify the whole map, but we need to know if "Missing" turned into "OK" 
+    // or if prices changed.
+    let okCount = 0;
+    let priceSum = 0;
+    const eodKeys = Object.keys(eodMap);
+    const eodTotal = eodKeys.length;
 
-    // However, stringifying fullEodMap is expensive (O(N)).
-    // Strategy: We assume cache is valid for "Session". 
-    // Or we use a lightweight version.
+    // Iterate map to build a digest. O(N) in worker is fast (~1-2ms for 5000 items).
+    for (const key of eodKeys) {
+        const res = eodMap[key];
+        const isValid = res && (res.status === 'ok' || res.status === 'plan_limited' || res.status === 'no_liquidity');
+        if (isValid) {
+            okCount++;
+            priceSum += (res.close || 0);
+        }
+    }
 
-    // Let's stick to Today + Tx Signature.
-    // If today is Sunday, and we open app, we compute. Then refresh, we load cache.
-    // If we update EOD, `fullEodMap` changes. 
-    // Ideally we'd salt with EOD Map version, but lacking that, we might miss price updates if we rely only on Tx.
-    // BUT: The objective is to speed up "Refresh". EOD map usually doesn't change every second unless Live.
-    // Let's assume input to Worker changes reference if data changes.
-    // We can use a simpler approach:
+    // Fingerprint format: eodTotal_okCount_priceDigest
+    // Using string sum to capture precision changes without floating point jitter issues in key
+    const eodFingerprint = `${eodTotal}_${okCount}_${priceSum.toFixed(2)}`;
 
-    // Cache Key = `pnl_v1_${todayNy}_${count}_${lastId}`
-    // If user adds a transaction, count/lastId changes -> Cache Miss.
-    // If day rolls over, todayNy changes -> Cache Miss.
-    // What if EOD updates?
-    // We can add a simple EOD count to key.
-
-    return `pnl_v1_${todayNy}_${count}_${lastId}_${splitKey}`;
+    // Key Version v2 to invalidate all v1 stale caches
+    return `pnl_v4_${todayNy}_${count}_${lastId}_${splitKey}_${eodFingerprint}`;
 }
 
 // Event Listener
@@ -174,17 +169,18 @@ async function handleGenerateSnapshots(data: { transactions: Tx[], uid: string }
 
 async function handleCalcPnl(data: PnlWorkerInput) {
     try {
-        const { transactions, fullEodMap, activeSplits, effectiveTodayNy, visibleTransactions } = data;
+        const { transactions, fullEodMap, activeSplits, effectiveTodayNy, visibleTransactions, isEodLoading } = data;
         // ... (Existing logic moved here) ...
         const todayNy = effectiveTodayNy;
 
         // 0. Prepare Inputs & Cache Key
         const inputTxs = visibleTransactions || transactions || [];
 
-        // [NEW] Generate Cache Key
-        // Including Object.keys(fullEodMap).length to invalidate if more prices come in
-        const eodCount = Object.keys(fullEodMap).length;
-        const cacheKey = generateCacheKey(todayNy, inputTxs, activeSplits) + `_${eodCount}`;
+        // [NEW] Generate Cache Key with Data Fingerprint (O(N) digest)
+        // This ensures that if ANY 'Missing' status turns to 'OK' or if prices change, the cache invalidates.
+        // We also add isEodLoading to the key to prevent caching a "loading" state.
+        const eodFingerprint = `${isEodLoading ? 'loading' : 'ready'}_${Object.keys(fullEodMap).length}`;
+        const cacheKey = `pnl_v5_${todayNy}_${inputTxs.length}_${eodFingerprint}`;
 
         // 1. [NEW] Try Load Cache
         const cached = await get<Record<string, DailyPnlResult>>(cacheKey);
@@ -218,7 +214,7 @@ async function handleCalcPnl(data: PnlWorkerInput) {
         const allTargets = Array.from(new Set([...extraDates, ...ytdTargetDates])).sort();
 
         // 3. Perform Calculation
-        const results = calcM14DailyCalendar(inputTxs, allTargets, fullEodMap, activeSplits);
+        const results = calcM14DailyCalendar(inputTxs, allTargets, fullEodMap, activeSplits, { isEodLoading });
 
         // 4. [NEW] Save to Cache (Async, don't await blocking return)
         set(cacheKey, results).catch(err => console.warn('Failed to cache PnL results:', err));

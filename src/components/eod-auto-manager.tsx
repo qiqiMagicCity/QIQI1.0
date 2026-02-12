@@ -9,9 +9,12 @@ import { prevNyTradingDayString, toNyCalendarDayString, isNyTradingDay, toNyHmsS
 import { useToast } from '@/hooks/use-toast';
 
 export function EodAutoManager() {
-    const { rows: holdings } = useHoldings();
+    const { rows: holdings, dailyPnlResults } = useHoldings();
     const { get: getPrice } = useRealTimePrices(holdings.map(h => h.symbol));
     const { toast } = useToast();
+
+    // [NEW] EOD Ready Gate
+    const isEodLoading = Object.values(dailyPnlResults).some(res => res.status === 'loading_eod');
 
     // Refs to prevent duplicate runs in strict mode or rapid re-renders
     const hasRunBackfill = useRef(false);
@@ -21,7 +24,7 @@ export function EodAutoManager() {
     // 1. Auto Backfill (Historical Data) - [RESTORED]
     useEffect(() => {
         const runBackfill = async () => {
-            if (hasRunBackfill.current) return;
+            if (hasRunBackfill.current || isEodLoading) return;
 
             // We always want to check the *Previous Trading Day* relative to Today.
             // Because that is the reference date for Today's PnL.
@@ -101,6 +104,14 @@ export function EodAutoManager() {
 
             // Only run if it's a trading day and time is past 16:05
             if (!isNyTradingDay(todayNy) || timeVal < 1605) return;
+
+            if (isEodLoading) {
+                // DEBUG:EOD-TIMELINE-AUDIT
+                import('@/lib/debug/eod-timeline').then(({ audit }) => {
+                    audit("Snapshot.skip", { reason: "eod_not_ready" });
+                });
+                return;
+            }
 
             console.log('[EodAutoManager] Market closed, checking if snapshot needed...');
 

@@ -25,6 +25,60 @@ export const fmpProvider: CloseProvider = {
 
     const upperSymbol = symbol.toUpperCase().trim();
 
+    // [OPTION DETECTOR]
+    // If it's an OCC-like symbol (e.g. AAPL250620C00150000 or simplified NVDA250620C120), use the Option endpoint.
+    const isOption = /^[A-Z]+\d{6}[CP][\d.]+$/.test(upperSymbol);
+
+    if (isOption) {
+      // 1. Identify Ticker (First 1-6 chars)
+      const match = upperSymbol.match(/^([A-Z]+)/);
+      const ticker = match ? match[1] : '';
+
+      // 2. Ensure format is OSI (8 price digits)
+      const { convertShortOptionToOcc } = require('../../lib/close/priority');
+      const osiSymbol = convertShortOptionToOcc(upperSymbol, false); // No O: prefix for FMP
+
+      const optionUrl = `https://financialmodelingprep.com/api/v4/historical/option/${ticker}/${osiSymbol}?apikey=${token}`;
+      console.log(`[FMP-Option] Fetching ${osiSymbol} via ${ticker}...`);
+
+      const res = await fetch(optionUrl);
+      if (!res.ok) {
+        throw new Error(`FMP Option API failed: ${res.statusText} (${res.status})`);
+      }
+      const osiData = await res.json();
+      if (!Array.isArray(osiData) || osiData.length === 0) {
+        throw new Error(`FMP Option API returned no data for ${osiSymbol}`);
+      }
+
+      // FMP Option historical returns { date, symbol, close, ... }
+      // We look for the exact date
+      const row = osiData.find(d => d.date?.slice(0, 10) === dateYYYYMMDD);
+
+      if (!row || typeof row.close !== 'number') {
+        // Find latest available if target missing? No, follow stock behavior.
+        console.warn(`[FMP-Option] Target date ${dateYYYYMMDD} missing in results. Available: ${osiData.length} rows.`);
+        return {
+          close: undefined as any,
+          currency: 'USD',
+          provider: 'fmp',
+          latencyMs: 0,
+          meta: { bulkEod: osiData.map(d => ({ date: d.date.slice(0, 10), close: d.close, currency: 'USD' })) }
+        };
+      }
+
+      return {
+        close: row.close,
+        currency: 'USD',
+        provider: 'fmp',
+        latencyMs: 0,
+        meta: {
+          from: dateYYYYMMDD,
+          symbol: osiSymbol,
+          bulkEod: osiData.map(d => ({ date: d.date.slice(0, 10), close: d.close, currency: 'USD' }))
+        },
+      };
+    }
+
     // 计算 5 年前的起始日 fromYMD
     const targetDate = new Date(dateYYYYMMDD);
     if (Number.isNaN(targetDate.getTime())) {

@@ -1,0 +1,93 @@
+
+import * as admin from 'firebase-admin';
+import { getFirestore } from 'firebase-admin/firestore';
+
+if (!admin.apps.length) admin.initializeApp();
+const db = getFirestore();
+
+const MAX_SNAPSHOT_BYTES = 900 * 1024; // 900KiB
+
+async function verifyStep2VolumeGuard(uid: string) {
+    console.log(`=== VERIFY VOLUME GUARD: START (UID: ${uid}) ===`);
+
+    const monthId = "2026-03"; // Test future month
+    const docRef = db.collection('pnlSnapshots').doc(uid).collection('months').doc(monthId);
+
+    // 1. Create a "Huge" snapshot that exceeds 900KiB
+    console.log("Creating an oversized snapshot (> 900KiB)...");
+
+    // Simulate 500 symbols with summaries to bloat bySymbolMonth
+    const bySymbolMonth: Record<string, any> = {};
+    for (let i = 0; i < 500; i++) {
+        bySymbolMonth[`SYMBOL_${i}`] = {
+            totalPnlCents: 100000,
+            extraData: "A".repeat(2000) // Bloat each entry by 2KB
+        };
+    }
+
+    const snapshotData = {
+        monthId,
+        fingerprint: {
+            txRevision: 1,
+            eodFingerprint: "dummy_fp",
+            calcEngineVersion: '4.1.0-MVP-G2',
+            splitsRevision: '1',
+            fxRevision: '1',
+            eodFingerprintScope: 'symbolRevGlobal'
+        },
+        data: {
+            totalPnlCents: 123456,
+            dailyTotalPnlCents: new Array(31).fill(1000),
+            bySymbolMonth
+        },
+        meta: {
+            symbols: Object.keys(bySymbolMonth),
+            computedAt: admin.firestore.FieldValue.serverTimestamp()
+        }
+    };
+
+    const encoder = new TextEncoder();
+    const originalBytes = encoder.encode(JSON.stringify(snapshotData)).length;
+    console.log(`- Original Size: ${(originalBytes / 1024).toFixed(2)} KiB`);
+
+    // 2. Simulate the trimming logic (re-implementing the repo logic for the script)
+    let payload = { ...snapshotData };
+    let isTrimmed = false;
+    let trimReason = "";
+
+    if (originalBytes > MAX_SNAPSHOT_BYTES) {
+        console.warn(`[Guard] Exceeds ${MAX_SNAPSHOT_BYTES} bytes. Trimming...`);
+        isTrimmed = true;
+        trimReason = "docTooLarge";
+        delete payload.data.bySymbolMonth; // Root cause of bloat
+    }
+
+    const finalBytes = encoder.encode(JSON.stringify(payload)).length;
+    console.log(`- Final Size: ${(finalBytes / 1024).toFixed(2)} KiB`);
+
+    if (isTrimmed) {
+        payload.meta.isTrimmed = true;
+        payload.meta.trimReason = trimReason;
+        payload.meta.originalBytes = originalBytes;
+    }
+
+    // 3. Write to Firestore
+    await docRef.set(payload);
+    console.log(`✅ Success: Snapshot ${monthId} written. Trimmed: ${isTrimmed}`);
+
+    // Verification
+    const savedSnap = await docRef.get();
+    const data = savedSnap.data();
+    if (data?.meta?.isTrimmed && !data?.data?.bySymbolMonth) {
+        console.log("✅ Verification Passed: bySymbolMonth was dropped to save space.");
+    } else {
+        console.error("❌ Verification Failed: Snapshot was not trimmed correctly.");
+    }
+
+    // Cleanup
+    // await docRef.delete();
+    console.log("=== VERIFY VOLUME GUARD: END ===");
+}
+
+const testUid = "L8h41hI6x5d7mAn4vAnUj1mRElB3";
+verifyStep2VolumeGuard(testUid).catch(console.error);

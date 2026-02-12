@@ -1,5 +1,5 @@
 'use client';
-    
+
 import {
   setDoc,
   addDoc,
@@ -10,41 +10,55 @@ import {
   SetOptions,
 } from 'firebase/firestore';
 import { errorEmitter } from '@/firebase/error-emitter';
-import {FirestorePermissionError} from '@/firebase/errors';
+import { FirestorePermissionError } from '@/firebase/errors';
+
+/**
+ * Internal helper to sanitize transaction data before writing to Firestore.
+ * Ensures Symbol is always compact (no spaces) and uppercase.
+ */
+function sanitizePayload(path: string, data: any) {
+  if (!data || typeof data !== 'object') return data;
+
+  // If this belongs to a transactions collection
+  if (path.includes('/transactions') && typeof data.symbol === 'string') {
+    data.symbol = data.symbol.replace(/\s+/g, '').toUpperCase();
+  }
+  return data;
+}
 
 /**
  * Initiates a setDoc operation for a document reference.
  * Does NOT await the write operation internally.
  */
 export function setDocumentNonBlocking(docRef: DocumentReference, data: any, options: SetOptions) {
-  setDoc(docRef, data, options).catch(error => {
+  const cleanData = sanitizePayload(docRef.path, data);
+  setDoc(docRef, cleanData, options).catch(error => {
     errorEmitter.emit(
       'permission-error',
       new FirestorePermissionError({
         path: docRef.path,
         operation: 'write', // or 'create'/'update' based on options
-        requestResourceData: data,
+        requestResourceData: cleanData,
       })
     )
   })
-  // Execution continues immediately
 }
 
 
 /**
  * Initiates an addDoc operation for a collection reference.
  * Does NOT await the write operation internally.
- * Returns the Promise for the new doc ref, but typically not awaited by caller.
  */
 export function addDocumentNonBlocking(colRef: CollectionReference, data: any) {
-  const promise = addDoc(colRef, data)
+  const cleanData = sanitizePayload(colRef.path, data);
+  const promise = addDoc(colRef, cleanData)
     .catch(error => {
       errorEmitter.emit(
         'permission-error',
         new FirestorePermissionError({
           path: colRef.path,
           operation: 'create',
-          requestResourceData: data,
+          requestResourceData: cleanData,
         })
       )
     });
@@ -57,14 +71,15 @@ export function addDocumentNonBlocking(colRef: CollectionReference, data: any) {
  * Does NOT await the write operation internally.
  */
 export function updateDocumentNonBlocking(docRef: DocumentReference, data: any) {
-  updateDoc(docRef, data)
+  const cleanData = sanitizePayload(docRef.path, data);
+  updateDoc(docRef, cleanData)
     .catch(error => {
       errorEmitter.emit(
         'permission-error',
         new FirestorePermissionError({
           path: docRef.path,
           operation: 'update',
-          requestResourceData: data,
+          requestResourceData: cleanData,
         })
       )
     });

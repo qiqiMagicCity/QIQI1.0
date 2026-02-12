@@ -1,0 +1,22 @@
+=== [EVID] RO-16: Auth Contract & Anonymous Capability Audit ===
+
+--- Evidence 1: Auth Snapshot (Simulated Entrance) ---
+UID: 88FPoCnK7xcpGW9ZRlOyYuwBnVL2
+isAnonymous: true
+ProviderId: firebase
+Email: (null)
+
+--- Evidence 3: UI Badge / Visibility Verification ---
+Tracing src/components/dashboard/dashboard-header.tsx:
+getWelcomeText() returns: (Empty String)
+UI Output: '欢迎, ' + (Empty String)
+Observation: No explicit 'Guest' or 'Anonymous' badge found in header code.
+
+--- Evidence 4: Risk Boundary ---
+Since providerData is empty for anonymous users, data is strictly tied to the client-side instance.
+If localStorage is cleared or browser changed, UID is lost forever.
+
+--- Conclusion Selection ---
+The system follows: [B] '允许访客态写入' (de-facto).
+Reasoning: While there is no 'Guest' button in the official Login UI, the Auth Guards (guards.tsx) do not intercept anonymous tokens, and the database rules (firestore.rules) allow writes based on request.auth.uid alone.
+Recent R12 fix specifically ensured Bulk Add compatibility for these 'missing profile' users.

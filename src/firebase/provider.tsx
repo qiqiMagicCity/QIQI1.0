@@ -21,6 +21,7 @@ interface UserAuthState {
   claims: Record<string, unknown> | null;
   isAdmin: boolean;
   impersonatedUid: string | null; // [NEW] Impersonation Support
+  authTimeout: boolean; // [NEW]
 }
 
 // Combined state for the Firebase context
@@ -37,6 +38,7 @@ export interface FirebaseContextState {
   isAdmin: boolean;
   impersonatedUid: string | null; // [NEW]
   impersonateUser: (uid: string | null) => void; // [NEW]
+  authTimeout: boolean; // [NEW]
 }
 
 // Return type for useFirebase()
@@ -51,6 +53,7 @@ export interface FirebaseServicesAndUser {
   isAdmin: boolean;
   impersonatedUid: string | null; // [NEW]
   impersonateUser: (uid: string | null) => void; // [NEW]
+  authTimeout: boolean; // [NEW]
 }
 
 // Return type for useUser() - specific to user auth state
@@ -62,6 +65,7 @@ export interface UserHookResult {
   isAdmin: boolean;
   impersonatedUid: string | null; // [NEW]
   impersonateUser: (uid: string | null) => void; // [NEW]
+  authTimeout: boolean; // [NEW]
 }
 
 // [NEW] Hardcoded Admin Emails (Temporary)
@@ -88,6 +92,7 @@ export const FirebaseProvider: React.FC<FirebaseProviderProps> = ({
     claims: null,
     isAdmin: false,
     impersonatedUid: null,
+    authTimeout: false,
   });
 
   // [NEW] Persist impersonation state (optional, for refresh convenience)
@@ -119,7 +124,7 @@ export const FirebaseProvider: React.FC<FirebaseProviderProps> = ({
   // Effect to subscribe to Firebase auth state changes
   useEffect(() => {
     if (!auth) { // If no Auth service instance, cannot determine user state
-      setUserAuthState({ user: null, isUserLoading: false, userError: new Error("Auth service not provided."), claims: null, isAdmin: false, impersonatedUid: null });
+      setUserAuthState({ user: null, isUserLoading: false, userError: new Error("Auth service not provided."), claims: null, isAdmin: false, impersonatedUid: null, authTimeout: false });
       return;
     }
 
@@ -133,7 +138,8 @@ export const FirebaseProvider: React.FC<FirebaseProviderProps> = ({
       userError: null,
       claims: null,
       isAdmin: false,
-      impersonatedUid: stored
+      impersonatedUid: stored,
+      authTimeout: false
     });
 
     const unsubscribe = onIdTokenChanged(
@@ -153,46 +159,63 @@ export const FirebaseProvider: React.FC<FirebaseProviderProps> = ({
               claims,
               isAdmin,
               isUserLoading: false,
-              userError: null
+              userError: null,
+              authTimeout: false // Reset on success
             }));
           } catch (error) {
             console.warn("FirebaseProvider: Error getting ID token result:", error);
-            setUserAuthState(prev => ({ ...prev, user: firebaseUser, claims: null, isAdmin: false, isUserLoading: false, userError: error as Error }));
+            setUserAuthState(prev => ({ ...prev, user: firebaseUser, claims: null, isAdmin: false, isUserLoading: false, userError: error as Error, authTimeout: false }));
           }
         } else {
           // User is signed out.
-          setUserAuthState({ user: null, claims: null, isAdmin: false, isUserLoading: false, userError: null, impersonatedUid: null });
+          setUserAuthState({ user: null, claims: null, isAdmin: false, isUserLoading: false, userError: null, impersonatedUid: null, authTimeout: false });
         }
       },
       (error) => { // Auth listener error
         console.error("FirebaseProvider: onIdTokenChanged error:", error);
-        setUserAuthState({ user: null, claims: null, isAdmin: false, isUserLoading: false, userError: error, impersonatedUid: null });
+        setUserAuthState({ user: null, claims: null, isAdmin: false, isUserLoading: false, userError: error, impersonatedUid: null, authTimeout: false });
       }
     );
     return () => unsubscribe(); // Cleanup
   }, [auth]); // Depends on the auth instance
 
-  // Safety valve: Force loading to complete if Auth doesn't respond quickly.
-  // This prevents the application from getting stuck in an infinite "Verifying identity..." state
-  // if the network is slow or Firebase is blocked.
+  // Effect to handle slow auth (Guardrail 2) & Safety Valve
   useEffect(() => {
-    console.log("[AuthDebug] Setting up auth timeout safety valve (3000ms)...");
-    const timer = setTimeout(() => {
+    const startTime = Date.now();
+    console.log(`[AuthAudit] 🕒 Timer started at ${new Date(startTime).toLocaleTimeString()}`);
+
+    // Level 1: Warn user after 3s (Interaction available)
+    const warnTimer = setTimeout(() => {
       setUserAuthState((prev) => {
         if (prev.isUserLoading) {
-          console.warn("[AuthDebug] Auth check timed out. Forcing isUserLoading to false.");
-          // Also check if we have a user (unlikely if we are here)
+          console.warn(`[AuthAudit] ⚠️ Auth Slow Warning (3s)`);
+          return { ...prev, authTimeout: true };
+        }
+        return prev;
+      });
+    }, 3000);
+
+    // Level 2: Force Fail after 8s (Unblock App)
+    const forceFailTimer = setTimeout(() => {
+      setUserAuthState((prev) => {
+        if (prev.isUserLoading) {
+          console.error(`[AuthAudit] 🚨 Auth Critical Timeout (8s) - Forcing Unblock`);
           return {
             ...prev,
             isUserLoading: false,
-            userError: new Error("Auth check timed out - assuming not logged in"),
+            user: null,
+            userError: new Error("Authentication timed out (Safety Valve)"),
+            authTimeout: true
           };
         }
         return prev;
       });
-    }, 2000); // 2 seconds timeout for local dev responsiveness
+    }, 8000);
 
-    return () => clearTimeout(timer);
+    return () => {
+      clearTimeout(warnTimer);
+      clearTimeout(forceFailTimer);
+    };
   }, []);
 
   // Memoize the context value
@@ -211,6 +234,7 @@ export const FirebaseProvider: React.FC<FirebaseProviderProps> = ({
       impersonatedUid: userAuthState.impersonatedUid,
       impersonateUser: handleImpersonate,
       userError: userAuthState.userError,
+      authTimeout: userAuthState.authTimeout,
     };
   }, [firebaseApp, firestore, auth, userAuthState]);
 
@@ -248,6 +272,7 @@ export const useFirebase = (): FirebaseServicesAndUser => {
     isAdmin: context.isAdmin,
     impersonatedUid: context.impersonatedUid,
     impersonateUser: context.impersonateUser,
+    authTimeout: context.authTimeout,
   };
 };
 
@@ -286,6 +311,6 @@ export function useMemoFirebase<T>(factory: () => T, deps: DependencyList): T | 
  * @returns {UserHookResult} Object with user, isUserLoading, userError.
  */
 export const useUser = (): UserHookResult => {
-  const { user, isUserLoading, userError, claims, isAdmin, impersonatedUid, impersonateUser } = useFirebase();
-  return { user, isUserLoading, userError, claims, isAdmin, impersonatedUid, impersonateUser };
+  const { user, isUserLoading, userError, claims, isAdmin, impersonatedUid, impersonateUser, authTimeout } = useFirebase();
+  return { user, isUserLoading, userError, claims, isAdmin, impersonatedUid, impersonateUser, authTimeout };
 };

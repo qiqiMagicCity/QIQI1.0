@@ -1,0 +1,18 @@
+=== [EVID] RO-14: 'NET' Missing EOD Audit ===
+
+--- E1. Ticker & Date Context ---
+Symbol: NET (Cloudflare)
+asOfDayNy: 2026-02-11 (Current/Today Trading Day)
+ytdAnchorDayNy: 2025-12-31 (Year-to-Date Start Base)
+refDayNy: 2026-02-10 (Previous Trading Day Close Base)
+
+--- E2. Correlation ID Mapping ---
+Today/Effective: ${date}_${symbol} -> 2026-02-11_NET
+YTD Anchor: ${date}_${symbol} -> 2025-12-31_NET
+Prev Close Anchor: ${date}_${symbol} -> 2026-02-10_NET
+
+--- E3. Firestore Persistence Verification ---
+
+Checking [Today/Effective] ID: 2026-02-11_NET
+- officialCloses: MISSING
+FATAL: Missing or insufficient permissions.

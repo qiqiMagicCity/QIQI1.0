@@ -53,7 +53,9 @@ async function main() {
     // Manual add from screenshot (Short Symbols)
     const manualSymbols = [
         'GOOGL260918C150',
-        'INTC240308P40.5'
+        // 'NVO261218C50',
+        // 'NIO260618P3.5',
+        // 'AAPL260206C270'
     ];
     // manualSymbols.forEach(s => symbols.add(s));
     // Clear auto-scan and just force manual list
@@ -69,8 +71,8 @@ async function main() {
     }
 
     // 3. Fetch from Yahoo
-    // UPDATED: User scenario is 2026-02-05, so we need 2026-02-04 logic
-    const targetDate = '2026-02-04';
+    // UPDATED: User scenario is 2026-02-06, we need yesterday (02-05) close
+    const targetDate = '2026-02-05';
 
     // Yahoo Config - Robust Init
     let yf: any;
@@ -112,14 +114,24 @@ async function main() {
             // Fetch historical for a range around target date
             const queryOptions = {
                 period1: '2026-02-01',
-                period2: '2026-02-05',
+                period2: '2026-02-07',
             };
             const result = await yf.historical(fetchSymbol, queryOptions);
 
             // Find 2026-02-03
-            const match = result.find((r: any) => formatDate(r.date) === targetDate);
+            let match = result.find((r: any) => formatDate(r.date) === targetDate);
+
+            if (!match) {
+                console.log(`⚠️ No exact match for ${targetDate}. Searching for recent previous close...`);
+                // Sort descending
+                const sorted = result.sort((a: any, b: any) => b.date - a.date);
+                match = sorted.find((r: any) => formatDate(r.date) <= targetDate);
+            }
 
             if (match && match.close) {
+                const matchDate = formatDate(match.date);
+                console.log(`   Using Date: ${matchDate} for Target: ${targetDate}`);
+
                 // 4. Save to Official Closes
                 // IMPORTANT: Save using the ORIGINAL (Short) symbol as ID
                 const docId = `${targetDate}_${symbol}`;
@@ -136,7 +148,7 @@ async function main() {
                     retrievedAt: admin.firestore.FieldValue.serverTimestamp()
                 }, { merge: true });
 
-                console.log(`✅ Saved $${match.close}`);
+                console.log(`✅ Saved $${match.close} to ID: [${docId}]`);
             } else {
                 console.log(`⚠️ No data for ${targetDate} (Yahoo returned ${result.length} rows)`);
                 if (result.length > 0) {

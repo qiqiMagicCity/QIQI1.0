@@ -29,6 +29,7 @@ function normalizeSymbolForServer(s: unknown): string {
 
 // Secrets（密钥，外部行情 API 用）
 const FMP_TOKEN = defineSecret("FMP_TOKEN");
+const POLYGON_TOKEN = defineSecret("POLYGON_TOKEN");
 const MARKETSTACK_API_KEY = defineSecret("MARKETSTACK_API_KEY");
 const STOCKDATA_API_KEY = defineSecret("STOCKDATA_API_KEY");
 
@@ -51,7 +52,7 @@ export const manualRunEodForMetaSymbols = onRequest(
   {
     region: "us-central1",
     timeoutSeconds: 300,
-    secrets: [FMP_TOKEN, MARKETSTACK_API_KEY, STOCKDATA_API_KEY],
+    secrets: [FMP_TOKEN, POLYGON_TOKEN, MARKETSTACK_API_KEY, STOCKDATA_API_KEY],
   },
   async (req, res) => {
     try {
@@ -119,6 +120,7 @@ export const manualRunEodForMetaSymbols = onRequest(
       // 3) 组织 secrets（传给 runCloseForSymbols 使用外部数据源）
       const secrets = {
         FMP_TOKEN: FMP_TOKEN.value() || "",
+        POLYGON_TOKEN: POLYGON_TOKEN.value() || "",
         MARKETSTACK_API_KEY: MARKETSTACK_API_KEY.value() || "",
         STOCKDATA_API_KEY: STOCKDATA_API_KEY.value() || "",
       };

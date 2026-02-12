@@ -23,6 +23,7 @@
   "dependencies": {
     "@genkit-ai/google-genai": "^1.20.0",
     "@genkit-ai/next": "^1.20.0",
+    "@google-cloud/pubsub": "^5.2.3",
     "@hookform/resolvers": "^3.9.0",
     "@icon-park/react": "^1.4.2",
     "@radix-ui/react-accordion": "^1.2.3",

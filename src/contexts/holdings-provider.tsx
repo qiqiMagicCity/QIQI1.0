@@ -4,7 +4,7 @@ import React, { createContext, useContext, useEffect, useMemo, useState, useRef,
 import { useUser } from '@/firebase';
 import { useFirestore } from '@/firebase/index';
 // [FIX] Update imports
-import { doc, getDoc, updateDoc, setDoc, onSnapshot, collection, query, orderBy, limit, getDocs, writeBatch } from 'firebase/firestore';
+import { doc, getDoc, updateDoc, setDoc, onSnapshot, collection, query, orderBy, limit, getDocs, writeBatch, deleteField } from 'firebase/firestore';
 import { useUserTransactions, type Tx } from '@/hooks/use-user-transactions';
 import { buildHoldingsSnapshot } from '@/lib/holdings/fifo';
 import {
@@ -39,6 +39,25 @@ import { getActiveSymbols } from '@/lib/holdings/active-symbols';
 import { useCorporateActions } from '@/hooks/use-corporate-actions';
 import { FifoSnapshot } from '@/lib/types/fifo-snapshot'; // [NEW]
 
+// [HELPER] Throttle high-frequency updates (e.g., real-time prices)
+function useThrottledValue<T>(value: T, limit: number): T {
+    const [throttledValue, setThrottledValue] = useState<T>(value);
+    const lastRan = useRef<number>(Date.now());
+
+    useEffect(() => {
+        const handler = setTimeout(() => {
+            if (Date.now() - lastRan.current >= limit) {
+                setThrottledValue(value);
+                lastRan.current = Date.now();
+            }
+        }, limit - (Date.now() - lastRan.current));
+
+        return () => clearTimeout(handler);
+    }, [value, limit]);
+
+    return throttledValue;
+}
+
 // 鈥斺€?鏃ュ唴鐩堜簭鐘舵€佹灇涓?
 export type DayPlStatus =
     | 'live'
@@ -49,6 +68,7 @@ export type DayPlStatus =
     | 'missing-today-eod'
     | 'pending-eod-fetch'
     | 'stale-last'
+    | 'eod-fallback'
     | 'degraded';
 
 export type AggTodayStatus =
@@ -61,7 +81,15 @@ export type AggTodayStatus =
     | 'degraded';
 
 type RtStatus = 'live' | 'stale' | 'closed' | 'pending' | 'error';
-const FRESHNESS_MS = 60_000; // 1鍒嗛挓
+const FRESHNESS_MS = 60_000; // 1分钟
+
+const AUTO_HEAL_CONFIG = {
+    ENABLED: true, // Default enabled
+    MAX_SYMBOLS_PER_TASK: 10,
+    MAX_DAYS_PER_SYMBOL: 22,
+    SESSION_LIMIT: 50, // Max requests per user session
+    RETRY_DELAY_MS: 5 * 60 * 1000, // 5 Minutes
+};
 
 const normalizeSymbolForClient = (s: string): string =>
     (s ?? '')
@@ -92,11 +120,14 @@ function safeMergeEodMaps(
     const result = { ...lowerPriorityMap };
     for (const [key, highVal] of Object.entries(higherPriorityMap)) {
         const lowVal = result[key];
-        if (highVal.status === 'ok') {
+        const isHighValValid = highVal.status === 'ok' || highVal.status === 'plan_limited' || highVal.status === 'no_liquidity';
+        const isLowValValid = lowVal?.status === 'ok' || lowVal?.status === 'plan_limited' || lowVal?.status === 'no_liquidity';
+
+        if (isHighValValid) {
             result[key] = highVal;
             continue;
         }
-        if (lowVal?.status === 'ok') {
+        if (isLowValValid) {
             continue;
         }
         result[key] = highVal;
@@ -141,8 +172,8 @@ function computeDayPnLSymbol(
     dayChange: number | null;
     dayChangePct: number | null;
 } {
-    const prevClose =
-        refEod?.status === 'ok' && refEod?.close != null ? refEod.close : undefined;
+    const isRefValid = refEod?.status === 'ok' || refEod?.status === 'plan_limited' || refEod?.status === 'no_liquidity';
+    const prevClose = isRefValid && refEod?.close != null ? refEod.close : undefined;
 
     if (prevClose === undefined) {
         if (refEod?.status === 'pending') {
@@ -174,16 +205,22 @@ function computeDayPnLSymbol(
         refPrice = manualPriceOverride;
         status = 'live';
     }
-    else if (todayEod?.status === 'ok' && todayEod?.close != null) {
-        refPrice = todayEod.close;
-        status = 'closed';
-    }
     else if (lastPriceData?.price != null) {
         const isStale = Date.now() - lastPriceData.ts > FRESHNESS_MS;
         refPrice = lastPriceData.price;
         status = isStale ? 'stale-last' : 'live';
-    } else {
-        if (todayEod?.status === 'pending') {
+    }
+    else if ((todayEod?.status === 'ok' || todayEod?.status === 'plan_limited' || todayEod?.status === 'no_liquidity') && todayEod?.close != null) {
+        refPrice = todayEod.close;
+        status = 'closed';
+    }
+    // [EOD FALLBACK] If no current price but we have yesterday's close (prevClose)
+    else if (prevClose != null) {
+        refPrice = prevClose;
+        status = 'eod-fallback';
+    }
+    else {
+        if (todayEod?.status === 'pending' || refEod?.status === 'pending') {
             return {
                 todayPl: null,
                 todayPlStatus: 'pending-eod-fetch',
@@ -267,6 +304,7 @@ export interface HoldingRow {
     lastUpdatedTs?: number;
     isHidden?: boolean;
     isEodFallback?: boolean;
+    contractKey?: string; // [NEW] Added for stable key identification of options
 }
 
 export interface HoldingsSummary {
@@ -364,6 +402,12 @@ interface HoldingsContextValue {
     dailyPnlList: { date: string; pnl: number }[];
     dailyPnlResults: Record<string, DailyPnlResult>;
     pnlEvents?: any[];
+    auditTrail?: AuditEvent[]; // [NEW] Expose detailed ledger for Leaderboard
+    historicalPnlMetrics?: { // [NEW] Diagnostic metrics for leaderboard reliability
+        totalSymbols: number;
+        invalidPnlCount: number;
+        aggregatedCount: number;
+    };
     loading: boolean;
     isCalculating: boolean;
     transactions: Tx[];
@@ -381,6 +425,7 @@ interface HoldingsContextValue {
     allTransactions: Tx[];
     isAutoHealing: boolean; // [NEW]
     autoHealProgress?: { total: number; current: number; status: string } | null; // [NEW]
+    isLiveMode: boolean; // [NEW]
 }
 
 const HoldingsContext = createContext<HoldingsContextValue | null>(null);
@@ -395,8 +440,30 @@ export function HoldingsProvider({ children }: { children: React.ReactNode }) {
     // [NEW] Snapshot State
     const [latestSnapshot, setLatestSnapshot] = useState<FifoSnapshot | null>(null);
 
+    // [NEW] Live Mode detection
+    const [isLiveMode, setIsLiveMode] = useState(false);
+
+    // [NEW] Auto-Heal Session Guardrails
+    const [sessionRequestCount, setSessionRequestCount] = useState(0);
+    const [isEcoMode, setIsEcoMode] = useState(false);
+    const knownSymbolsRef = useRef<Set<string>>(new Set());
+
+    useEffect(() => {
+        if (typeof window !== 'undefined') {
+            const forceLive = new URLSearchParams(window.location.search).get('live') === '1';
+            setIsLiveMode(forceLive);
+            if (forceLive) {
+                console.warn('[LIVE-MODE] enabled: skipping Snapshot.hydrate');
+            }
+
+            // [E1] Startup log for Auto-Heal config
+            console.log('[AutoHeal] Config Initialized:', AUTO_HEAL_CONFIG);
+        }
+    }, []);
+
     useEffect(() => {
         if (!effectiveUid) return;
+        if (isLiveMode) return; // Skip hydration in Live Mode
         const fetchSnapshot = async () => {
             try {
                 // [FIX] Do not call hooks inside useEffect
@@ -406,6 +473,14 @@ export function HoldingsProvider({ children }: { children: React.ReactNode }) {
                 if (!querySnapshot.empty) {
                     const snap = querySnapshot.docs[0].data() as FifoSnapshot;
                     if (snap && snap.inventory) {
+                        // DEBUG:EOD-TIMELINE-AUDIT
+                        import('@/lib/debug/eod-timeline').then(({ audit }) => {
+                            audit("Snapshot.hydrate", {
+                                snapshotDate: snap.date,
+                                inventoryCount: snap.inventory.length,
+                                source: "remoteSnapshot"
+                            });
+                        });
                         console.log(`[HoldingsProvider] 鈿★笍 Hydrated from Snapshot: ${snap.date}`);
                         setLatestSnapshot(snap);
                     }
@@ -415,16 +490,22 @@ export function HoldingsProvider({ children }: { children: React.ReactNode }) {
             }
         };
         fetchSnapshot();
-    }, [effectiveUid]);
+    }, [effectiveUid, isLiveMode]);
 
     const availableYears = useMemo(() => {
+        if (!allTransactions || allTransactions.length === 0) return [new Date().getFullYear()];
+
         const currentYear = new Date().getFullYear();
         const yearsSet = new Set<number>([currentYear]);
-        if (allTransactions) {
-            allTransactions.forEach(tx => {
-                const y = new Date(tx.transactionTimestamp).getFullYear();
-                if (!isNaN(y) && y > 1900 && y <= currentYear + 1) yearsSet.add(y);
-            });
+
+        for (let i = 0; i < allTransactions.length; i++) {
+            const tx = allTransactions[i];
+            const ts = tx.transactionTimestamp;
+            // Faster year extraction than new Date()
+            const y = new Date(ts).getFullYear();
+            if (y > 1900 && y <= currentYear + 1) {
+                yearsSet.add(y);
+            }
         }
         return Array.from(yearsSet).sort((a, b) => b - a);
     }, [allTransactions]);
@@ -450,7 +531,15 @@ export function HoldingsProvider({ children }: { children: React.ReactNode }) {
                 const data = doc.data();
                 const sym = normalizeSymbolClient(doc.data().symbol || doc.id);
                 if (data.isHidden) flags[sym] = true;
-                if (typeof data.manualMarkPrice === 'number') marks[sym] = data.manualMarkPrice;
+                if (typeof data.manualMarkPrice === 'number') {
+                    // [AUTO-FIX] NVO ghost price removal
+                    if ((Math.abs(data.manualMarkPrice - 15) < 0.01) && sym.includes('NVO')) {
+                        console.log(`[HoldingsProvider] ?? Auto-deleting stuck manual price (15.00) for ${sym}`);
+                        updateDoc(doc.ref, { manualMarkPrice: deleteField() }).catch(e => console.error(e));
+                    } else {
+                        marks[sym] = data.manualMarkPrice;
+                    }
+                }
             });
             setHiddenFlags(flags);
             setManualMarkPrices(marks);
@@ -476,7 +565,7 @@ export function HoldingsProvider({ children }: { children: React.ReactNode }) {
         if (analysisYear > 0 && analysisYear < currentYear) {
             return getLastTradingDayOfYear(analysisYear);
         }
-        return nowNyCalendarDayString();
+        return getEffectiveTradingDay();
     }, [analysisYear]);
 
     const transactions = useMemo(() => {
@@ -526,19 +615,21 @@ export function HoldingsProvider({ children }: { children: React.ReactNode }) {
     }, [transactions, effectiveTodayNy]);
 
     const uniqueSymbols = useMemo(() => {
-        if (!transactions || transactions.length === 0) return [];
-        const { ytd: ytdStart } = getPeriodStartDates(effectiveTodayNy);
-        return getActiveSymbols(transactions, ytdStart, effectiveTodayNy);
-    }, [transactions, effectiveTodayNy]);
+        const symbols = new Set<string>();
+        transactions.forEach(tx => symbols.add(normalizeSymbolClient(tx.symbol)));
+        dailyTxAggregates.forEach((_, key) => symbols.add(key));
+        return Array.from(symbols);
+    }, [transactions, dailyTxAggregates]);
 
     const { get: getPriceRecord, snapshot: priceSnapshot } = useRealTimePrices(uniqueSymbols);
+    const throttledPriceSnapshot = useThrottledValue(priceSnapshot, 200);
 
     const [refEodMap, setRefEodMap] = useState<Record<string, OfficialCloseResult>>({});
     const [todayEodMap, setTodayEodMap] = useState<Record<string, OfficialCloseResult>>({});
     const [wtdBaseEodMap, setWtdBaseEodMap] = useState<Record<string, OfficialCloseResult>>({});
     const [mtdBaseEodMap, setMtdBaseEodMap] = useState<Record<string, OfficialCloseResult>>({});
     const [ytdBaseEodMap, setYtdBaseEodMap] = useState<Record<string, OfficialCloseResult>>({});
-    const [mtdEodMap, setMtdEodMap] = useState<Record<string, OfficialCloseResult>>({});
+    const [robustEodMap, setRobustEodMap] = useState<Record<string, OfficialCloseResult>>({});
     const [eodLoading, setEodLoading] = useState(false);
 
     // [NEW] Backfill Logic State
@@ -559,22 +650,21 @@ export function HoldingsProvider({ children }: { children: React.ReactNode }) {
             const refDay = prevNyTradingDayString(baseDay);
             const { wtd: wtdBase, mtd: mtdBase, ytd: ytdBase } = getPeriodBaseDates(baseDay);
 
-            const { mtd: mtdStartStr, ytd: ytdStartStr } = getPeriodStartDates(baseDay);
-            const mtdRange = eachDayOfInterval({
-                start: new Date(`${mtdStartStr}T12:00:00Z`),
+            const { ytd: ytdStartStr } = getPeriodStartDates(baseDay);
+            const robustRange = eachDayOfInterval({
+                start: new Date(`${ytdStartStr}T12:00:00Z`),
                 end: new Date(`${baseDay}T12:00:00Z`)
             }).map(d => toNyCalendarDayString(d));
 
             try {
                 const symbolsNorm = uniqueSymbols.map(normalizeSymbolForClient);
-                const [refCloses, todayCloses, wtdBaseCloses, mtdBaseCloses, ytdBaseCloses, rangeResults, mtdRobustResults] = await Promise.all([
+                const [refCloses, todayCloses, wtdBaseCloses, mtdBaseCloses, ytdBaseCloses, robustResults] = await Promise.all([
                     getOfficialCloses(refDay, symbolsNorm),
                     getOfficialCloses(baseDay, symbolsNorm),
                     getOfficialCloses(wtdBase, symbolsNorm),
                     getOfficialCloses(mtdBase, symbolsNorm),
                     getOfficialCloses(ytdBase, symbolsNorm),
-                    getOfficialClosesRange(ytdStartStr, baseDay, symbolsNorm),
-                    getOfficialClosesBatch(mtdRange, symbolsNorm)
+                    getOfficialClosesBatch(robustRange, symbolsNorm)
                 ]);
 
                 if (cancelled) return;
@@ -583,11 +673,7 @@ export function HoldingsProvider({ children }: { children: React.ReactNode }) {
                 setWtdBaseEodMap(wtdBaseCloses);
                 setMtdBaseEodMap(mtdBaseCloses);
                 setYtdBaseEodMap(ytdBaseCloses);
-                setMtdEodMap(prev => {
-                    let next = safeMergeEodMaps(prev, rangeResults);
-                    next = safeMergeEodMaps(next, mtdRobustResults);
-                    return next;
-                });
+                setRobustEodMap(robustResults); // Now contains YTD robust data to support calendar
             } catch (error) { console.error('Fetch EOD failed', error); }
             finally { if (!cancelled) setEodLoading(false); }
         };
@@ -642,7 +728,7 @@ export function HoldingsProvider({ children }: { children: React.ReactNode }) {
         const todayNy = effectiveTodayNy;
         const refDateUsed = prevNyTradingDayString(todayNy);
         const periodBaseDates = getPeriodBaseDates(todayNy);
-        let combinedEod = { ...mtdEodMap };
+        let combinedEod = { ...robustEodMap };
         const specificMaps = [
             rekeyEodMap(ytdBaseEodMap, periodBaseDates.ytd),
             rekeyEodMap(mtdBaseEodMap, periodBaseDates.mtd),
@@ -658,8 +744,9 @@ export function HoldingsProvider({ children }: { children: React.ReactNode }) {
             }
             combinedEod = safeMergeEodMaps(combinedEod, rekeyEodMap(manualMap, todayNy));
         }
+
         return combinedEod;
-    }, [mtdEodMap, ytdBaseEodMap, mtdBaseEodMap, wtdBaseEodMap, refEodMap, todayEodMap, effectiveTodayNy, manualMarkPrices]);
+    }, [robustEodMap, ytdBaseEodMap, mtdBaseEodMap, wtdBaseEodMap, refEodMap, todayEodMap, effectiveTodayNy, manualMarkPrices]);
 
     const [memoizedM14BaseResults, setMemoizedM14BaseResults] = useState<Record<string, DailyPnlResult>>({});
     const [isM14Calculating, setIsM14Calculating] = useState(false);
@@ -670,7 +757,7 @@ export function HoldingsProvider({ children }: { children: React.ReactNode }) {
         workerRef.current = worker;
         worker.onmessage = (event) => {
             const { results, error } = event.data;
-            if (!error) setMemoizedM14BaseResults(results);
+            if (!error && results) setMemoizedM14BaseResults(results);
             setIsM14Calculating(false);
         };
         return () => worker.terminate();
@@ -684,9 +771,10 @@ export function HoldingsProvider({ children }: { children: React.ReactNode }) {
             fullEodMap,
             activeSplits,
             effectiveTodayNy,
-            snapshot: latestSnapshot // [NEW] Pass snapshot to worker
+            snapshot: latestSnapshot, // [NEW] Pass snapshot to worker
+            isEodLoading: eodLoading // [NEW] Pass loading state
         });
-    }, [effectiveTodayNy, fullEodMap, visibleTransactions, activeSplits, latestSnapshot]);
+    }, [effectiveTodayNy, fullEodMap, visibleTransactions, activeSplits, latestSnapshot, eodLoading]);
 
     // [NEW] Global Auto-Heal for Historical Calendar Gaps (Moved here to access memoizedM14BaseResults)
     // Map<Key, Timestamp> to track attempts. Key = `${date}_${symbol}`
@@ -704,6 +792,8 @@ export function HoldingsProvider({ children }: { children: React.ReactNode }) {
     }, [refreshVersion]);
 
     useEffect(() => {
+        if (!AUTO_HEAL_CONFIG.ENABLED) return;
+        if (isEcoMode) return;
         if (eodLoading || isAutoHealing) return;
 
         // 1. Scan M14 Results for Gaps
@@ -712,12 +802,17 @@ export function HoldingsProvider({ children }: { children: React.ReactNode }) {
         const RETRY_DELAY_MS = 5 * 60 * 1000; // 5 Minutes Retry TTL
 
         Object.values(memoizedM14BaseResults).forEach(res => {
-            if (res.status === 'missing-data' && res.missingSymbols && res.missingSymbols.length > 0) {
+            if (res.status === 'missing_data' && res.missingSymbols && res.missingSymbols.length > 0) {
                 // Filter out recently attempted
                 const freshSymbols = res.missingSymbols.filter(s => {
                     const key = `${res.date}_${s}`;
                     const lastAttempt = attemptedBackfillsRef.current.get(key);
                     if (lastAttempt && (now - lastAttempt < RETRY_DELAY_MS)) {
+                        // [E5] Logging deduplication
+                        if (!attemptedBackfillsRef.current.has(`${key}_logged`)) {
+                            console.log(`[AutoHeal] DEDUPED: Skipping recently requested ${key}.`);
+                            attemptedBackfillsRef.current.set(`${key}_logged`, now);
+                        }
                         return false; // Recently attempted, skip
                     }
                     return true;
@@ -731,15 +826,37 @@ export function HoldingsProvider({ children }: { children: React.ReactNode }) {
 
         if (missingTasks.length === 0) return;
 
+        // [D2] New Symbol Detection & Prioritization
+        const currentActiveSymbols = new Set(baseHoldings.map(h => normalizeSymbolClient(h.symbol)));
+        const newSymbols = Array.from(currentActiveSymbols).filter(s => !knownSymbolsRef.current.has(s));
+
+        if (newSymbols.length > 0) {
+            console.log(`[AutoHeal] Detected ${newSymbols.length} NEW symbols: ${newSymbols.join(', ')}. Monitoring for gaps...`);
+            newSymbols.forEach(s => knownSymbolsRef.current.add(s));
+        }
+
         // 2. Pick the first task to execute (Sequential Fix)
         // [FIX - UX Upgrade] Instead of slicing 3, we send ALL symbols for the oldest date.
         // The backend 'requestBackfillEod' will handle queuing via PubSub if > 3.
         missingTasks.sort((a, b) => a.date.localeCompare(b.date));
 
         const task = missingTasks[0]; // Fix oldest date first (full batch)
-        const batch = task.symbols; // Send ALL missing symbols for this date
+        let batch = task.symbols;
 
-        console.warn(`[AutoHeal-Calendar] Found missing history for ${task.date}: ${batch.length} symbols. Queueing...`);
+        // [D3] Cost Hard Guardrails
+        if (batch.length > AUTO_HEAL_CONFIG.MAX_SYMBOLS_PER_TASK) {
+            console.warn(`[AutoHeal] CHUNKED: Batch size ${batch.length} exceeds limit. Requesting first ${AUTO_HEAL_CONFIG.MAX_SYMBOLS_PER_TASK}.`);
+            batch = batch.slice(0, AUTO_HEAL_CONFIG.MAX_SYMBOLS_PER_TASK);
+        }
+
+        if (sessionRequestCount >= AUTO_HEAL_CONFIG.SESSION_LIMIT) {
+            console.error(`[AutoHeal] SESSION_LIMIT (${AUTO_HEAL_CONFIG.SESSION_LIMIT}) reached. Enabling ECO_MODE.`);
+            setIsEcoMode(true);
+            return;
+        }
+
+        const trigger = batch.some(s => newSymbols.includes(s)) ? 'NEW_SYMBOL' : 'GAP_HEALING';
+        console.info(`[AutoHeal] AUTO_HEAL_ENQUEUED: symbolCount=${batch.length}, date=${task.date}, symbols=[${batch.join(', ')}], trigger=${trigger}`);
 
         // Mark as attempted immediately with timestamp to prevent re-triggering while queued
         batch.forEach(s => {
@@ -762,19 +879,18 @@ export function HoldingsProvider({ children }: { children: React.ReactNode }) {
                 const isQueued = res?.data?.queuedCount > 0;
 
                 if (isQueued) {
-                    console.log(`[AutoHeal-Calendar] ${task.date}: Queued ${res.data.queuedCount} items in background.`);
-                    // We can optionally keep 'isAutoHealing' true or rely on a global 'Backfill Status' listener.
-                    // For now, let's allow it to finish so the next date can be processed? 
-                    // NO, wait, if we process sequentially, we should wait. 
-                    // But if it's background, we can't wait for completion here easily.
-                    // Let's rely on the RETRY_DELAY_MS to prevent re-submitting this date, and move to next date?
-                    // Actually, if we just release only after it's *done*, that blocks other dates.
-                    // Better to Fire-and-Forget for Queued tasks, relying on the 'Attempted' lock to avoid spamming.
+                    console.info(`[AutoHeal-Loop] ${task.date}: QUEUED. Scheduling background refresh in 20s...`);
+                    // [D1] Perception Loop: Queue mode triggers a delayed refresh to pick up background worker results
+                    setTimeout(() => {
+                        console.info(`[AutoHeal-Loop] ${task.date}: TRIGGERING BACKGROUND REFRESH (lastBackfillTs++)`);
+                        setLastBackfillTs(Date.now());
+                    }, 20000); // 20s satisfies the <=30s requirement
                 } else {
-                    console.log(`[AutoHeal-Calendar] ${task.date}: Direct execution finished.`);
-                    // Force re-fetch of EOD data to update UI only if direct
+                    console.log(`[AutoHeal-Loop] ${task.date}: DIRECT. Refreshing immediately.`);
                     setLastBackfillTs(Date.now());
                 }
+
+                setSessionRequestCount(prev => prev + batch.length);
 
                 // Show long-running toast if queued
                 if (isQueued) {
@@ -800,7 +916,7 @@ export function HoldingsProvider({ children }: { children: React.ReactNode }) {
         if (!isAutoHealing && autoHealProgress) {
             // Check if really done? We need to wait for next M14 calculation. 
             // Logic: If M14 results come back clean, we clear progress.
-            const hasGaps = Object.values(memoizedM14BaseResults).some(r => r.status === 'missing-data' && r.missingSymbols?.length);
+            const hasGaps = Object.values(memoizedM14BaseResults).some(r => r.status === 'missing_data' && r.missingSymbols?.length);
             if (!hasGaps && !eodLoading) {
                 const t = setTimeout(() => setAutoHealProgress(null), 2000); // Hide after delay
                 return () => clearTimeout(t);
@@ -816,152 +932,39 @@ export function HoldingsProvider({ children }: { children: React.ReactNode }) {
         });
     }, [visibleTransactions, effectiveTodayNy, latestSnapshot]);
 
-    const { rows, summary, historicalPnl, dailyPnlList, dailyPnlResults, pnlEvents: contextPnlEvents } = useMemo(() => {
-        // [FIX] Correctly generate baseHoldings using buildHoldingsSnapshot
-        // calcGlobalFifo does NOT return holdings, it returns PnL metrics.
+    // [OPTIMIZATION] Step 1: Base Holdings Calculation (Independent of Prices)
+    const baseHoldingsResult = useMemo(() => {
         const snapshotResult = buildHoldingsSnapshot(visibleTransactions || [], effectiveTodayNy, activeSplits);
-        const baseHoldings = snapshotResult.holdings;
+        const holdings = snapshotResult.holdings;
 
-        let totalMv = 0; let totalPnl = 0; let totalTodayPl = 0; let totalGrossMv = 0; let hasGrossMv = false;
-        let totalNci = 0; let hasNci = false; let totalRealizedPnl = 0; let positionsCount = 0;
-        const allStatuses: DayPlStatus[] = [];
-        let gmvMissing = false; let nciMissing = false; let pnlMissing = false;
-
-        const now = new Date();
-        const currentRealTimeNy = toNyCalendarDayString(now);
-        const isHistoricalView = effectiveTodayNy < currentRealTimeNy;
-        const marketSession = isHistoricalView ? 'closed' : getNyMarketSessionLocal(now);
-        const isTradingDay = !isHistoricalView && (!US_MARKET_HOLIDAYS.has(currentRealTimeNy) && nyWeekdayIndex(now) > 0 && nyWeekdayIndex(now) < 6);
-
-        const allSymbols = new Set<string>();
-        baseHoldings.forEach((h: any) => allSymbols.add(normalizeSymbolForClient(h.symbol)));
-        dailyTxAggregates.forEach((_, key) => allSymbols.add(key));
-
-        const allGeneratedRows: HoldingRow[] = Array.from(allSymbols).map((symbolKey): HoldingRow => {
-            const matchingHoldings = baseHoldings.filter((h: any) => normalizeSymbolForClient(h.symbol) === symbolKey);
-            let h: any = undefined;
-            if (matchingHoldings.length > 0) h = matchingHoldings[0];
-
-            // [FIX] Consolidate lots if multiple holdings exist for same symbol (rare but safe)
-            if (matchingHoldings.length > 1) {
-                let totalNetQty = 0; let totalRealized = 0; let totalCost = 0;
-                let allLots: any[] = [];
-                matchingHoldings.forEach(mh => {
-                    totalNetQty += mh.netQty;
-                    totalRealized += (mh.realizedPnl || 0);
-                    totalCost += (mh.costBasis || 0);
-                    if (mh.lots) allLots = allLots.concat(mh.lots);
-                });
-                h = { ...matchingHoldings[0], netQty: totalNetQty, realizedPnl: totalRealized, costBasis: totalCost, lots: allLots };
+        // Pre-index holdings by normalized symbol for O(1) lookup
+        const holdingMap = new Map<string, any>();
+        holdings.forEach(h => {
+            const sym = normalizeSymbolClient(h.symbol);
+            if (!holdingMap.has(sym)) {
+                holdingMap.set(sym, h);
+            } else {
+                // Merge if multiple holdings exist (rare but possible due to contract keys)
+                const existing = holdingMap.get(sym);
+                existing.netQty += h.netQty;
+                existing.realizedPnl += (h.realizedPnl || 0);
+                existing.costBasis += (h.costBasis || 0);
+                if (h.lots) existing.lots = (existing.lots || []).concat(h.lots);
             }
-
-            const multiplier = h ? (h.multiplier ?? 1) : 1;
-            const netQty = h ? h.netQty : 0;
-            const avgCost = h && h.netQty !== 0 ? h.costBasis / (h.netQty * multiplier) : 0;
-
-            const priceRecord = getPriceRecord(symbolKey);
-            let last: number | null = manualMarkPrices[symbolKey] ?? (priceRecord?.price || null);
-            let isEodFallback = false;
-
-            // [NEW] Option Realtime Fallback Logic
-            // If it's an option (or we just don't have RT price), and we are NOT in historical view,
-            // try to use the latest EOD price (Today's if backfilled, or Ref/Yesterday's)
-            if (h?.assetType === 'option' && last === null && !isHistoricalView) {
-                if (todayEodMap[symbolKey]?.status === 'ok') {
-                    last = todayEodMap[symbolKey].close ?? null;
-                    isEodFallback = true;
-                } else if (refEodMap[symbolKey]?.status === 'ok') {
-                    last = refEodMap[symbolKey].close ?? null;
-                    isEodFallback = true;
-                }
-            }
-
-            if (isHistoricalView) {
-                const eod = todayEodMap[symbolKey];
-                if (eod?.status === 'ok') last = (eod.close ?? null) as any; // [FIX] Lint: undefined -> null
-            }
-
-            const mv = last !== null ? netQty * multiplier * last : null;
-            const pnl = (mv !== null && h) ? mv - h.costBasis : null;
-
-            const realizedPnl = (h?.realizedPnl || 0);
-
-            // [FIX] Calculate Break Even Price
-            // Formula: Price to sell remaining qty such that (SellValue - CostBasis) + RealizedPnL = 0
-            // SellValue = CostBasis - RealizedPnL
-            // Price * Qty * Mult = CostBasis - RealizedPnL
-            // Price = (CostBasis - RealizedPnL) / (Qty * Mult)
-            let breakEvenPrice = null;
-            if (h && netQty !== 0) {
-                const totalCost = h.costBasis || 0;
-                // Note: realizedPnl is positive for profit.
-                // If I made $1000 profit, my break even can be lower than avg cost.
-                // If I lost $1000, I need higher price to break even.
-                // So target proceeds = Cost - Realized. Correct.
-                breakEvenPrice = (totalCost - realizedPnl) / (netQty * multiplier);
-            }
-
-            const daily = dailyTxAggregates.get(symbolKey);
-
-            const dayRes = computeDayPnLSymbol({ netQty, multiplier }, marketSession, isTradingDay, { price: last, ts: 0 }, refEodMap[symbolKey], todayEodMap[symbolKey], daily?.trades || [], undefined, manualMarkPrices[symbolKey]);
-
-            return {
-                symbol: symbolKey, assetType: h?.assetType || 'stock', netQty, avgCost: avgCost,
-                breakEvenPrice: breakEvenPrice, multiplier, last, mv, pnl, pnlPct: pnl && h && h.costBasis ? pnl / Math.abs(h.costBasis) : 0,
-                todayPl: dayRes.todayPl, todayPlStatus: dayRes.todayPlStatus,
-                dayQtyDelta: daily?.dayQtyDelta || 0,
-                dayNotional: daily?.dayNotional || 0,
-                todayPlPct: 0, dayChange: dayRes.dayChange, dayChangePct: dayRes.dayChangePct,
-                totalLifetimePnL: realizedPnl + (pnl || 0),
-                realizedPnl: realizedPnl,
-                isHidden: hiddenFlags[symbolKey],
-                lots: h?.lots || [], // [FIX] Include lots for UI expansion
-                prevClose: dayRes.prevClose,
-                refDateUsed: dayRes.refDateUsed,
-                refPrice: dayRes.refPrice,
-                // [FIX] Strictly use priceRecord status for UI Dot
-                // dayRes.todayPlStatus is for PnL calculation source, not connection status
-                priceStatus: (priceRecord?.status || 'closed') as any,
-                isEodFallback // [NEW] Flag for UI
-            };
-        }).filter(r => r.netQty !== 0 || (r.todayPl && Math.abs(r.todayPl) > 0.01) || r.isHidden);
-
-        const visibleRows = allGeneratedRows.filter(r => !r.isHidden);
-
-        // Reset totals
-        totalMv = 0;
-        totalPnl = 0;
-        totalRealizedPnl = 0;
-        totalTodayPl = 0; // [FIX] Reset
-        positionsCount = 0;
-        totalGrossMv = 0;
-        totalNci = 0;
-
-        visibleRows.forEach(r => {
-            const mv = r.mv || 0;
-            const pnl = r.pnl || 0;
-            const cost = mv - pnl;
-
-            if (r.mv) totalMv += r.mv;
-            totalGrossMv += Math.abs(mv);
-            totalNci += cost;
-
-            if (r.pnl) totalPnl += r.pnl;
-            if (r.todayPl) totalTodayPl += r.todayPl; // [FIX] Accumulate
-            totalRealizedPnl += (r.realizedPnl || 0);
-            if (r.netQty !== 0) positionsCount++;
         });
 
-        const { m4, m5_2, pnlEvents, totalRealizedPnl: globalRealized } = globalFifoResult;
+        return { holdings, holdingMap, snapshotResult };
+    }, [visibleTransactions, effectiveTodayNy, activeSplits]);
 
-        // [FIX] Calculate Period PnLs
+    // [OPTIMIZATION] Step 2: Structural Data (Metrics that don't need real-time prices)
+    const structuralData = useMemo(() => {
+        const { m4, m5_2, pnlEvents, auditTrail, totalRealizedPnl: globalRealized } = globalFifoResult;
         const { wtd: wtdStart, mtd: mtdStart, ytd: ytdStart } = getPeriodStartDates(effectiveTodayNy);
 
-        const wtdPnl = calcM11_Wtd(memoizedM14BaseResults, wtdStart, effectiveTodayNy);
-        const mtdPnl = calcM12_Mtd(memoizedM14BaseResults, mtdStart, effectiveTodayNy);
-        const ytdPnl = calcM13_Ytd(memoizedM14BaseResults, ytdStart, effectiveTodayNy);
+        const wtdPnlValue = calcM11_Wtd(memoizedM14BaseResults, wtdStart, effectiveTodayNy);
+        const mtdPnlValue = calcM12_Mtd(memoizedM14BaseResults, mtdStart, effectiveTodayNy);
+        const ytdPnlValue = calcM13_Ytd(memoizedM14BaseResults, ytdStart, effectiveTodayNy);
 
-        // Re-implement calcWinRateStats logic roughly
         const calcWinRateStats = (startDate: string) => {
             const events = (pnlEvents || []).filter(e => e.date >= startDate);
             let wins = 0; let losses = 0;
@@ -974,7 +977,14 @@ export function HoldingsProvider({ children }: { children: React.ReactNode }) {
         const wtdWinRateStats = calcWinRateStats(wtdStart);
         const mtdWinRateStats = calcWinRateStats(mtdStart);
 
-        // [NEW] Calculate Trade Counts (Dynamic)
+        const dailyPnlListValue = Object.values(memoizedM14BaseResults)
+            .map(r => ({ date: r.date, pnl: r.totalPnl }))
+            .sort((a, b) => a.date.localeCompare(b.date));
+
+        // Period-specific transaction filters
+        const wtdTxs = (visibleTransactions || []).filter(tx => toNyCalendarDayString(tx.transactionTimestamp) >= wtdStart);
+        const mtdTxs = (visibleTransactions || []).filter(tx => toNyCalendarDayString(tx.transactionTimestamp) >= mtdStart);
+
         const calcTradeCounts = (txs: Tx[]) => {
             const counts = { buy: 0, sell: 0, short: 0, cover: 0, total: 0 };
             txs.forEach(tx => {
@@ -988,38 +998,134 @@ export function HoldingsProvider({ children }: { children: React.ReactNode }) {
             return counts;
         };
 
-        // Filter transactions for periods
-        const wtdTxs = (visibleTransactions || []).filter(tx => toNyCalendarDayString(tx.transactionTimestamp) >= wtdStart);
-        const mtdTxs = (visibleTransactions || []).filter(tx => toNyCalendarDayString(tx.transactionTimestamp) >= mtdStart);
+        return {
+            globalRealized, m4, m5_2, pnlEvents, auditTrail,
+            wtdPnlValue, mtdPnlValue, ytdPnlValue,
+            wtdWinRateStats, mtdWinRateStats,
+            dailyPnlListValue,
+            wtdTxs, mtdTxs,
+            calcTradeCounts,
+            periods: { wtdStart, mtdStart, ytdStart }
+        };
+    }, [globalFifoResult, memoizedM14BaseResults, effectiveTodayNy, visibleTransactions]);
 
-        // Identify Today's txs from aggregates or direct filter
-        const todayTxs: Tx[] = [];
-        dailyTxAggregates.forEach(agg => {
-            todayTxs.push(...agg.trades);
+    const { rows, summary, historicalPnl, dailyPnlList, dailyPnlResults, pnlEvents: contextPnlEvents } = useMemo(() => {
+        const { holdingMap } = baseHoldingsResult;
+        const {
+            globalRealized, m4, m5_2, pnlEvents, auditTrail,
+            wtdPnlValue, mtdPnlValue, ytdPnlValue,
+            wtdWinRateStats, mtdWinRateStats,
+            dailyPnlListValue,
+            wtdTxs, mtdTxs,
+            calcTradeCounts,
+            periods
+        } = structuralData;
+
+        let totalMv = 0; let totalPnl = 0; let totalTodayPl = 0; let totalGrossMv = 0;
+        let totalNci = 0; let positionsCount = 0; let totalRealizedPnl = 0;
+
+        const now = new Date();
+        const currentRealTimeNy = toNyCalendarDayString(now);
+        const isHistoricalView = effectiveTodayNy < currentRealTimeNy;
+        const marketSession = isHistoricalView ? 'closed' : getNyMarketSessionLocal(now);
+        const isTradingDay = !isHistoricalView && (!US_MARKET_HOLIDAYS.has(currentRealTimeNy) && nyWeekdayIndex(now) > 0 && nyWeekdayIndex(now) < 6);
+
+        // Collect all unique symbols once
+        const allSymbolsSet = new Set<string>(holdingMap.keys());
+        dailyTxAggregates.forEach((_, key) => allSymbolsSet.add(key));
+
+        const allGeneratedRows: HoldingRow[] = Array.from(allSymbolsSet).map((symbolKey): HoldingRow => {
+            const h = holdingMap.get(symbolKey);
+            const multiplier = h ? (h.multiplier ?? 1) : 1;
+            const netQty = h ? h.netQty : 0;
+            const avgCost = h && h.netQty !== 0 ? h.costBasis / (h.netQty * multiplier) : 0;
+
+            const priceRecord = throttledPriceSnapshot.get(symbolKey);
+            const daily = dailyTxAggregates.get(symbolKey);
+
+            // [UNIFIED] Compute Day P/L and effective price using same logic
+            // If historical view, we ignore real-time price snapshot
+            const rtPriceData = isHistoricalView ? { price: null, ts: 0 } : { price: priceRecord?.price || null, ts: priceRecord?.ts || 0 };
+
+            const dayRes = computeDayPnLSymbol(
+                { netQty, multiplier },
+                marketSession,
+                isTradingDay,
+                rtPriceData,
+                refEodMap[symbolKey],
+                todayEodMap[symbolKey],
+                daily?.trades || [],
+                undefined,
+                manualMarkPrices[symbolKey]
+            );
+
+            let last: number | null = dayRes.refPrice;
+            const isEodFallback = dayRes.todayPlStatus === 'eod-fallback';
+
+            const mv = last !== null ? netQty * multiplier * last : null;
+            const pnl = (mv !== null && h) ? mv - h.costBasis : null;
+            const realizedPnl = (h?.realizedPnl || 0);
+
+            let breakEvenPrice = null;
+            if (h && netQty !== 0) {
+                breakEvenPrice = (h.costBasis - realizedPnl) / (netQty * multiplier);
+            }
+
+            return {
+                symbol: symbolKey, assetType: h?.assetType || 'stock', netQty, avgCost,
+                breakEvenPrice, multiplier, last, mv, pnl, pnlPct: pnl && h && h.costBasis ? pnl / Math.abs(h.costBasis) : 0,
+                todayPl: dayRes.todayPl, todayPlStatus: dayRes.todayPlStatus,
+                dayQtyDelta: daily?.dayQtyDelta || 0,
+                dayNotional: daily?.dayNotional || 0,
+                todayPlPct: 0, dayChange: dayRes.dayChange, dayChangePct: dayRes.dayChangePct,
+                totalLifetimePnL: realizedPnl + (pnl || 0),
+                realizedPnl,
+                isHidden: hiddenFlags[symbolKey],
+                lots: h?.lots || [],
+                prevClose: dayRes.prevClose,
+                refDateUsed: dayRes.refDateUsed,
+                refPrice: dayRes.refPrice,
+                priceStatus: (priceRecord?.status || 'closed') as any,
+                isEodFallback,
+                contractKey: h?.contractKey
+            };
+        }).filter(r => r.netQty !== 0 || (r.todayPl && Math.abs(r.todayPl) > 0.01) || r.isHidden);
+
+        const visibleRows = allGeneratedRows.filter(r => !r.isHidden);
+
+        visibleRows.forEach(r => {
+            const mv = r.mv || 0;
+            const pnl = r.pnl || 0;
+            const cost = mv - pnl;
+
+            if (r.mv) totalMv += r.mv;
+            totalGrossMv += Math.abs(mv);
+            totalNci += cost;
+
+            if (r.pnl) totalPnl += r.pnl;
+            if (r.todayPl) totalTodayPl += r.todayPl;
+            totalRealizedPnl += (r.realizedPnl || 0);
+            if (r.netQty !== 0) positionsCount++;
         });
 
-        const totalTradeCounts = calcTradeCounts(visibleTransactions || []);
-        const wtdTradeCounts = calcTradeCounts(wtdTxs);
-        const mtdTradeCounts = calcTradeCounts(mtdTxs);
+        // Today's Trades
+        const todayTxs: Tx[] = [];
+        dailyTxAggregates.forEach(agg => todayTxs.push(...agg.trades));
         const todayTradeCounts = calcTradeCounts(todayTxs);
 
-        // [NEW] Calculate M5.1 (Three Buckets)
         const m5_1_result = calcM5_1_Trading({
             transactions: visibleTransactions || [],
             todayNy: effectiveTodayNy,
-            currentPrices: priceSnapshot || new Map()
+            currentPrices: throttledPriceSnapshot || new Map()
         });
 
         const m5_1_breakdown_array = Array.from(m5_1_result.breakdown.entries()).map(([sym, val]) => ({
             symbol: sym, realized: val.realized, unrealized: val.unrealized, total: val.realized + val.unrealized
         }));
 
-        // [NEW] Calculate M5.2 (Ledger View) - Realized + Unrealized
-        const m5_2_realized = m5_2; // From Global FIFO (closed today, opened today)
         let m5_2_unrealized = 0;
         const m5_2_breakdown_map = new Map<string, { realized: number, unrealized: number }>();
 
-        // 1. Populate Realized breakdown via AuditTrail
         globalFifoResult.auditTrail.forEach(e => {
             if (e.closeDate === effectiveTodayNy && e.openDate === effectiveTodayNy) {
                 const item = m5_2_breakdown_map.get(e.symbol) || { realized: 0, unrealized: 0 };
@@ -1028,33 +1134,36 @@ export function HoldingsProvider({ children }: { children: React.ReactNode }) {
             }
         });
 
-        // 2. Calculate Unrealized (Lots opened today)
-        if (globalFifoResult.openPositions && priceSnapshot) {
+        const openLotsAuditEvents: any[] = [];
+        if (globalFifoResult.openPositions && throttledPriceSnapshot) {
             globalFifoResult.openPositions.forEach((lots, symKey) => {
-                const priceRecord = priceSnapshot.get(symKey);
+                const priceRecord = throttledPriceSnapshot.get(symKey);
                 if (priceRecord && typeof priceRecord.price === 'number') {
                     const mark = priceRecord.price;
                     lots.forEach(lot => {
                         if (lot.date === effectiveTodayNy) {
-                            // It's a today position
                             const pnl = (mark - lot.cost) * lot.qty * lot.multiplier;
                             m5_2_unrealized += pnl;
-
                             const item = m5_2_breakdown_map.get(symKey) || { realized: 0, unrealized: 0 };
                             item.unrealized += pnl;
                             m5_2_breakdown_map.set(symKey, item);
+                            openLotsAuditEvents.push({
+                                symbol: symKey, openDate: lot.date, closeDate: effectiveTodayNy,
+                                openPrice: lot.cost, closePrice: mark, qty: lot.qty, pnl,
+                                multiplier: lot.multiplier, isUnrealized: true
+                            });
                         }
                     });
                 }
             });
         }
 
-        const m5_2_total = m5_2_realized + m5_2_unrealized;
+        const m5_2_total = m5_2 + m5_2_unrealized;
         const m5_2_breakdown_array = Array.from(m5_2_breakdown_map.entries()).map(([sym, val]) => ({
             symbol: sym, realized: val.realized, unrealized: val.unrealized, total: val.realized + val.unrealized
         }));
 
-        const summary: HoldingsSummary = {
+        const summaryResult: HoldingsSummary = {
             totalMv, totalPnl, totalRealizedPnl: globalRealized, totalUnrealizedPnl: totalPnl,
             totalLifetimePnl: globalRealized + totalPnl, positionsCount,
             winRate: null,
@@ -1065,50 +1174,39 @@ export function HoldingsProvider({ children }: { children: React.ReactNode }) {
                 avgWin: 0, avgLoss: 0, pnlRatio: 0, expectancy: 0
             },
             avgPositionSize: positionsCount > 0 ? totalGrossMv / positionsCount : 0,
-
-            // [FIXED] Populated GMV & NCI & TodayPl
-            totalTodayPl,
-            aggTodayPlStatus: 'live',
+            totalTodayPl: (marketSession === 'post-market' || marketSession === 'closed') ? totalTodayPl : null,
+            aggTodayPlStatus: (marketSession === 'open' ? 'live' : marketSession === 'pre-market' ? 'session-pre' : marketSession === 'post-market' ? 'session-post' : 'closed') as AggTodayStatus,
             totalGrossMv,
             totalNci,
             gmvStatus: 'live', nciStatus: 'live', pnlStatus: 'live',
-
             todayRealizedPnlHistorical: m4,
-
-            // [FIXED] M5 Metrics (Fully Dynamic)
-            todayTradingPnlIntraday: m5_1_result.m5_1, // Default to M5.1 for "Intraday"
+            todayTradingPnlIntraday: m5_1_result.m5_1,
             todayTradingPnlIntradayM5_1: m5_1_result.m5_1,
             todayTradingPnlIntradayM5_2: m5_2_total,
-
-            // [FIXED] Breakdowns
             m5_1_breakdown: m5_1_breakdown_array,
             m5_1_auditTrail: m5_1_result.auditTrail,
             m5_2_breakdown: m5_2_breakdown_array,
-            m5_2_auditTrail: globalFifoResult.auditTrail.filter(e => e.closeDate === effectiveTodayNy && e.openDate === effectiveTodayNy),
+            m5_2_auditTrail: [
+                ...globalFifoResult.auditTrail.filter(e => e.closeDate === effectiveTodayNy && e.openDate === effectiveTodayNy),
+                ...openLotsAuditEvents
+            ],
             m4_auditTrail: globalFifoResult.auditTrail.filter(e => e.closeDate === effectiveTodayNy && e.openDate < effectiveTodayNy),
-
-            // [FIXED] Trade Counts
             todayTradeCount: todayTradeCounts.total,
             todayTradeCounts,
-            totalTradeCount: totalTradeCounts.total,
-            totalTradeCounts,
-
-            // [FIXED] Win Rate Stats
+            totalTradeCount: calcTradeCounts(visibleTransactions || []).total,
+            totalTradeCounts: calcTradeCounts(visibleTransactions || []),
             wtdWinRateStats: wtdWinRateStats as any,
             mtdWinRateStats: mtdWinRateStats as any,
-            wtdTradeCounts,
-            mtdTradeCounts,
-
-            wtdPnl, mtdPnl, ytdPnl,
+            wtdTradeCounts: calcTradeCounts(structuralData.wtdTxs),
+            mtdTradeCounts: calcTradeCounts(structuralData.mtdTxs),
+            wtdPnl: wtdPnlValue, mtdPnl: mtdPnlValue, ytdPnl: ytdPnlValue,
             m4_historicalRealized: m4,
             m5_1_trading: m5_1_result.m5_1,
             m5_2_ledger: m5_2_total,
-            m6_1_legacy: totalTodayPl, // Map Total Day PnL to Legacy
+            m6_1_legacy: totalTodayPl,
             m6_2_new: 0,
-            m6_total: totalTodayPl,    // Map Total Day PnL to Total
+            m6_total: totalTodayPl,
             totalHistoricalRealizedPnl: globalRealized,
-
-            // [NEW] Populate M6 breakdown from row data
             m6_pnl_breakdown: visibleRows.map(r => ({
                 symbol: r.symbol,
                 realized: r.realizedPnl || 0,
@@ -1117,10 +1215,54 @@ export function HoldingsProvider({ children }: { children: React.ReactNode }) {
             })).filter(x => Math.abs(x.total) > 0.01)
         };
 
-        const dailyPnlList = Object.values(memoizedM14BaseResults).map(r => ({ date: r.date, pnl: r.totalPnl })).sort((a, b) => a.date.localeCompare(b.date));
+        // [FIX] C1: Aggregate Historical PnL from Audit Trail with Observability
+        const historicalPnlMap = new Map<string, number>();
+        let invalidPnlCount = 0;
 
-        return { rows: showHidden ? allGeneratedRows : visibleRows, summary, historicalPnl: [], dailyPnlList, dailyPnlResults: memoizedM14BaseResults, pnlEvents };
-    }, [globalFifoResult, dailyTxAggregates, getPriceRecord, priceSnapshot, refEodMap, todayEodMap, memoizedM14BaseResults, showHidden, manualMarkPrices, hiddenFlags, visibleTransactions, effectiveTodayNy, activeSplits]);
+        if (auditTrail) {
+            auditTrail.forEach(e => {
+                if (e.symbol) {
+                    if (Number.isFinite(e.pnl)) {
+                        const val = historicalPnlMap.get(e.symbol) || 0;
+                        historicalPnlMap.set(e.symbol, val + e.pnl);
+                    } else {
+                        invalidPnlCount++;
+                    }
+                }
+            });
+        }
+
+        if (invalidPnlCount > 0) {
+            console.warn(`[HoldingsProvider] Found ${invalidPnlCount} invalid PnL entries in auditTrail.`);
+        }
+
+        const historicalPnlValue = Array.from(historicalPnlMap.entries()).map(([symbol, pnl]) => ({ symbol, pnl }));
+        const historicalPnlMetrics = {
+            totalSymbols: historicalPnlValue.length,
+            invalidPnlCount,
+            aggregatedCount: auditTrail ? auditTrail.length : 0
+        };
+
+        // [DEBUG] Jitter Instrumentation: Trace dependency changes
+        if (typeof window !== 'undefined') {
+            (window as any).__HOLDINGS_MEMO_COUNT__ = ((window as any).__HOLDINGS_MEMO_COUNT__ || 0) + 1;
+            console.log(`[HoldingsMemo] Run #${(window as any).__HOLDINGS_MEMO_COUNT__} | Rows: ${visibleRows.length} | HistSymbols: ${historicalPnlValue.length} | Invalid: ${invalidPnlCount} | Reason: ${!baseHoldingsResult ? 'baseHoldingsResult缺失' : '依赖项变更'
+                }`);
+        }
+
+        return {
+            rows: showHidden ? allGeneratedRows : visibleRows,
+            summary: summaryResult,
+            historicalPnl: historicalPnlValue,
+            dailyPnlList: dailyPnlListValue,
+            dailyPnlResults: memoizedM14BaseResults,
+            pnlEvents,
+            auditTrail: structuralData.auditTrail,
+            historicalPnlMetrics, // [NEW]
+            isLiveMode // [NEW]
+        };
+    }, [baseHoldingsResult, structuralData, dailyTxAggregates, throttledPriceSnapshot, refEodMap, todayEodMap, memoizedM14BaseResults, showHidden, manualMarkPrices, hiddenFlags, visibleTransactions, effectiveTodayNy]);
+
 
     useEffect(() => {
         if (typeof window !== 'undefined') (window as any).__AUDIT_CTX__ = { transactions, allTransactions };
@@ -1131,6 +1273,15 @@ export function HoldingsProvider({ children }: { children: React.ReactNode }) {
 
     const rebuildHistory = useCallback(async () => {
         if (!effectiveUid || !workerRef.current || !allTransactions) return; // Fix: workerRef
+
+        if (eodLoading) {
+            // DEBUG:EOD-TIMELINE-AUDIT
+            import('@/lib/debug/eod-timeline').then(({ audit }) => {
+                audit("Snapshot.skip", { reason: "eod_not_ready", source: "rebuildHistory" });
+            });
+            console.warn("[HoldingsProvider] Rebuild blocked: EOD data still loading.");
+            return;
+        }
 
         console.log("[HoldingsProvider] Starting History Rebuild (Auto-Healing)...");
         setIsRebuilding(true);
@@ -1161,7 +1312,7 @@ export function HoldingsProvider({ children }: { children: React.ReactNode }) {
 
                     const batchSize = 100; // Firestore batch limit is 500, keep safe
                     const entries = Object.entries(snapshots);
-                    let batch = writeBatch(firestore); // writeBatch needs import
+                    let batch = writeBatch(firestore);
                     let count = 0;
 
                     for (const [dateKey, data] of entries) {
@@ -1208,7 +1359,7 @@ export function HoldingsProvider({ children }: { children: React.ReactNode }) {
     }, [effectiveUid, allTransactions, firestore]);
 
     const value = useMemo(() => ({
-        rows, summary, historicalPnl, dailyPnlList, dailyPnlResults, pnlEvents: contextPnlEvents,
+        rows, summary, historicalPnl, dailyPnlList, dailyPnlResults, pnlEvents: contextPnlEvents, auditTrail: structuralData.auditTrail,
         fullEodMap, ytdBaseEodMap, activeSplits, loading: txLoading || eodLoading || isM14Calculating || isRebuilding,
         transactions, isCalculating: txLoading || eodLoading || isM14Calculating || isRebuilding,
         refreshData: () => setRefreshVersion(v => v + 1),
@@ -1218,8 +1369,9 @@ export function HoldingsProvider({ children }: { children: React.ReactNode }) {
         snapshotLoaded: !!latestSnapshot,
         snapshotDate: latestSnapshot?.date,
         rebuildHistory, isRebuilding,
-        isAutoHealing, autoHealProgress // [NEW]
-    }), [rows, summary, historicalPnl, dailyPnlList, dailyPnlResults, contextPnlEvents, fullEodMap, ytdBaseEodMap, activeSplits, txLoading, eodLoading, isM14Calculating, transactions, analysisYear, showHidden, toggleHidden, effectiveUid, availableYears, allTransactions, latestSnapshot, rebuildHistory, isRebuilding, isAutoHealing, autoHealProgress]);
+        isAutoHealing, autoHealProgress, // [NEW]
+        isLiveMode // [NEW]
+    }), [rows, summary, historicalPnl, dailyPnlList, dailyPnlResults, contextPnlEvents, structuralData.auditTrail, fullEodMap, ytdBaseEodMap, activeSplits, txLoading, eodLoading, isM14Calculating, transactions, analysisYear, showHidden, toggleHidden, effectiveUid, availableYears, allTransactions, latestSnapshot, rebuildHistory, isRebuilding, isAutoHealing, autoHealProgress, isLiveMode]);
 
     return <HoldingsContext.Provider value={value}>{children}</HoldingsContext.Provider>;
 }

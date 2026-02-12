@@ -16,7 +16,9 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { useHoldings } from "@/hooks/use-holdings";
 import { useUser } from "@/firebase";
 import { DollarSign, Wallet, TrendingUp } from "lucide-react";
-
+import { ForceVisibleStatus } from "@/components/debug/force-status";
+import { BUILD_ID, BUILD_TIME, EOD_RULE_REV } from "@/lib/build-info";
+import { Loader2 } from "lucide-react";
 
 const TransactionHistory = dynamic(
   () =>
@@ -65,57 +67,77 @@ function formatSigned(value: number | null | undefined): string {
 
 export default function Home() {
   const { ready } = useRequireAuth();
-  const { user, isUserLoading } = useUser();
-  const { summary, loading } = useHoldings();
+  const { user, isUserLoading, authTimeout } = useUser();
+  const { summary, loading, isLiveMode } = useHoldings();
 
-  // 增加超时显示登录按钮的机制
-  const [showManualLogin, setShowManualLogin] = useState(false);
-
+  // [NEW] Build Info Log
   useEffect(() => {
-    const timer = setTimeout(() => {
-      setShowManualLogin(true);
-    }, 2000); // 2秒后如果还在加载，显示手动登录按钮
-    return () => clearTimeout(timer);
+    console.info('[BUILD]', { BUILD_ID, BUILD_TIME, EOD_RULE_REV });
   }, []);
 
   if (!ready) {
-    // Determine specific state for better UX
-    const isStuck = !isUserLoading && !user; // Loaded but no user (and redirect hasn't happened yet)
-    const showButton = showManualLogin || isStuck;
+    const isStuck = !isUserLoading && !user;
+    const showInteractiveOptions = authTimeout || isStuck;
 
     return (
       <div className="flex flex-col items-center justify-center min-h-screen space-y-6 p-4 bg-background">
         <div className="flex flex-col items-center space-y-4">
           {isUserLoading ? (
-            <div className="h-8 w-8 animate-spin rounded-full border-4 border-primary border-t-transparent"></div>
+            <div className="relative">
+              <div className="h-10 w-10 animate-spin rounded-full border-4 border-primary border-t-transparent"></div>
+              {authTimeout && (
+                <div className="absolute -top-1 -right-1 h-4 w-4 rounded-full bg-amber-500 border-2 border-background animate-pulse"></div>
+              )}
+            </div>
           ) : (
-            <div className="h-8 w-8 rounded-full bg-amber-500/20 text-amber-500 flex items-center justify-center">!</div>
+            <div className="h-10 w-10 rounded-full bg-amber-500/20 text-amber-500 flex items-center justify-center font-bold">!</div>
           )}
 
-          <div className="text-center space-y-1">
-            <p className="text-lg font-medium">
-              {isUserLoading ? '正在验证身份...' : '未检测到登录'}
+          <div className="text-center space-y-2">
+            <p className="text-xl font-semibold tracking-tight">
+              {isUserLoading ? (authTimeout ? '连接延迟中...' : '正在验证身份...') : '未检测到登录'}
             </p>
-            <p className="text-sm text-muted-foreground">
-              {isUserLoading ? '正在连接安全服务' : '即将跳转至登录页面'}
+            <p className="text-sm text-muted-foreground max-w-[280px]">
+              {isUserLoading
+                ? (authTimeout ? '网络请求响应较慢，您可以继续等待或尝试手动重新登录。' : '正在安全连接至数据服务中心')
+                : '检测到登录已失效，即将跳转至登录页面'}
             </p>
           </div>
         </div>
 
-        {/* 调试/手动操作区域 */}
-        <div className="flex flex-col items-center gap-4 animate-in fade-in slide-in-from-bottom-4 duration-700">
-          {showButton && (
-            <a
-              href="/login"
-              className="px-6 py-2 bg-primary text-primary-foreground hover:bg-primary/90 rounded-md text-sm font-medium transition-colors shadow-lg shadow-primary/20"
-            >
-              {isUserLoading ? '等待太久？点此登录' : '前往登录'}
-            </a>
+        {/* 交互式恢复选项 (Guardrail 2) */}
+        <div className="flex flex-col items-center gap-4 w-full max-w-xs animate-in fade-in slide-in-from-bottom-4 duration-700">
+          {showInteractiveOptions && (
+            <div className="grid grid-cols-1 gap-3 w-full">
+              <a
+                href="/login"
+                className="flex items-center justify-center px-6 py-2.5 bg-primary text-primary-foreground hover:bg-primary/90 rounded-lg text-sm font-medium transition-all shadow-lg shadow-primary/20 active:scale-95"
+              >
+                {isUserLoading ? '尝试重新登录' : '前往登录'}
+              </a>
+
+              {isUserLoading && (
+                <button
+                  onClick={() => window.location.reload()}
+                  className="flex items-center justify-center px-6 py-2.5 bg-secondary text-secondary-foreground hover:bg-secondary/80 rounded-lg text-sm font-medium transition-all active:scale-95"
+                >
+                  刷新重试
+                </button>
+              )}
+            </div>
           )}
 
-          <div className="text-xs text-muted-foreground/40 font-mono text-center max-w-[200px]">
-            <p>Status: {isUserLoading ? 'Verifying...' : 'Ready (No User)'}</p>
-            <p>Redirecting: {isStuck ? 'Yes' : 'No'}</p>
+          <div className="mt-4 p-3 bg-muted/50 rounded-md border border-border/50 w-full">
+            <div className="flex justify-between items-center text-[10px] font-mono text-muted-foreground/60">
+              <span>AUTH_STATUS</span>
+              <span className={isUserLoading ? 'text-amber-500' : 'text-green-500'}>
+                {isUserLoading ? (authTimeout ? 'SLOW' : 'PENDING') : 'READY'}
+              </span>
+            </div>
+            <div className="flex justify-between items-center text-[10px] font-mono text-muted-foreground/60 mt-1">
+              <span>SOURCE_TRUTH</span>
+              <span>onAuthStateChanged</span>
+            </div>
           </div>
         </div>
       </div>
@@ -127,7 +149,14 @@ export default function Home() {
   const pnlDisplay = loading ? "--" : formatSigned(summary.totalPnl);
 
   return (
-    <div className="flex min-h-screen w-full flex-col">
+    <div className="flex min-h-screen w-full flex-col relative">
+      {/* [NEW] Live Mode Banner */}
+      {isLiveMode && (
+        <div className="bg-amber-500 text-black py-1 px-4 text-center text-xs font-bold flex items-center justify-center gap-2 animate-pulse z-[100]">
+          <Loader2 className="h-3 w-3 animate-spin" />
+          LIVE MODE（实时模式）- 已绕开快照，直接执行全量计算
+        </div>
+      )}
       <DashboardHeader />
       <main className="flex flex-1 flex-col">
         <div className="p-4 md:p-6 border-b border-border/20 bg-transparent">
@@ -248,6 +277,16 @@ export default function Home() {
           </Tabs>
         </div>
       </main>
+
+      {/* [NEW] Watermark */}
+      <div className="fixed bottom-2 right-2 flex flex-col items-end gap-0.5 pointer-events-none z-[100] opacity-30 select-none">
+        <div className="text-[10px] font-mono font-bold bg-zinc-900/50 px-1.5 py-0.5 rounded backdrop-blur-sm border border-white/5 text-zinc-400">
+          EOD_RULE={EOD_RULE_REV}
+        </div>
+        <div className="text-[8px] font-mono bg-zinc-900/50 px-1.5 py-0.5 rounded backdrop-blur-sm border border-white/5 text-zinc-500">
+          BUILD={BUILD_ID}
+        </div>
+      </div>
     </div>
   );
 }

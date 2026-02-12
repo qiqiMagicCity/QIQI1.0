@@ -55,7 +55,7 @@ import {
   useUser,
   useFirestore,
 } from '@/firebase';
-import { doc, deleteDoc } from 'firebase/firestore';
+import { doc, deleteDoc, writeBatch, increment, serverTimestamp } from 'firebase/firestore';
 import { Skeleton } from '../ui/skeleton';
 import { SymbolName } from './symbol-name';
 import { toNyCalendarDayString, toNyHmsString, nyWeekdayLabel, getEffectiveTradingDay } from '@/lib/ny-time';
@@ -198,7 +198,8 @@ export function TransactionHistory() {
 
     return filtered.map(tx => {
       const absQty = Math.abs(tx.qty);
-      const amount = tx.qty * tx.price * tx.multiplier;
+      // [UX FIX] Reverse sign: Sell (negative qty) -> Cash In (Positive Amount)
+      const amount = -1 * tx.qty * tx.price * tx.multiplier;
       return { ...tx, absQty, amount };
     });
 
@@ -214,6 +215,7 @@ export function TransactionHistory() {
 
   // Delete logic
   async function handleDelete(tx: any) {
+    if (!effectiveUid || !firestore) return;
     try {
       const owner = tx?.userId ?? user?.uid ?? null;
       const ref = getTxDocRef(firestore, tx, owner);
@@ -225,10 +227,28 @@ export function TransactionHistory() {
         });
         return;
       }
-      await deleteDoc(ref);
+
+      const batch = writeBatch(firestore);
+      batch.delete(ref);
+
+      // Increment revision on user doc
+      const userRef = doc(firestore, 'users', effectiveUid);
+      batch.update(userRef, {
+        txRevision: increment(1),
+        updatedAt: serverTimestamp()
+      });
+
+      await batch.commit();
+
+      // Trigger Snapshot Invalidation (Async)
+      const txDateStr = toNyCalendarDayString(tx.transactionTimestamp);
+      import('@/lib/snapshots/invalidation').then(({ invalidateSnapshots }) => {
+        invalidateSnapshots(effectiveUid, txDateStr);
+      }).catch(err => console.warn('[Delete] Failed to trigger invalidation', err));
+
       toast({
         title: "删除成功",
-        description: "交易记录已删除。",
+        description: "交易记录已删除 (Revision 已更新)。",
       });
     } catch (err: any) {
       console.error('[delete] 删除失败：', err);

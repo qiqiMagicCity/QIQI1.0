@@ -402,9 +402,14 @@ export function CalculationGrid() {
                 {events.map((event, idx) => (
                   <div key={idx} className="flex items-center justify-between text-xs p-2 rounded-sm hover:bg-muted/50 transition-colors border-b border-border/40 last:border-0">
                     <div className="flex flex-col gap-0.5">
-                      <div className="font-bold font-mono text-primary">{event.symbol}</div>
+                      <div className="font-bold font-mono text-primary flex items-center gap-1">
+                        {event.symbol}
+                        {(event as any).isUnrealized && (
+                          <span className="px-1 py-[1px] text-[8px] bg-blue-500/10 text-blue-500 rounded border border-blue-500/20">持仓</span>
+                        )}
+                      </div>
                       <div className="text-[10px] text-muted-foreground leading-tight">
-                        {event.openDate} ➔ {event.closeDate === 'HOLDING' ? '持仓中' : event.closeDate}
+                        {event.openDate} ➔ {(event as any).isUnrealized ? <span className="text-blue-500 font-medium">当日未卖出</span> : (event.closeDate === 'HOLDING' ? '持仓中' : event.closeDate)}
                       </div>
                     </div>
                     <div className="flex flex-col items-end gap-0.5">
@@ -412,7 +417,11 @@ export function CalculationGrid() {
                         {formatCurrency(event.pnl)}
                       </div>
                       <div className="text-[10px] text-muted-foreground text-right leading-tight">
-                        {event.qty}股 @ {event.openPrice} ➔ {event.closePrice}
+                        {(event as any).isUnrealized ? (
+                          <span>{event.qty}股 @ {event.openPrice} ➔ <span className="text-foreground/80 font-medium">实时价格</span></span>
+                        ) : (
+                          <span>{event.qty}股 @ {event.openPrice} ➔ {event.closePrice}</span>
+                        )}
                       </div>
                     </div>
                   </div>

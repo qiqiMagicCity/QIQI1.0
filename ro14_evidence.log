@@ -1,0 +1,15 @@
+=== [EVID] RO-14: AutoHeal Linkage Audit ===
+E2. Correlation ID Schema: ${date}_${symbol} -> 2026-02-10_RO14TEST
+
+--- E4: Firestore Result Probe ---
+Initial Status: MISSING
+
+--- E5: Revision Linkage Audit ---
+Current Revision for RO14TEST: N/A
+Finding: Backend 'fetchAndSaveOfficialClose' LACKS the eodRevision increment logic.
+
+--- E6: Front-end State Evidence ---
+1. Spinner Visibility: Controlled by 'isAutoHealing' (boolean).
+2. Progress Text: Controlled by 'autoHealProgress.status' (string).
+3. Linkage Break: In 'HoldingsProvider', background (queued) tasks do NOT update 'lastBackfillTs'.
+   Result: The UI waits, tasks finish in background, but the UI NEVER refreshes because no state change triggers a new 'fetchEod()'.

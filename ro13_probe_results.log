@@ -1,0 +1,13 @@
+=== [EVID] RO-13: Individual Probe Audit ===
+Auth UID: D685nVrGJGVbmk90FTfKCwAZlbw2 (isAnonymous: true)
+
+[Probe-1] getDoc(users/{uid})
+Exists: false
+
+[Probe-2] updateDoc(users/{uid}, { txRevision: increment(1) })
+❌ FAILED
+Code: permission-denied
+Message: 7 PERMISSION_DENIED: Missing or insufficient permissions.
+
+[Probe-3] setDoc(users/{uid}/transactions/PROBE_PATH)
+✅ SUCCESS

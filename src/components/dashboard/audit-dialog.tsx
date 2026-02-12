@@ -1,4 +1,4 @@
-
+﻿
 import React from "react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { useHoldings } from "@/hooks/use-holdings";
@@ -41,8 +41,12 @@ export function AuditDialog({ open, onClose }: AuditDialogProps) {
             }
 
             const timestamps = allTransactions.map((t: any) => t.transactionTimestamp).filter((ts: number) => ts > 0);
+            if (timestamps.length === 0) {
+                setProgress("没有有效的交易时间戳。");
+                setStatus('done');
+                return;
+            }
             const minTs = Math.min(...timestamps);
-            // const maxTs = Date.now();
 
             const startYear = new Date(minTs).getFullYear();
             const endYear = new Date().getFullYear();
@@ -65,10 +69,6 @@ export function AuditDialog({ open, onClose }: AuditDialogProps) {
                 const startStr = targetDates[0];
                 const endStr = targetDates[targetDates.length - 1];
 
-                // Fetch EOD
-                // Note: uniqueSymbols from hook is "Active YTD", but for full audit we might want ALL symbols ever traded?
-                // Hook's uniqueSymbols is usually robust enough if it covers holdings history.
-                // Re-calculating all unique symbols from allTransactions is safer.
                 const allSyms = Array.from(new Set(allTransactions.map((t: any) => t.symbol).filter(Boolean)));
 
                 const eodMap = await getOfficialClosesRange(startStr, endStr, allSyms);
@@ -78,7 +78,7 @@ export function AuditDialog({ open, onClose }: AuditDialogProps) {
 
                 // Check
                 Object.values(results).forEach(res => {
-                    if (res.status === 'missing-data' && res.missingSymbols && res.missingSymbols.length > 0) {
+                    if (res.status === 'missing_data' && res.missingSymbols && res.missingSymbols.length > 0) {
                         res.missingSymbols.forEach(sym => {
                             if (!globalMissingReport[sym]) globalMissingReport[sym] = [];
                             if (!globalMissingReport[sym].includes(res.date)) {
