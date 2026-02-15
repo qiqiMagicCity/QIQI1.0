@@ -304,10 +304,13 @@ export function buildHoldingsSnapshot(
     // const multiplier = txsInGroup[0].multiplier; // Calculated above
 
     const costBasis = relevantLayers.reduce((sum, layer) => {
-      return sum + Math.abs(layer.qty) * layer.price * multiplier;
+      // [FIX] REMOVE Math.abs. Ensure costBasis has the same sign as netQty.
+      // Long: qty > 0, price > 0 -> costBasis > 0
+      // Short: qty < 0, price > 0 -> costBasis < 0
+      return sum + layer.qty * layer.price * multiplier;
     }, 0);
 
-    const costPerUnit = costBasis / (Math.abs(netQty) * multiplier);
+    const costPerUnit = Math.abs(costBasis) / (Math.abs(netQty) * multiplier);
 
     const lastTxTs = Math.max(...relevantLayers.map((l) => l.ts));
 

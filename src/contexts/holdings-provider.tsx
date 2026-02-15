@@ -4,7 +4,7 @@ import React, { createContext, useContext, useEffect, useMemo, useState, useRef,
 import { useUser } from '@/firebase';
 import { useFirestore } from '@/firebase/index';
 // [FIX] Update imports
-import { doc, getDoc, updateDoc, setDoc, onSnapshot, collection, query, orderBy, limit, getDocs, writeBatch, deleteField } from 'firebase/firestore';
+import { doc, getDoc, updateDoc, setDoc, onSnapshot, collection, query, orderBy, limit, getDocs, getDocsFromServer, writeBatch, deleteField, where } from 'firebase/firestore';
 import { useUserTransactions, type Tx } from '@/hooks/use-user-transactions';
 import { buildHoldingsSnapshot } from '@/lib/holdings/fifo';
 import {
@@ -448,6 +448,16 @@ export function HoldingsProvider({ children }: { children: React.ReactNode }) {
     const [isEcoMode, setIsEcoMode] = useState(false);
     const knownSymbolsRef = useRef<Set<string>>(new Set());
 
+    const [refreshVersion, setRefreshVersion] = useState(0);
+
+    // [C1] Refresh Data implementation
+    const refreshData = useCallback(() => {
+        setRefreshVersion(v => v + 1);
+        setLastBackfillTs(Date.now()); // Trigger EOD re-fetch
+    }, []);
+
+
+
     useEffect(() => {
         if (typeof window !== 'undefined') {
             const forceLive = new URLSearchParams(window.location.search).get('live') === '1';
@@ -469,7 +479,11 @@ export function HoldingsProvider({ children }: { children: React.ReactNode }) {
                 // [FIX] Do not call hooks inside useEffect
                 const snapsRef = collection(firestore, 'users', effectiveUid, 'snapshots');
                 const q = query(snapsRef, orderBy('date', 'desc'), limit(1));
-                const querySnapshot = await getDocs(q);
+
+                // [C2] Force server fetch if triggered by Refresh button (refreshVersion > 0)
+                const querySnapshot = refreshVersion > 0
+                    ? await getDocsFromServer(q)
+                    : await getDocs(q);
                 if (!querySnapshot.empty) {
                     const snap = querySnapshot.docs[0].data() as FifoSnapshot;
                     if (snap && snap.inventory) {
@@ -490,7 +504,7 @@ export function HoldingsProvider({ children }: { children: React.ReactNode }) {
             }
         };
         fetchSnapshot();
-    }, [effectiveUid, isLiveMode]);
+    }, [effectiveUid, isLiveMode, refreshVersion]); // Added refreshVersion dependency
 
     const availableYears = useMemo(() => {
         if (!allTransactions || allTransactions.length === 0) return [new Date().getFullYear()];
@@ -510,7 +524,7 @@ export function HoldingsProvider({ children }: { children: React.ReactNode }) {
         return Array.from(yearsSet).sort((a, b) => b - a);
     }, [allTransactions]);
 
-    const [refreshVersion, setRefreshVersion] = useState(0);
+
     const [analysisYear, setAnalysisYear] = useState<number>(new Date().getFullYear());
     const [showHidden, setShowHidden] = useState(false);
     const [hiddenFlags, setHiddenFlags] = useState<Record<string, boolean>>({});
@@ -637,7 +651,8 @@ export function HoldingsProvider({ children }: { children: React.ReactNode }) {
     const [isAutoHealing, setIsAutoHealing] = useState(false);
 
     // [FIX] Track attempted Ref Price backfills to prevent infinite loops
-    const attemptedRefFixesRef = useRef(new Set<string>());
+    // Removed attemptedRefFixesRef in favor of persistent repository-level backoff
+
 
     useEffect(() => {
         if (uniqueSymbols.length === 0) {
@@ -663,7 +678,7 @@ export function HoldingsProvider({ children }: { children: React.ReactNode }) {
                     getOfficialCloses(baseDay, symbolsNorm),
                     getOfficialCloses(wtdBase, symbolsNorm),
                     getOfficialCloses(mtdBase, symbolsNorm),
-                    getOfficialCloses(ytdBase, symbolsNorm),
+                    getOfficialCloses(ytdBase, symbolsNorm, true), // [C4] Force Server Read for Yearly Base
                     getOfficialClosesBatch(robustRange, symbolsNorm)
                 ]);
 
@@ -685,42 +700,66 @@ export function HoldingsProvider({ children }: { children: React.ReactNode }) {
     useEffect(() => {
         if (eodLoading || !baseHoldings.length) return;
 
-        const refDay = prevNyTradingDayString(effectiveTodayNy);
-        const missingSymbols: string[] = [];
+        const baseDay = effectiveTodayNy;
+        const refDay = prevNyTradingDayString(baseDay);
+        const { ytd: ytdBaseDay } = getPeriodBaseDates(baseDay);
 
-        // Check only for missing Ref EOD (Critical for Day PnL)
+        const missingSymbols: string[] = [];
+        const missingYtdSymbols: string[] = [];
+
+        const { getBackoffStatus } = require('@/lib/data/official-close-repo');
+
+        // 1. Check for missing Ref EOD (Critical for Day PnL)
         baseHoldings.forEach((h: any) => {
             const sym = normalizeSymbolClient(h.symbol);
             if (h.netQty !== 0 && !hiddenFlags[sym]) {
                 const stat = refEodMap[sym]?.status;
                 if (!stat || stat === 'missing' || stat === 'error') {
-                    // [FIX] loop prevention
-                    if (!attemptedRefFixesRef.current.has(sym)) {
+                    const key = `${refDay}_${sym}`;
+                    const backoff = getBackoffStatus(key);
+                    if (backoff.allowed) {
                         missingSymbols.push(sym);
+                    } else if (process.env.NODE_ENV === 'development') {
+                        console.info(`[AutoHeal-Backoff] Skip ${key}: Wait ${backoff.waitFormatted}`);
+                    }
+                }
+
+                // 2. Check for missing YTD Base (Critical for Yearly PnL)
+                const ytdStat = ytdBaseEodMap[sym]?.status;
+                if (!ytdStat || ytdStat === 'missing' || ytdStat === 'error') {
+                    const key = `${ytdBaseDay}_${sym}`;
+                    const backoff = getBackoffStatus(key);
+                    if (backoff.allowed) {
+                        missingYtdSymbols.push(sym);
+                    } else if (process.env.NODE_ENV === 'development') {
+                        console.info(`[AutoHeal-Backoff] Skip ${key}: Wait ${backoff.waitFormatted}`);
                     }
                 }
             }
         });
 
+        // Trigger Ref Day Backfill
         if (missingSymbols.length > 0) {
             console.warn(`[AutoHeal] Found ${missingSymbols.length} missing ref prices for ${refDay}. Attempting backfill...`, missingSymbols);
-
-            // [FIX] Mark as attempted immediately
-            missingSymbols.forEach(s => attemptedRefFixesRef.current.add(s));
-
             setIsAutoHealing(true);
-            const candidates = missingSymbols.slice(0, 5); // Limit batch size for direct execution
-
+            const candidates = missingSymbols.slice(0, 5);
             triggerManualBackfill(refDay, candidates, true)
-                .then(() => {
-                    console.log("[AutoHeal] Backfill complete. Refreshing data...");
-                    // Force re-fetch of EOD data to update UI
-                    setLastBackfillTs(Date.now());
-                })
+                .then(() => setLastBackfillTs(Date.now()))
                 .catch(err => console.warn("[AutoHeal] Failed:", err))
                 .finally(() => setIsAutoHealing(false));
         }
-    }, [eodLoading, baseHoldings, refEodMap, effectiveTodayNy, hiddenFlags]);
+
+        // Trigger YTD Base Backfill
+        if (missingYtdSymbols.length > 0) {
+            console.warn(`[AutoHeal] Found ${missingYtdSymbols.length} missing YTD START prices for ${ytdBaseDay}. Attempting backfill...`, missingYtdSymbols);
+            setIsAutoHealing(true);
+            const candidates = missingYtdSymbols.slice(0, 5);
+            triggerManualBackfill(ytdBaseDay, candidates, true)
+                .then(() => setLastBackfillTs(Date.now()))
+                .catch(err => console.warn("[AutoHeal] YTD Failed:", err))
+                .finally(() => setIsAutoHealing(false));
+        }
+    }, [eodLoading, baseHoldings, refEodMap, ytdBaseEodMap, effectiveTodayNy, hiddenFlags]);
 
     const { splits: activeSplits } = useCorporateActions();
 
@@ -784,10 +823,9 @@ export function HoldingsProvider({ children }: { children: React.ReactNode }) {
 
     // [NEW] Clear backfill history on manual refresh to allow retries
     useEffect(() => {
-        if (attemptedBackfillsRef.current.size > 0 || attemptedRefFixesRef.current.size > 0) {
-            console.log(`[AutoHeal] Manual refresh (v${refreshVersion}) detected. Clearing attempted backfills.`);
+        if (attemptedBackfillsRef.current.size > 0) {
+            console.log(`[AutoHeal] Manual refresh (v${refreshVersion}) detected. Clearing attempted calendar backfills.`);
             attemptedBackfillsRef.current.clear();
-            attemptedRefFixesRef.current.clear();
         }
     }, [refreshVersion]);
 
@@ -1268,6 +1306,55 @@ export function HoldingsProvider({ children }: { children: React.ReactNode }) {
         if (typeof window !== 'undefined') (window as any).__AUDIT_CTX__ = { transactions, allTransactions };
     }, [transactions, allTransactions]);
 
+
+    // [DEBUG] Deep Audit: Force Fetch Snapshot & Transactions on Refresh
+    useEffect(() => {
+        if (!effectiveUid) return;
+        // Only trigger on explicit refresh or initial load
+        if (refreshVersion === 0 && typeof window !== 'undefined' && !window.location.search.includes('debug')) return;
+
+        const runDeepAudit = async () => {
+            console.groupCollapsed('[HoldingsProvider][DeepAudit] Starting Server Verification...');
+            try {
+                // 1. Snapshot Verification
+                const snapsRef = collection(firestore, 'users', effectiveUid, 'snapshots');
+                const snapQ = query(snapsRef, orderBy('date', 'desc'), limit(1));
+                const snapRes = await getDocsFromServer(snapQ);
+
+                if (snapRes.empty) {
+                    console.log('Snapshot: EMPTY');
+                } else {
+                    const d = snapRes.docs[0].data();
+                    const hasABNB = d.inventory && (
+                        (Array.isArray(d.inventory) && d.inventory.some((i: any) => i.symbol === 'ABNB')) ||
+                        (!Array.isArray(d.inventory) && d.inventory['ABNB'])
+                    );
+                    console.log('Snapshot Latest:', {
+                        id: snapRes.docs[0].id,
+                        date: d.date,
+                        hasABNB
+                    });
+                }
+
+                // 2. Transaction Verification
+                const txsRef = collection(firestore, 'users', effectiveUid, 'transactions');
+                const txQ = query(txsRef, where('symbol', '==', 'ABNB')); // Check ABNB specifically
+                const txRes = await getDocsFromServer(txQ);
+
+                console.log(`Transaction Check (ABNB): Found ${txRes.size} docs`);
+                txRes.forEach(doc => {
+                    const d = doc.data();
+                    console.log(` - Tx ${doc.id}: ${d.transactionTimestamp} / ${d.date} | ${d.side} ${d.qty}@${d.price}`);
+                });
+
+            } catch (e) {
+                console.error('[DeepAudit] Failed', e);
+            }
+            console.groupEnd();
+        };
+        runDeepAudit();
+    }, [effectiveUid, refreshVersion, firestore]);
+
     // [NEW] Rebuild History & Snapshots
     const [isRebuilding, setIsRebuilding] = useState(false);
 
@@ -1334,7 +1421,6 @@ export function HoldingsProvider({ children }: { children: React.ReactNode }) {
                     // Best to just manually re-call fetchSnapshot logic or force refresh.
                     // The 'latestSnapshot' effect depends on 'effectiveUid'.
                     // We can force it by momentarily clearing it or just re-running the query.
-
                     // Let's just manually re-fetch here to be fast.
                     try {
                         const snapsRef = collection(firestore, 'users', effectiveUid, 'snapshots');
@@ -1356,13 +1442,13 @@ export function HoldingsProvider({ children }: { children: React.ReactNode }) {
             console.error(e);
             setIsRebuilding(false);
         }
-    }, [effectiveUid, allTransactions, firestore]);
+    }, [effectiveUid, allTransactions, firestore, eodLoading]);
 
     const value = useMemo(() => ({
         rows, summary, historicalPnl, dailyPnlList, dailyPnlResults, pnlEvents: contextPnlEvents, auditTrail: structuralData.auditTrail,
         fullEodMap, ytdBaseEodMap, activeSplits, loading: txLoading || eodLoading || isM14Calculating || isRebuilding,
         transactions, isCalculating: txLoading || eodLoading || isM14Calculating || isRebuilding,
-        refreshData: () => setRefreshVersion(v => v + 1),
+        refreshData,
         analysisYear, setAnalysisYear, showHidden, setShowHidden, toggleHidden,
         effectiveUid, availableYears, allTransactions,
         // [NEW] Expose snapshot meta

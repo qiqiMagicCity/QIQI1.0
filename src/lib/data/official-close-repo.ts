@@ -6,7 +6,10 @@ import {
   where,
   documentId,
   doc,
+  getDoc,
   setDoc,
+  addDoc,
+  serverTimestamp,
   Timestamp
 } from 'firebase/firestore';
 import { getFunctions, httpsCallable } from 'firebase/functions';
@@ -27,6 +30,55 @@ export interface OfficialCloseResult {
   quality?: string; // [NEW] Original status quality tag (e.g., 'ok', 'no_liquidity')
   meta?: Record<string, any>; // [NEW] Metadata for signals like fetch_incomplete
 }
+
+// --- [C1 & C2] Persistent Backoff Manager ---
+const BACKOFF_STORAGE_KEY = 'lt777_backfill_backoff';
+
+interface BackoffEntry {
+  lastAttempt: number;
+  failCount: number;
+  nextAllowed: number;
+}
+
+const getBackoffMap = (): Record<string, BackoffEntry> => {
+  if (typeof window === 'undefined') return {};
+  try {
+    return JSON.parse(localStorage.getItem(BACKOFF_STORAGE_KEY) || '{}');
+  } catch { return {}; }
+};
+
+const saveBackoff = (key: string, isSuccess: boolean) => {
+  if (typeof window === 'undefined') return;
+  const map = getBackoffMap();
+  const entry = map[key] || { lastAttempt: 0, failCount: 0, nextAllowed: 0 };
+
+  entry.lastAttempt = Date.now();
+  if (isSuccess) {
+    delete map[key];
+  } else {
+    entry.failCount += 1;
+    // Exponential Backoff: 1m, 2m, 4m, 8m... Max 1 hour.
+    const baseDelay = 60 * 1000;
+    const backoff = Math.min(baseDelay * Math.pow(2, entry.failCount - 1), 60 * 60 * 1000);
+    const jitter = Math.random() * 30 * 1000; // 30s jitter
+    entry.nextAllowed = Date.now() + backoff + jitter;
+    map[key] = entry;
+  }
+  localStorage.setItem(BACKOFF_STORAGE_KEY, JSON.stringify(map));
+};
+
+export const getBackoffStatus = (key: string) => {
+  const map = getBackoffMap();
+  const entry = map[key];
+  if (!entry) return { allowed: true };
+  const wait = entry.nextAllowed - Date.now();
+  return {
+    allowed: wait <= 0,
+    waitFormatted: wait > 0 ? `${Math.ceil(wait / 60000)}m` : '0m',
+    failCount: entry.failCount,
+    nextAllowed: entry.nextAllowed
+  };
+};
 
 // --- 全局状态：在途请求去重集合 ---
 const pendingBackfills = new Set<string>();
@@ -126,7 +178,8 @@ export async function getSymbolRevisions(symbols: string[]): Promise<Record<stri
  */
 export async function getOfficialCloses(
   tradingDate: string,
-  symbols: string[]
+  symbols: string[],
+  forceServer: boolean = false
 ): Promise<Record<string, OfficialCloseResult>> {
 
   if (!symbols || symbols.length === 0) return {};
@@ -137,9 +190,9 @@ export async function getOfficialCloses(
   // A. Fetch current revisions (The Source of Truth for validity)
   const revisions = await getSymbolRevisions(symbols);
 
-  // B. Check IndexedDB first
+  // B. Check IndexedDB first (Only if not forcing server)
   const keys = symbols.map(s => `${tradingDate}_${s}`);
-  const idbResults = await EodCache.getMany(keys);
+  const idbResults = !forceServer ? await EodCache.getMany(keys) : {};
 
   const symbolsToFetch: string[] = [];
   const symbolsToFlushCache: Set<string> = new Set();
@@ -154,7 +207,7 @@ export async function getOfficialCloses(
 
     let validCacheFound = false;
 
-    const isValid = cached && (cached.status === 'ok' || cached.status === 'plan_limited' || cached.status === 'no_liquidity');
+    const isValid = !forceServer && cached && (cached.status === 'ok' || cached.status === 'plan_limited' || cached.status === 'no_liquidity');
     if (isValid) {
       const cachedRev = cached.rev || 0;
       if (cachedRev === targetRev) {
@@ -197,7 +250,7 @@ export async function getOfficialCloses(
     return results;
   }
 
-  // E. Fetch from Firestore (Only missing ones)
+  // E. Fetch from Firestore (Only missing ones or all if forced)
   try {
     const colRef = collection(firestore, 'officialCloses');
     const chunks: string[][] = [];
@@ -208,10 +261,12 @@ export async function getOfficialCloses(
       chunks.push(fetchIds.slice(i, i + chunkSize));
     }
 
+    const { getDocsFromServer } = await import('firebase/firestore');
+
     const snapshots = await Promise.all(
       chunks.map(chunk => {
         const q = query(colRef, where(documentId(), 'in', chunk));
-        return getDocs(q);
+        return forceServer ? getDocsFromServer(q) : getDocs(q);
       })
     );
 
@@ -718,33 +773,65 @@ export async function triggerManualBackfill(
     return; // Fail safe
   }
 
-  const { firebaseApp } = initializeFirebase();
+  const { firebaseApp, firestore } = initializeFirebase();
   const functions = getFunctions(firebaseApp, 'us-central1');
   const requestBackfillFn = httpsCallable(functions, 'requestBackfillEod');
 
-  console.log(`[Repo] Manual Backfill Triggered for ${date}, symbols: ${symbols.join(', ')}`);
-
-  // Check pending deduplication
+  // Check pending deduplication & Backoff
   const actualSymbols: string[] = [];
   symbols.forEach(s => {
     const key = `${date}_${s}`;
-    if (!pendingBackfills.has(key)) {
-      pendingBackfills.add(key);
-      actualSymbols.push(s);
+    const backoff = getBackoffStatus(key);
+
+    if (pendingBackfills.has(key)) {
+      if (process.env.NODE_ENV === 'development') console.info(`[Repo] Skip ${key}: Already pending.`);
+      return;
     }
+
+    if (!backoff.allowed) {
+      if (process.env.NODE_ENV === 'development') {
+        console.warn(`[Repo-Backoff] Skip ${key}: Cooling down. Wait ${backoff.waitFormatted}. Fails: ${backoff.failCount}`);
+      }
+      return;
+    }
+
+    pendingBackfills.add(key);
+    actualSymbols.push(s);
   });
 
-  if (actualSymbols.length === 0) {
-    console.log(`[Repo] All symbols for ${date} are already pending backfill.`);
-    return;
-  }
+  if (actualSymbols.length === 0) return;
+
+  console.log(`[Repo] Manual Backfill Triggered for ${date}, symbols: ${actualSymbols.join(', ')}`);
 
   try {
+    // [C3] Logging Rollback History before trigger
+    const logBatch = actualSymbols.map(async (s) => {
+      const docId = `${date}_${s}`;
+      const docRef = doc(firestore, 'officialCloses', docId);
+      const snap = await getDoc(docRef);
+
+      const beforeState = snap.exists() ? snap.data() : null;
+
+      // Write to backfill_history
+      await addDoc(collection(firestore, 'backfill_history'), {
+        key: docId,
+        symbol: s,
+        date,
+        before: beforeState,
+        trigger: 'auto-heal-client',
+        ts: serverTimestamp(),
+        reason: 'Missing/Error EOD detected'
+      });
+    });
+
+    await Promise.all(logBatch);
+
     await requestBackfillFn({ date, symbols: actualSymbols });
 
-    // [FIX] Invalidate Client Cache immediately so next fetch logic sees the "hole" and re-queries Firestore
-    // Using clearSymbols is nuclear but safe: it forces a fresh fetch for the *entire* symbol history,
-    // ensuring we don't have fragmented or stale state (e.g. rev mismatches).
+    // Success: Clear backoff for these keys
+    actualSymbols.forEach(s => saveBackoff(`${date}_${s}`, true));
+
+    // [FIX] Invalidate Client Cache
     await EodCache.clearSymbols(actualSymbols);
 
     // Also clear memory cache
@@ -755,14 +842,17 @@ export async function triggerManualBackfill(
         }
       }
     }
-    console.log(`[Repo] Invalidated ALL cache for symbols: ${actualSymbols.join(', ')}`);
 
     setTimeout(() => {
       actualSymbols.forEach(s => pendingBackfills.delete(`${date}_${s}`));
     }, 5000);
-  } catch (err) {
+  } catch (err: any) {
     console.error(`[Repo] Manual Backfill failed for ${date}`, err);
-    actualSymbols.forEach(s => pendingBackfills.delete(`${date}_${s}`));
+    // Failure: Save backoff with incremented count
+    actualSymbols.forEach(s => {
+      saveBackoff(`${date}_${s}`, false);
+      pendingBackfills.delete(`${date}_${s}`);
+    });
     throw err;
   }
 }

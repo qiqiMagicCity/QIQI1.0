@@ -5,6 +5,7 @@ import { FirebaseApp } from 'firebase/app';
 import { Firestore } from 'firebase/firestore';
 import { Auth, User, onIdTokenChanged, getIdTokenResult } from 'firebase/auth';
 import { FirebaseErrorListener } from '@/components/FirebaseErrorListener'
+import { toNyHmsString } from '@/lib/ny-time';
 
 interface FirebaseProviderProps {
   children: ReactNode;
@@ -182,7 +183,7 @@ export const FirebaseProvider: React.FC<FirebaseProviderProps> = ({
   // Effect to handle slow auth (Guardrail 2) & Safety Valve
   useEffect(() => {
     const startTime = Date.now();
-    console.log(`[AuthAudit] 🕒 Timer started at ${new Date(startTime).toLocaleTimeString()}`);
+    console.log(`[AuthAudit] 🕒 Timer started at ${toNyHmsString(startTime)}`);
 
     // Level 1: Warn user after 3s (Interaction available)
     const warnTimer = setTimeout(() => {

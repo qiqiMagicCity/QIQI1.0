@@ -1,6 +1,6 @@
 import { Tx } from '@/hooks/use-user-transactions';
 import { OfficialCloseResult } from '@/lib/data/official-close-repo';
-import { toNyCalendarDayString, prevNyTradingDayString, isNyTradingDay, getMarketClosedReason, getEarlyCloseReason } from '@/lib/ny-time';
+import { toNyCalendarDayString, toNyHmsString, prevNyTradingDayString, isNyTradingDay, getMarketClosedReason, getEarlyCloseReason } from '@/lib/ny-time';
 import { normalizeSymbolClient } from '@/lib/utils';
 import { calcGlobalFifo } from './calc-m4-m5-2-global-fifo';
 import { STOCK_SPLITS, getRestoredHistoricalPrice } from '@/lib/holdings/stock-splits';
@@ -71,7 +71,7 @@ export function calcM14DailyCalendar(
 ): Record<string, DailyPnlResult> {
     const todayNy = toNyCalendarDayString(new Date());
     const now = new Date();
-    const nyTimeStr = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/New_York', hour: '2-digit', minute: '2-digit', hour12: false }).format(now);
+    const nyTimeStr = toNyHmsString(now).substring(0, 5); // Use library helper to get HH:mm
     const [hh, mm] = nyTimeStr.split(':').map(Number);
     const hhmm = hh * 100 + mm;
     const isBeforeOpen = hhmm < 930;

@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useHoldings } from "@/hooks/use-holdings";
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip, Sector } from "recharts";
+import { Badge } from "@/components/ui/badge";
 import { CumulativePnlChart } from "./cumulative-pnl-chart";
 import { DailyPnlChart } from "./daily-pnl-chart";
 import { DailyPnlCalendar } from "./daily-pnl-calendar";
@@ -163,7 +164,8 @@ export function StockDetails() {
     setAnalysisYear,
     ytdBaseEodMap,
     activeSplits,
-    availableYears: providerYears // [NEW] From Provider
+    availableYears: providerYears, // [NEW] From Provider
+    auditTrail // [FIX] Add missing auditTrail
   } = useHoldings();
 
   // const { data: transactions } = useUserTransactions(user?.uid); // [REMOVED] Raw fetch ignores Time Travel
@@ -192,8 +194,7 @@ export function StockDetails() {
     const targetYear = analysisYear || currentYear;
     const isGlobal = leaderboardScope === 'global';
 
-    // [FIX] C4: Use strongly typed context (removed 'as any')
-    const { auditTrail, historicalPnlMetrics } = useHoldings(); // Cast for now if interface not fully propagated in IDE
+
 
     const pnlMap = new Map<string, number>();
 
@@ -209,105 +210,74 @@ export function StockDetails() {
     }
 
     // --- 2. Yearly View (Mark-to-Market Logic) ---
-    // Formula: PnL_Year = Realized_Year + Unrealized_End - Unrealized_Start
+    // Formula: Yearly = Realized_thisYear + (Unrealized_Current - Unrealized_Start)
 
     // A. Realized PnL (Sum of auditTrail in Target Year)
     const targetYearStr = String(targetYear);
-    let yearlyInvalidCount = 0;
+    const pnlStatusMap = new Map<string, 'ok' | 'missing_eod'>();
 
     if (auditTrail) {
       auditTrail.forEach((e) => {
-        const d = e.closeDate; // AuditEvent uses closeDate
+        const d = e.closeDate;
         if (d && d.startsWith(targetYearStr)) {
-          // [FIX] C2: Explicit finite check
           if (Number.isFinite(e.pnl)) {
             pnlMap.set(e.symbol, (pnlMap.get(e.symbol) || 0) + e.pnl);
-          } else {
-            yearlyInvalidCount++;
           }
         }
       });
     }
 
-    if (yearlyInvalidCount > 0) {
-      console.warn(`[StockDetails] Skipped ${yearlyInvalidCount} invalid PnL entries for Yearly View ${targetYear}`);
-    }
-
-
     // B. Unrealized End (From Current/Analysis Holdings)
-    // Note: 'holdings' in context is already time-traveled to end of analysis year
     if (holdings) {
       holdings.forEach(h => {
-        const val = pnlMap.get(h.symbol) || 0;
-        pnlMap.set(h.symbol, val + (h.pnl || 0));
+        pnlMap.set(h.symbol, (pnlMap.get(h.symbol) || 0) + (h.pnl || 0));
+        // Also check if current price is missing (though holdings usually have it)
+        if (h.last == null || !Number.isFinite(h.last)) {
+          pnlStatusMap.set(h.symbol, 'missing_eod');
+        }
       });
     }
 
     // C. Unrealized Start (Subtract Start of Year Unrealized)
-    // We need to calculate what the unrealized PnL was on Jan 1st (Start of Year).
+    const startOfAnalysisYearDate = String(targetYear) + '-01-01';
+    const { ytd: ytdStartDate } = getPeriodStartDates(startOfAnalysisYearDate);
+    const ytdBaseDate = prevNyTradingDayString(ytdStartDate);
 
-    // c1. Determine "Start of Year" Date (Last trading day BEFORE Jan 1 technically, or Jan 1 open)
-    // The ytdBaseEodMap corresponds to getPeriodBaseDates(today).ytd
-    // Which is "End of Last Year". This is exactly what we want for "Start of This Year Values".
-
-    // We need to rebuild holdings specifically at that date.
-    // 'transactions' are filtered to end of year. We need to filter further to start of year.
-    // Actually buildHoldingsSnapshot accepts a 'targetDate'.
-    // We need the date string corresponding to ytdBaseEodMap.
-    // Since we don't have the explicit date string from context, recover it.
-    // Wait, ytdBaseEodMap items don't have date.
-    // But we know it represents "Start of Analysis Year".
-    // Let's deduce date: getPeriodBaseDates(effectiveDate).ytd
-
-    // Wait, if analysisYear != currentYear, ytdBaseEodMap in context might be for CURRENT year?
-    // Let's check HoldingsProvider again.
-    // effectiveTodayNy depends on analysisYear.
-    // fetchEod uses effectiveTodayNy.
-    // So ytdBaseEodMap IS correct for analysisYear (i.e. Dec 31 of Prev Year).
-
-    // Recover safe start date
-    // Effectively: prevNyTradingDayString(targetYear + "-01-01")?
-    // Or just use the targetDate logic.
-    // Let's use `targetYear-01-01` as reference.
-    // getPeriodBaseDates(`${targetYear}-01-01`)? No.
-    // The base date for YTD is usually PrevYear-12-31.
-
-    const startOfAnalysisYearDate = String(targetYear) + '-01-01'; // Nominal
-    const { ytd: ytdStartDate } = getPeriodStartDates(startOfAnalysisYearDate); // Returns targetYear-01-01
-    const ytdBaseDate = prevNyTradingDayString(ytdStartDate); // Returns PrevYear-12-31 (or similar)
-
-    // c2. Snapshot at Start (using transactions filtered by buildHoldingsSnapshot internal logic)
     const { holdings: startHoldings } = buildHoldingsSnapshot(transactions || [], ytdBaseDate, activeSplits);
 
-    // c3. Calculate Unrealized and Subtract
     startHoldings.forEach(h => {
       const symbol = h.symbol;
-      // Lookup price in ytdBaseEodMap
-      const eod = ytdBaseEodMap && ytdBaseEodMap[symbol] ? ytdBaseEodMap[symbol] : null; // Context uses raw symbol keys usually? No context rekeys... 
-      // Wait, Context EOD maps are Record<NormalizedSymbol, Result>.
-      // buildHoldingsSnapshot returns normalized UpperCase symbols.
-      // Should match.
+      const eod = ytdBaseEodMap && ytdBaseEodMap[symbol] ? ytdBaseEodMap[symbol] : null;
 
       let price = 0;
-      if (eod && eod.status === 'ok' && eod.close != null) {
-        // Restore Price!
-        price = getRestoredHistoricalPrice(eod.close, symbol, ytdBaseDate, activeSplits);
+      const isEodValid = eod && (eod.status === 'ok' || eod.status === 'plan_limited' || eod.status === 'no_liquidity') && eod.close != null && eod.close > 0;
+
+      if (isEodValid) {
+        price = getRestoredHistoricalPrice(eod.close!, symbol, ytdBaseDate, activeSplits);
+      } else if (h.netQty !== 0) {
+        // [C1 & C2] Missing EOD for held position -> N/A
+        pnlStatusMap.set(symbol, 'missing_eod');
+        if (process.env.NODE_ENV === 'development') {
+          console.warn(`[Yearly-N/A] ${symbol} 缺失年初 EOD (${ytdBaseDate}), 来源: ytdBaseEodMap, 已触发回填`);
+        }
       }
 
       if (price > 0 && h.netQty !== 0) {
         const mv = h.netQty * price * h.multiplier;
-        const cost = h.costBasis; // Cost Basis at Start
+        const cost = h.costBasis;
         const unrealizedStart = mv - cost;
-
-        // Subtract from Total
-        const val = pnlMap.get(symbol) || 0;
-        pnlMap.set(symbol, val - unrealizedStart);
+        pnlMap.set(symbol, (pnlMap.get(symbol) || 0) - unrealizedStart);
       }
     });
 
-    return Array.from(pnlMap.entries()).map(([symbol, pnl]) => ({ symbol, pnl }));
-
-  }, [historicalPnl, holdings, pnlEvents, leaderboardScope, analysisYear, transactions, ytdBaseEodMap, activeSplits]);
+    return Array.from(pnlMap.entries()).map(([symbol, pnl]) => {
+      const isMissing = pnlStatusMap.get(symbol) === 'missing_eod';
+      return {
+        symbol,
+        pnl: isMissing ? NaN : pnl // [C2] Use NaN to signify N/A
+      };
+    });
+  }, [historicalPnl, holdings, pnlEvents, leaderboardScope, analysisYear, transactions, ytdBaseEodMap, activeSplits, auditTrail]);
 
   // --- Aggregation Logic ---
   // [PERFORMANCE] Memoize the input data for calculateTransactionStats to prevent unnecessary re-runs
@@ -717,16 +687,8 @@ export function StockDetails() {
             <CardContent>
               <div className="space-y-2">
                 {(() => {
-                  const winners = leaderboardData.filter(h => h.pnl > 0).sort((a, b) => b.pnl - a.pnl);
-                  // [FIX] C1, C2, C3: Diagnostic for truncation (Natural Scarcity OR Filtering)
-                  if (process.env.NODE_ENV === 'development' && winners.length < 10) {
-                    const candidates = leaderboardData.length;
-                    const winCount = winners.length;
-                    const filtered = candidates - winCount;
-                    const scope = leaderboardScope === 'global' ? 'Global/Lifetime' : `Yearly(${analysisYear || new Date().getFullYear()})`;
-
-                    console.info(`[Leaderboard] Winners Top10 truncated. Candidates: ${candidates}, Winners: ${winCount}, Filtered: ${filtered}, Scope: ${scope}`);
-                  }
+                  // [C2] Exclude NaN (N/A) from Top 10 using strict Number.isFinite
+                  const winners = leaderboardData.filter(h => Number.isFinite(h.pnl) && h.pnl > 0).sort((a, b) => b.pnl - a.pnl);
                   return winners.slice(0, 10).map((h) => (
                     <div key={h.symbol} className="flex justify-between items-center text-sm border-b border-border/50 last:border-0 pb-2 last:pb-0">
                       <span className="font-medium">{h.symbol}</span>
@@ -736,7 +698,7 @@ export function StockDetails() {
                     </div>
                   ));
                 })()}
-                {leaderboardData.filter(h => h.pnl > 0).length === 0 && (
+                {leaderboardData.filter(h => Number.isFinite(h.pnl) && h.pnl > 0).length === 0 && (
                   <p className="text-muted-foreground text-center py-4">暂无盈利记录</p>
                 )}
               </div>
@@ -756,8 +718,8 @@ export function StockDetails() {
             <CardContent>
               <div className="space-y-2">
                 {leaderboardData
-                  .filter(h => h.pnl < 0)
-                  .sort((a, b) => a.pnl - b.pnl) // Ascending for negative numbers (biggest loss first)
+                  .filter(h => Number.isFinite(h.pnl) && h.pnl < 0) // [C2] Exclude NaN
+                  .sort((a, b) => a.pnl - b.pnl)
                   .slice(0, 10)
                   .map((h) => (
                     <div key={h.symbol} className="flex justify-between items-center text-sm border-b border-border/50 last:border-0 pb-2 last:pb-0">
@@ -767,13 +729,34 @@ export function StockDetails() {
                       </span>
                     </div>
                   ))}
-                {leaderboardData.filter(h => h.pnl < 0).length === 0 && (
+                {leaderboardData.filter(h => Number.isFinite(h.pnl) && h.pnl < 0).length === 0 && (
                   <p className="text-muted-foreground text-center py-4">暂无亏损记录</p>
                 )}
               </div>
             </CardContent>
           </Card>
         </div>
+
+        {/* [NEW] N/A Symbols Section (Rule C2) */}
+        {leaderboardScope === 'yearly' && leaderboardData.some(h => !Number.isFinite(h.pnl)) && (
+          <Card className="mt-6 border-amber-500/30 bg-amber-500/5">
+            <CardHeader className="py-3">
+              <CardTitle className="text-amber-500 text-sm flex items-center gap-2">
+                <span>数据不可用 (N/A)</span>
+                <span className="text-[10px] font-normal opacity-70">由于缺失年初 EOD 基准价，以下标的暂时无法计算年度盈亏</span>
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="py-2">
+              <div className="flex flex-wrap gap-2">
+                {leaderboardData.filter(h => !Number.isFinite(h.pnl)).map(h => (
+                  <Badge key={h.symbol} variant="outline" className="border-amber-500/50 text-amber-500 bg-amber-500/10">
+                    {h.symbol}: N/A (缺失EOD)
+                  </Badge>
+                ))}
+              </div>
+            </CardContent>
+          </Card>
+        )}
       </section>
 
       <section id="daily-pnl">

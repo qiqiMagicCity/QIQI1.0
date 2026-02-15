@@ -1,7 +1,7 @@
 "use client"
 
 import { Button } from "@/components/ui/button";
-import { Bell, Search, Settings, LifeBuoy, LogOut, ShieldAlert } from "lucide-react";
+import { Bell, Search, Settings, LifeBuoy, LogOut, ShieldAlert, RotateCw } from "lucide-react";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -20,11 +20,24 @@ import { NotificationBell } from "./notification-bell";
 import { CommunityLinks } from "./community-links";
 import { SnapshotBackfillButton } from "@/components/debug/snapshot-backfill-button";
 import { SystemStatusBanner } from "@/components/dashboard/system-status-banner";
+import { useHoldings } from "@/hooks/use-holdings";
+import { useToast } from "@/hooks/use-toast";
 
 export function DashboardHeader() {
   const { user, isAdmin } = useUser();
   const auth = useAuth();
   const [showAdminDialog, setShowAdminDialog] = useState(false);
+  const { refreshData } = useHoldings();
+  const { toast } = useToast();
+
+  const handleRefresh = () => {
+    refreshData();
+    toast({
+      title: "正在同步数据...",
+      description: "正在强制从服务器拉取最新快照并重新计算。",
+      duration: 3000,
+    });
+  };
 
   const handleSignOut = async () => {
     try {
@@ -44,6 +57,15 @@ export function DashboardHeader() {
     <header className="sticky top-0 z-30 flex h-[40px] items-center justify-between gap-4 border-b-2 border-primary bg-background/50 backdrop-blur-sm px-4 md:px-6">
       {/* 增强了 Header 的样式，更符合 Premium Design: backdrop-blur-xl, shadow-sm, h-46px */}
       <div className="flex items-center gap-4">
+        <Button
+          variant="ghost"
+          size="icon"
+          className="h-8 w-8 text-muted-foreground hover:text-primary hover:bg-primary/10"
+          onClick={handleRefresh}
+          title="强制刷新数据 (Force Refresh)"
+        >
+          <RotateCw className="h-4 w-4" />
+        </Button>
         <WorldClocks />
       </div>
 

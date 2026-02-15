@@ -953,7 +953,7 @@ function HoldingsOverview() {
         const sortedIntervals = [...win.__HOLDINGS_STABILITY__.intervals].sort((a: number, b: number) => a - b);
         const medianInterval = sortedIntervals[Math.floor(sortedIntervals.length / 2)] || 0;
 
-        console.log(`[RankingUpdate] 🔄 Sequence Changed | ${new Date().toLocaleTimeString()} | Old: ${oldHash} | New: ${newHash} | Changes: ${win.__HOLDINGS_STABILITY__.changes} | MedianInterval: ${medianInterval}ms`);
+        console.log(`[RankingUpdate] 🔄 Sequence Changed | ${toNyHmsString(now)} | Old: ${oldHash} | New: ${newHash} | Changes: ${win.__HOLDINGS_STABILITY__.changes} | MedianInterval: ${medianInterval}ms`);
 
         setRenderedOrder(idealKeys);
         prevOrderRef.current = newOrderStr;
